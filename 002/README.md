@@ -63,7 +63,7 @@ Your environment is ready for training.
 ### Train an Agent
 
 ```bash
-# Basic training (2000 episodes, ~1 hour with vector mode)
+# Basic training (2000 episodes, ~1.5-2 hours with snapshot mode)
 python train.py
 
 # Quick test (25 episodes, ~2 minutes)
@@ -272,7 +272,8 @@ CarRacing is more challenging than Atari games like Breakout. With snapshot mode
 .
 ├── CLAUDE.md                     # Context for Claude Code
 ├── README.md                     # This file
-├── OPTIMIZATION_SUMMARY.md       # Vector mode optimization details
+├── STATE_MODES.md                # State modes documentation (snapshot/vector/visual)
+├── LOGGING_GUIDE.md              # Training logging guide
 ├── requirements.txt              # Python dependencies
 ├── .gitignore                   # Git ignore rules
 │
@@ -286,8 +287,8 @@ CarRacing is more challenging than Atari games like Breakout. With snapshot mode
 ├── watch_random_agent.py        # Visualize random agent (baseline)
 ├── inspect_checkpoint.py        # Inspect saved models
 ├── test_setup.py                # Verify installation
-├── test_vector_mode.py          # Quick vector mode test (~30s)
-├── benchmark_state_modes.py     # Comprehensive comparison (~5min)
+├── benchmark_state_modes.py     # Comprehensive state modes comparison
+├── test_stationary_*.py         # Tests for stationary car termination
 │
 ├── checkpoints/                 # Saved model checkpoints
 └── logs/                        # Training logs and plots
@@ -313,18 +314,19 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
   - Includes time penalties (-0.1 per frame)
   - Large negative rewards for going off-track (can be clipped)
 
-## Recent Improvements (2025-11-03)
+## Recent Improvements (2025-11-04)
 
-### ⚡ Vector State Mode Optimization (NEW!)
-- **Changed from**: Always rendering pygame graphics every step
-- **Changed to**: Dual state modes - vector (training) and visual (watching)
-- **Performance**: **6x faster training** (313 vs 57 steps/sec)
+### ⚡ Snapshot State Mode (RECOMMENDED!)
+- **Changed from**: Visual mode (slow, pygame rendering) or Vector mode (fast but limited info)
+- **Changed to**: Snapshot mode - fast training with track geometry and lookahead
+- **Performance**: **3-5x faster than visual** (150-200 vs 57 steps/sec)
 - **Benefits**:
-  - 1M steps: 0.9 hours vs 4.9 hours
-  - Significantly lower memory usage
-  - Still allows full visual rendering when watching
-  - Default for training, automatic for watching
-- **See**: `OPTIMIZATION_SUMMARY.md` for detailed technical explanation
+  - 1M steps: 1.5-2 hours vs 4.9 hours (visual mode)
+  - Provides track geometry and 10 lookahead waypoints (unlike vector mode)
+  - Agent learns proper racing behavior
+  - Low memory usage (36 values vs 36,864 for visual)
+  - Default for training, visual mode automatic for watching
+- **See**: `STATE_MODES.md` for comprehensive comparison
 - **Test**: `python benchmark_state_modes.py --episodes 50`
 
 ### Native 96×96 Resolution
@@ -340,14 +342,15 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 
 ## Tips for Better Performance
 
-1. **Use Vector Mode**: Default for training (6x faster than visual mode)
+1. **Use Snapshot Mode**: Default for training (3-5x faster than visual, with track geometry)
 2. **Train Longer**: CarRacing requires 1M-2M+ steps for good performance
 3. **Adjust Discretization**: Experiment with finer steering bins (5 instead of 3)
 4. **Check Epsilon**: Use `inspect_checkpoint.py` to verify epsilon is decaying
 5. **Resume Training**: Don't start from scratch if epsilon is still high
 6. **GPU Acceleration**: Training on Apple Silicon (MPS) or CUDA is much faster
 7. **Monitor Evaluation**: Progress output now shows each evaluation episode in real-time
-8. **Benchmark First**: Run `benchmark_state_modes.py` to verify optimization is working
+8. **Benchmark Modes**: Run `benchmark_state_modes.py` to compare all three state modes
+9. **Read STATE_MODES.md**: Comprehensive guide to snapshot/vector/visual modes
 
 ## Troubleshooting
 
@@ -360,11 +363,11 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 - **Fix**: Train for at least 1M steps, consider finer action discretization
 
 ### "Training is very slow"
-- **Cause 1**: Using visual mode instead of vector mode
-- **Fix 1**: Ensure `--state-mode vector` (or omit, it's the default)
+- **Cause 1**: Using visual mode instead of snapshot mode
+- **Fix 1**: Ensure `--state-mode snapshot` (or omit, it's the default)
 - **Cause 2**: Running on CPU instead of GPU
 - **Fix 2**: Verify MPS/CUDA is available with `test_setup.py`
-- **Benchmark**: Run `python test_vector_mode.py` to verify 6x speedup
+- **Benchmark**: Run `python benchmark_state_modes.py --episodes 50` to verify speedup
 
 ### "Import errors / Box2D missing"
 - **Cause**: Box2D not installed
