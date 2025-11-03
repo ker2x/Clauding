@@ -211,7 +211,10 @@ class DQNAgent:
         Returns:
             Action index (int)
         """
-        self.steps_done += 1
+        # Only increment steps during training
+        if training:
+            self.steps_done += 1
+
         epsilon = self.get_epsilon() if training else 0.0
 
         # Epsilon-greedy: with probability epsilon, take random action (explore)

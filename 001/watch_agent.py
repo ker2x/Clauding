@@ -36,8 +36,12 @@ def watch_agent(checkpoint_path, env_name='ALE/Breakout-v5', num_episodes=5, ren
     """
     # Create environment with rendering
     if render:
+        # On macOS, we need to ensure pygame display is initialized properly
+        import os
+        os.environ['SDL_VIDEO_WINDOW_POS'] = "100,100"
+
         env = gym.make(env_name, render_mode='human')
-        # Still need to apply our preprocessing
+        # Apply our preprocessing wrapper (now with render support)
         from preprocessing import AtariPreprocessing
         env = AtariPreprocessing(env, frame_stack=4)
     else:
@@ -49,36 +53,56 @@ def watch_agent(checkpoint_path, env_name='ALE/Breakout-v5', num_episodes=5, ren
     agent = DQNAgent(state_shape=state_shape, num_actions=num_actions)
 
     # Load checkpoint
-    print(f"Loading model from {checkpoint_path}")
     agent.load(checkpoint_path)
 
     # Watch agent play
     episode_rewards = []
 
+    # Import pygame for event handling (only if rendering)
+    if render:
+        try:
+            import pygame
+        except ImportError:
+            pygame = None
+
     for episode in range(num_episodes):
+        print(f"\nEpisode {episode + 1}/{num_episodes}")
         state, _ = env.reset()
         episode_reward = 0
         done = False
         step = 0
 
-        print(f"\nEpisode {episode + 1}/{num_episodes}")
-
         while not done:
+            # Process pygame events to keep window responsive on macOS
+            if render and pygame is not None:
+                try:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            env.close()
+                            return
+                except:
+                    pass  # pygame might not be available
+
             # Select action (no exploration)
             action = agent.select_action(state, training=False)
 
-            # Take step
+            # Take step (rendering happens automatically with render_mode='human')
             state, reward, terminated, truncated, info = env.step(action)
+
             done = terminated or truncated
             episode_reward += reward
             step += 1
+
+            # Print progress every 1000 steps
+            if step % 1000 == 0:
+                print(f"  Step {step}, Reward so far: {episode_reward}")
 
             # Small delay for human viewing
             if render:
                 time.sleep(0.02)  # ~50 FPS
 
             if done:
-                print(f"Episode finished after {step} steps | Reward: {episode_reward}")
+                print(f"Episode {episode + 1}/{num_episodes} finished | Steps: {step} | Reward: {episode_reward}")
                 episode_rewards.append(episode_reward)
 
     env.close()

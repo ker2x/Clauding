@@ -89,6 +89,10 @@ class AtariPreprocessing(gym.Wrapper):
         # Stack frames along first dimension: (frame_stack, 84, 84)
         return np.array(self.frames, dtype=np.uint8)
 
+    def render(self):
+        """Pass through render call to base environment"""
+        return self.env.render()
+
 
 class RewardClipping(gym.Wrapper):
     """
