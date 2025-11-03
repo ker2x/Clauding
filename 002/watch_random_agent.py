@@ -94,7 +94,7 @@ def watch_random_agent(args):
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(84, 84),
+        frame_size=(96, 96),
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,

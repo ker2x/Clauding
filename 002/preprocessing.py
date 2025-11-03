@@ -162,27 +162,6 @@ class GrayscaleWrapper(gym.ObservationWrapper):
         return grayscale
 
 
-class ResizeObservation(gym.ObservationWrapper):
-    """
-    Resizes observations to a target shape.
-
-    Default CarRacing size: 96×96
-    We resize to 84×84 to match DQN paper and reduce computation.
-    """
-
-    def __init__(self, env, shape=(84, 84)):
-        super().__init__(env)
-        self.shape = shape
-        self.observation_space = gym.spaces.Box(
-            low=0, high=255, shape=shape, dtype=np.uint8
-        )
-
-    def observation(self, obs):
-        """Resize using bilinear interpolation."""
-        resized = cv2.resize(obs, self.shape, interpolation=cv2.INTER_AREA)
-        return resized
-
-
 class NormalizeObservation(gym.ObservationWrapper):
     """
     Normalizes pixel values from [0, 255] to [0, 1].
@@ -334,7 +313,6 @@ class RewardShaping(gym.RewardWrapper):
 
 def make_carracing_env(
     stack_size=4,
-    frame_size=(84, 84),
     discretize_actions=True,
     steering_bins=3,
     gas_brake_bins=3,
@@ -348,7 +326,6 @@ def make_carracing_env(
 
     Args:
         stack_size: Number of frames to stack (default: 4)
-        frame_size: Target frame size (default: 84×84)
         discretize_actions: Whether to discretize the action space (default: True)
         steering_bins: Number of discrete steering values (default: 3)
         gas_brake_bins: Number of discrete gas/brake combinations (default: 3)
@@ -360,7 +337,7 @@ def make_carracing_env(
     Returns:
         Wrapped environment ready for DQN training
     """
-    # Create base environment using local CarRacing class
+    # Create base environment using local CarRacing class (native 96x96 resolution)
     env = CarRacing(render_mode=render_mode, continuous=True)
 
     # Apply wrappers in order
@@ -373,9 +350,8 @@ def make_carracing_env(
     if shape_rewards:
         env = RewardShaping(env)
 
-    # Frame preprocessing
+    # Frame preprocessing (native 96x96, no resize needed)
     env = GrayscaleWrapper(env)
-    env = ResizeObservation(env, shape=frame_size)
     env = NormalizeObservation(env)
 
     # Frame stacking (must be last to stack preprocessed frames)
@@ -397,7 +373,7 @@ if __name__ == "__main__":
         print(f"  {i}: {meaning}")
 
     print(f"\nObservation space: {env.observation_space}")
-    print(f"Expected shape: (4, 84, 84) for 4 stacked 84×84 grayscale frames")
+    print(f"Expected shape: (4, 96, 96) for 4 stacked 96×96 grayscale frames")
 
     # Test environment
     print("\nTesting environment reset...")

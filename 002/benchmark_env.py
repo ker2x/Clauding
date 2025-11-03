@@ -24,7 +24,7 @@ def benchmark_env(render_mode, n_steps=1000):
     """
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(84, 84),
+        frame_size=(96, 96),
         discretize_actions=True,
         steering_bins=3,
         gas_brake_bins=3,

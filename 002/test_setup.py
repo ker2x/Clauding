@@ -155,7 +155,7 @@ def test_preprocessing():
         print("Creating preprocessed environment...")
         env = make_carracing_env(
             stack_size=4,
-            frame_size=(84, 84),
+            frame_size=(96, 96),
             discretize_actions=True,
             steering_bins=3,
             gas_brake_bins=3,
@@ -164,7 +164,7 @@ def test_preprocessing():
 
         print(f"✓ Preprocessed environment created")
         print(f"  Observation space: {env.observation_space.shape}")
-        print(f"  Expected: (4, 84, 84) for 4 stacked 84×84 frames")
+        print(f"  Expected: (4, 96, 96) for 4 stacked 96×96 frames")
         print(f"  Action space: Discrete({env.action_space.n})")
 
         # Print action meanings

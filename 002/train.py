@@ -97,7 +97,7 @@ def evaluate_agent(agent, env, n_episodes=5):
     """
     total_rewards = []
 
-    for _ in range(n_episodes):
+    for ep in range(n_episodes):
         state, _ = env.reset()
         episode_reward = 0
         done = False
@@ -110,6 +110,7 @@ def evaluate_agent(agent, env, n_episodes=5):
             done = terminated or truncated
 
         total_rewards.append(episode_reward)
+        print(f"  Eval episode {ep + 1}/{n_episodes}: reward = {episode_reward:.2f}")
 
     return np.mean(total_rewards)
 
@@ -174,7 +175,7 @@ def train(args):
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(84, 84),
+        frame_size=(96, 96),
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
@@ -184,26 +185,13 @@ def train(args):
         render_mode=None
     )
 
-    # Create evaluation environment (no early termination for accurate metrics)
-    eval_env = make_carracing_env(
-        stack_size=4,
-        frame_size=(84, 84),
-        discretize_actions=True,
-        steering_bins=args.steering_bins,
-        gas_brake_bins=args.gas_brake_bins,
-        shape_rewards=True,
-        terminate_stationary=False,  # Full episodes for evaluation
-        render_mode=None
-    )
-
     n_actions = env.action_space.n
     state_shape = env.observation_space.shape
 
     print(f"Environment created:")
     print(f"  State shape: {state_shape}")
     print(f"  Number of actions: {n_actions}")
-    print(f"  Training: Early termination enabled (patience=100 frames)")
-    print(f"  Evaluation: Full episodes (no early termination)")
+    print(f"  Early termination enabled (patience=100 frames)")
 
     # Create agent
     print("\nCreating DDQN agent...")
@@ -305,7 +293,7 @@ def train(args):
         if (episode + 1) % args.eval_frequency == 0:
             print("\n" + "-" * 60)
             print(f"Evaluating at episode {episode + 1}...")
-            eval_reward = evaluate_agent(agent, eval_env, n_episodes=5)
+            eval_reward = evaluate_agent(agent, env, n_episodes=5)
             print(f"Evaluation reward (5 episodes): {eval_reward:.2f}")
             print("-" * 60 + "\n")
 
@@ -332,7 +320,7 @@ def train(args):
     # Final evaluation
     print("\n" + "=" * 60)
     print("Training complete! Running final evaluation...")
-    final_eval_reward = evaluate_agent(agent, eval_env, n_episodes=10)
+    final_eval_reward = evaluate_agent(agent, env, n_episodes=10)
     print(f"Final evaluation reward (10 episodes): {final_eval_reward:.2f}")
     print("=" * 60)
 
@@ -356,7 +344,6 @@ def train(args):
     print("=" * 60)
 
     env.close()
-    eval_env.close()
 
 
 if __name__ == "__main__":

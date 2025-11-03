@@ -11,7 +11,8 @@ This project implements DDQN for the CarRacing-v3 environment, which features a 
 - **Double DQN (DDQN)**: Reduces Q-value overestimation bias compared to standard DQN
 - **Action Discretization**: Converts continuous actions to 9 discrete actions (3 steering × 3 gas/brake)
 - **Experience Replay**: Stores and samples past experiences for stable learning
-- **Frame Preprocessing**: Grayscale conversion, resizing, normalization, and frame stacking
+- **Frame Preprocessing**: Grayscale conversion, native 96×96 resolution, normalization, and frame stacking
+- **Early Termination**: Stationary car detection for 3x training speedup
 - **Reward Shaping**: Optional reward clipping to prevent catastrophic penalties
 - **Checkpointing**: Save and resume training at any point
 - **Visualization**: Watch trained agents play and compare with random baseline
@@ -113,11 +114,16 @@ You can customize the discretization granularity with `--steering-bins` and `--g
 Raw frames undergo several transformations:
 
 1. **RGB → Grayscale**: Reduces channels from 3 to 1 (preserves track boundaries)
-2. **Resize**: 96×96 → 84×84 (reduces computation)
+2. **Native Resolution**: Uses CarRacing's native 96×96 resolution (no resize needed)
 3. **Normalize**: [0, 255] → [0, 1] (better for neural networks)
 4. **Frame Stacking**: Stack 4 consecutive frames to capture motion/velocity
 
-Final shape: **(4, 84, 84)** - 4 stacked 84×84 grayscale frames
+Final shape: **(4, 96, 96)** - 4 stacked 96×96 grayscale frames
+
+**Why native resolution?**
+- Faster preprocessing (no resize operation)
+- Better image quality (no information loss)
+- Only 30% more pixels than 84×84 with minimal computational overhead
 
 ### 3. Double DQN Algorithm
 
@@ -138,18 +144,20 @@ Q_target = r + γ * Q_target(s', argmax_a' Q_policy(s', a'))
 ### 4. Network Architecture
 
 ```
-Input: (4, 84, 84) stacked frames
+Input: (4, 96, 96) stacked frames (native CarRacing resolution)
   ↓
-Conv1: 32 filters, 8×8 kernel, stride 4
+Conv1: 32 filters, 8×8 kernel, stride 4 → 23×23
   ↓ ReLU
-Conv2: 64 filters, 4×4 kernel, stride 2
+Conv2: 64 filters, 4×4 kernel, stride 2 → 10×10
   ↓ ReLU
-Conv3: 64 filters, 3×3 kernel, stride 1
-  ↓ ReLU → Flatten
+Conv3: 64 filters, 3×3 kernel, stride 1 → 8×8
+  ↓ ReLU → Flatten (4096 features)
 FC1: 512 neurons
   ↓ ReLU
 FC2: 9 neurons (Q-values for each action)
 ```
+
+**Note**: The network architecture is optimized for 96×96 input (4096 conv output features vs 3136 for 84×84).
 
 ## Training Parameters
 
@@ -212,15 +220,28 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
   - **Solution**: Discretize into 9 discrete actions (or more with custom bins)
 
 ### State Representation
-- **Breakout**: Grayscale works well (high contrast paddles and ball)
-- **CarRacing**: Grayscale preserves track boundaries (grass vs. track)
-  - Optional: Keep color channels for richer information
+- **Breakout**: Grayscale works well (high contrast paddles and ball), resized to 84×84
+- **CarRacing**: Grayscale preserves track boundaries (grass vs. track), native 96×96 resolution
+  - No resize operation needed (faster preprocessing, better quality)
 
 ### Reward Structure
 - **Breakout**: Sparse rewards (brick destroyed = +1)
 - **CarRacing**: Dense rewards (continuous progress tracking)
   - Includes time penalties (-0.1 per frame)
   - Large negative rewards for going off-track (can be clipped)
+
+## Recent Improvements (2025-11-03)
+
+### Native 96×96 Resolution
+- **Changed from**: 84×84 resized frames
+- **Changed to**: 96×96 native CarRacing resolution
+- **Benefits**: Faster preprocessing (no resize), better image quality, minimal overhead
+
+### Unified Environment
+- **Changed from**: Separate training/evaluation environments
+- **Changed to**: Single environment for both training and evaluation
+- **Benefits**: Faster evaluation (30-60s vs 2-5min), consistent behavior, simpler code
+- **User Experience**: Real-time progress output during evaluation
 
 ## Tips for Better Performance
 
@@ -230,6 +251,7 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 4. **Check Epsilon**: Use `inspect_checkpoint.py` to verify epsilon is decaying
 5. **Resume Training**: Don't start from scratch if epsilon is still high
 6. **GPU Acceleration**: Training on Apple Silicon (MPS) or CUDA is much faster
+7. **Monitor Evaluation**: Progress output now shows each evaluation episode in real-time
 
 ## Troubleshooting
 

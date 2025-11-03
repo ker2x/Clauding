@@ -31,10 +31,11 @@ This project uses **action discretization** (9 discrete actions: 3 steering × 3
 All components are implemented and working:
 - DDQN agent with experience replay
 - Action discretization (continuous → 9 discrete actions)
-- Frame preprocessing pipeline (grayscale, resize, normalize, stack)
+- Frame preprocessing pipeline (grayscale, native 96×96 resolution, normalize, stack)
 - Reward shaping (clips off-track penalties from -100 to -5)
 - Stationary car early termination (3x training speedup)
 - Training loop with checkpointing and evaluation
+- Unified environment (same config for training and evaluation)
 - Visualization tools (watch agent, watch random agent)
 - Apple Silicon GPU (MPS) acceleration working
 
@@ -45,6 +46,8 @@ All components are implemented and working:
 - Epsilon decay working (1.0 → 0.9752)
 - Loss computation working (0.1323, 0.1085)
 - Target network updates at 10k, 20k steps
+- Native 96×96 resolution working (no resize operation needed)
+- DQN network architecture updated for 4096 conv output (vs 3136 for 84×84)
 
 ## Critical Implementation Note
 
@@ -72,6 +75,45 @@ This fix ensures:
 4. GPU is utilized (not stuck in CPU loop)
 
 If you see `Steps: 0` in training output and no loss values, this fix may not be applied.
+
+## Recent Updates (2025-11-03)
+
+### Native 96×96 Resolution
+**Changed from**: 84×84 resized frames
+**Changed to**: 96×96 native CarRacing resolution
+
+**Rationale**:
+- Eliminates resize operation (faster preprocessing)
+- Preserves full image quality (no information loss)
+- Only 30% more pixels (9,216 vs 7,056 per frame)
+- Minimal computational overhead with significant quality gain
+
+**Implementation Changes**:
+- `preprocessing.py`: Updated default `frame_size=(96, 96)` (was 84×84)
+- `ddqn_agent.py`: Updated DQN network `conv_output_size = 64 * 8 * 8 = 4096` (was 3136)
+- All scripts updated: `train.py`, `watch_agent.py`, `watch_random_agent.py`, `test_setup.py`, etc.
+
+**Bug Fix**: The DQN network had hardcoded conv output size for 84×84 input. This caused shape mismatch errors with 96×96 input. Fixed by updating the conv output calculation.
+
+### Unified Environment Configuration
+**Changed from**: Separate training and evaluation environments
+**Changed to**: Single unified environment for both training and evaluation
+
+**Rationale**:
+- Early termination (`terminate_stationary`) is part of environment design, not a training shortcut
+- Evaluation should match the actual environment the agent will operate in
+- Faster evaluation (30-60 seconds vs 2-5 minutes for final evaluation)
+- Simpler, more maintainable code
+
+**Implementation Changes**:
+- `train.py`: Removed separate `eval_env` creation
+- `train.py`: Updated all `evaluate_agent()` calls to use unified `env`
+- `train.py`: Added progress output to `evaluate_agent()` function (shows each episode)
+
+**User Experience**:
+- Evaluation now shows real-time progress: `Eval episode 1/10: reward = 123.45`
+- No more silent pauses during evaluation
+- Consistent behavior across training, evaluation, and watching
 
 ## Reward Structure and Environment Behavior
 
@@ -107,14 +149,15 @@ The `RewardShaping` wrapper (enabled by default) clips extreme negative rewards:
 - Minimum 50 steps before early termination can trigger
 
 **Performance Impact**:
-- Training episodes: ~300 steps/episode (vs 1000 before) → **3x speedup**
-- Evaluation episodes: Full 1000 steps (no early termination for accurate metrics)
-- Watch scripts: Full 1000 steps (see complete behavior)
+- Episodes with early termination: ~300 steps/episode (vs 1000 before) → **3x speedup**
+- Episodes complete faster, allowing more training iterations per hour
 
 **Implementation**:
-- Training env: `terminate_stationary=True` (fast iteration)
-- Evaluation env: `terminate_stationary=False` (accurate scoring)
-- Configurable via `make_carracing_env(stationary_patience=100)`
+- **UNIFIED ENVIRONMENT**: Both training and evaluation use `terminate_stationary=True`
+- Early termination is part of the environment design, not just a training shortcut
+- All episodes (training, evaluation, watching) use consistent environment behavior
+- Configurable via `make_carracing_env(terminate_stationary=True, stationary_patience=100)`
+- Progress output during evaluation shows each episode's reward in real-time
 
 ## Environment Setup
 
@@ -151,9 +194,10 @@ Based on the sibling project (`001/`), this codebase will likely include:
     - Action selection: `a* = argmax Q_policy(s', a')`
     - Value estimation: `Q_target(s', a*)`
     - Reduces optimistic bias from standard DQN's `max Q_target(s', a')`
+  - **Network Architecture**: Optimized for 96×96 native input (4096 conv output)
 - **Replay Buffer**: Experience storage for training stability
 - **Action Discretization**: Maps continuous action space to discrete actions
-- **Preprocessing**: Frame processing (grayscale conversion, resizing, frame stacking)
+- **Preprocessing**: Frame processing (grayscale conversion, native 96×96 resolution, normalize, frame stacking)
 
 ### Training Components
 - **Training Script**: Main training loop with checkpointing
@@ -223,10 +267,11 @@ python inspect_checkpoint.py checkpoints/final_model.pt
   - May need reward shaping to encourage exploration
 
 ### State Preprocessing
-- **Breakout**: Grayscale conversion is straightforward (high contrast)
-- **CarRacing**: May benefit from keeping some color info (grass vs track) or more sophisticated edge detection
-  - Track boundaries are visually distinct (green grass, gray track)
-  - Color channels may provide important cues
+- **Breakout**: Grayscale conversion, resize to 84×84
+- **CarRacing**: Grayscale conversion, native 96×96 resolution (no resize)
+  - Uses CarRacing's native resolution for better quality and faster preprocessing
+  - Track boundaries are visually distinct even in grayscale
+  - DQN network architecture adjusted for 96×96 input (4096 features vs 3136)
 
 ### Exploration Strategy
 - **Discrete**: Epsilon-greedy straightforward (random discrete action)
@@ -254,15 +299,16 @@ python inspect_checkpoint.py checkpoints/final_model.pt
 
 ### Device Support
 - Auto-detects CUDA (NVIDIA), MPS (Apple Silicon), or CPU
-- CarRacing has larger state space (96×96 vs 84×84) → more computation
-- GPU acceleration highly recommended
+- CarRacing uses native 96×96 resolution (30% more pixels than 84×84)
+- GPU acceleration highly recommended for faster training
+- MPS (Apple Silicon) verified working with 96×96 input
 
 ## Implementation Strategy
 
 ### Phase 1: Environment Setup
 1. Create environment wrappers for CarRacing-v3
 2. Define action discretization scheme
-3. Implement preprocessing pipeline (grayscale, resize, frame stacking)
+3. Implement preprocessing pipeline (grayscale, native 96×96 resolution, frame stacking)
 4. Test with random agent to verify setup
 
 ### Phase 2: Core DQN/DDQN
@@ -280,7 +326,7 @@ python inspect_checkpoint.py checkpoints/final_model.pt
 ### Phase 4: Advanced Improvements
 1. Optimize action discretization based on results
 2. Consider Dueling DQN or Prioritized Experience Replay
-3. Advanced preprocessing (e.g., keep color channels, edge detection)
+3. Advanced preprocessing experiments (already using native resolution for optimal quality)
 
 ## Development Considerations
 

@@ -127,7 +127,7 @@ def test_preprocessed_view():
     # Create fully preprocessed environment
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(84, 84),
+        frame_size=(96, 96),
         discretize_actions=True,
         render_mode=None  # Headless mode - super fast!
     )
@@ -135,7 +135,7 @@ def test_preprocessed_view():
     obs, info = env.reset()
 
     print(f"\nObservation shape: {obs.shape}")
-    print(f"Expected: (4, 84, 84) for 4 stacked 84x84 grayscale frames")
+    print(f"Expected: (4, 96, 96) for 4 stacked 96x96 grayscale frames")
     print(f"Data type: {obs.dtype}")
     print(f"Value range: [{obs.min():.3f}, {obs.max():.3f}]")
 

@@ -38,7 +38,7 @@ class DQN(nn.Module):
     Deep Q-Network for processing stacked frames and outputting Q-values.
 
     Architecture:
-        Input: (batch, 4, 84, 84) - 4 stacked grayscale frames
+        Input: (batch, 4, 96, 96) - 4 stacked grayscale frames (native CarRacing resolution)
         Conv layers: Extract spatial features
         FC layers: Combine features and output Q-values
         Output: (batch, n_actions) - Q-value for each action
@@ -58,12 +58,12 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
 
         # Calculate size after conv layers
-        # Input: 84×84
-        # After conv1: (84-8)/4+1 = 20
-        # After conv2: (20-4)/2+1 = 9
-        # After conv3: (9-3)/1+1 = 7
-        # Final: 64 channels × 7×7 = 3136
-        conv_output_size = 64 * 7 * 7
+        # Input: 96×96 (native CarRacing resolution)
+        # After conv1: (96-8)/4+1 = 23
+        # After conv2: (23-4)/2+1 = 10
+        # After conv3: (10-3)/1+1 = 8
+        # Final: 64 channels × 8×8 = 4096
+        conv_output_size = 64 * 8 * 8
 
         # Fully connected layers
         self.fc1 = nn.Linear(conv_output_size, 512)
@@ -77,7 +77,7 @@ class DQN(nn.Module):
         Forward pass through network.
 
         Args:
-            x: Input tensor (batch, 4, 84, 84)
+            x: Input tensor (batch, 4, 96, 96)
 
         Returns:
             Q-values for each action (batch, n_actions)
