@@ -98,7 +98,8 @@ def watch_random_agent(args):
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
-        terminate_stationary=False,  # Full episodes for watching
+        terminate_stationary=True,  # Enable stationary termination (prevents infinite episodes)
+        stationary_patience=100,
         render_mode=render_mode,
         state_mode='visual'  # Always use visual mode for watching
     )

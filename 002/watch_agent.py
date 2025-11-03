@@ -89,17 +89,35 @@ def render_frame(frame, episode, step, reward, total_reward, action_meaning, eps
 
 def watch_agent(args):
     """Watch agent play episodes."""
+    # First, detect state mode from checkpoint
+    import torch
+    checkpoint = torch.load(args.checkpoint, map_location='cpu')
+
+    # Try to detect state_mode from checkpoint
+    if 'state_mode' in checkpoint:
+        state_mode = checkpoint['state_mode']
+        print(f"Detected state mode from checkpoint: {state_mode}")
+    else:
+        # Auto-detect from network architecture (for older checkpoints)
+        policy_state = checkpoint['policy_net_state_dict']
+        if 'conv1.weight' in policy_state:
+            state_mode = 'visual'
+            print("Auto-detected state mode: visual (has conv layers)")
+        else:
+            state_mode = 'vector'
+            print("Auto-detected state mode: vector (no conv layers)")
+
     # Create environment with rendering
-    # ALWAYS use visual mode for watching (regardless of training mode)
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
-        terminate_stationary=False,  # Full episodes for watching
+        terminate_stationary=True,  # Enable stationary termination (prevents wiggle loophole)
+        stationary_patience=100,
         render_mode=render_mode,
-        state_mode='visual'  # Always use visual mode for watching
+        state_mode=state_mode  # Use detected state mode
     )
 
     n_actions = env.action_space.n
@@ -110,16 +128,16 @@ def watch_agent(args):
     print("=" * 60)
     print(f"Checkpoint: {args.checkpoint}")
     print(f"Episodes: {args.episodes}")
+    print(f"State mode: {state_mode}")
     print(f"State shape: {state_shape}")
     print(f"Number of actions: {n_actions}")
     print("=" * 60)
 
-    # Create and load agent
-    # NOTE: Agent will be loaded with visual mode to match the environment
+    # Create and load agent with detected state mode
     agent = DDQNAgent(
         state_shape=state_shape,
         n_actions=n_actions,
-        state_mode='visual'  # Always use visual mode for watching
+        state_mode=state_mode
     )
     agent.load(args.checkpoint, load_optimizer=False)
 

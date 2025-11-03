@@ -410,6 +410,7 @@ class DDQNAgent:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'steps_done': self.steps_done,
             'epsilon': self.epsilon,
+            'state_mode': self.state_mode,
         }
         torch.save(checkpoint, filepath)
         print(f"Agent saved to {filepath}")

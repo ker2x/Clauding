@@ -235,6 +235,20 @@ CarRacing-v3 has the following reward structure:
 **Testing**:
 - Comprehensive test suite in `test_stationary_termination.py`
 - Verifies termination when stationary, no termination during movement, and ability to disable
+- Additional loophole test in `test_stationary_loophole.py` (see below)
+
+**Loophole Fix (2025-11-03)**:
+- **Problem Discovered**: Agents learned to exploit the stationary termination by wiggling the steering wheel while remaining stationary. Since actions changed, the old logic (only checking new tile visits) didn't catch this. The agent could wiggle forever, avoiding both stationary termination and off-track penalties.
+- **Fix Applied**: Now checks **both** new tile visits **and** car velocity. Car must either:
+  1. Visit a new tile (step_reward > 0), OR
+  2. Be moving with meaningful velocity (speed > 0.5 m/s)
+- **Implementation**: Updated `env/car_racing.py` lines 627-651 to calculate speed from `car.hull.linearVelocity` and check `is_making_progress = (step_reward > 0) or (speed > 0.5)`
+- **Result**: Agents can no longer exploit the wiggle loophole. Episodes with wiggling terminate correctly after ~100 frames.
+- **Watch Scripts Fixed**: Both `watch_agent.py` and `watch_random_agent.py` now have `terminate_stationary=True` (was previously disabled for "full episodes", which allowed infinite wiggling)
+- **Verification**:
+  - `test_stationary_loophole.py`: Confirms wiggling terminates at ~101 steps, moving forward doesn't trigger false positives
+  - `test_agent_quick.py`: Trained agent's wiggle strategy now gets caught and terminated properly
+  - Manual testing: `watch_agent.py` now terminates wiggling agents instead of running forever
 
 ## Environment Setup
 

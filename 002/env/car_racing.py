@@ -627,8 +627,17 @@ class CarRacing(gym.Env, EzPickle):
             # Track stationary car (for early termination)
             if self.terminate_stationary:
                 self.total_steps += 1
-                # Check if car made progress (positive reward = visited new tile)
-                if step_reward > 0:
+
+                # Check if car made progress:
+                # 1. Visited new tile (step_reward > 0), OR
+                # 2. Moving with meaningful velocity (speed > 0.5 m/s)
+                speed = np.sqrt(
+                    self.car.hull.linearVelocity[0]**2 +
+                    self.car.hull.linearVelocity[1]**2
+                )
+                is_making_progress = (step_reward > 0) or (speed > 0.5)
+
+                if is_making_progress:
                     self.frames_since_progress = 0
                 else:
                     self.frames_since_progress += 1
