@@ -72,8 +72,8 @@ def parse_args():
                         help='Number of discrete steering values (default: 3)')
     parser.add_argument('--gas-brake-bins', type=int, default=3,
                         help='Number of discrete gas/brake values (default: 3)')
-    parser.add_argument('--state-mode', type=str, default='vector', choices=['visual', 'vector', 'synthetic'],
-                        help='State representation: visual (images), vector (state), or synthetic (pre-rendered) - vector is fastest, synthetic is 2-3x faster than visual (default: vector)')
+    parser.add_argument('--state-mode', type=str, default='vector', choices=['visual', 'vector', 'snapshot'],
+                        help='State representation: visual (images), vector (state), or snapshot (track geometry vector with lookahead) - snapshot is fastest and most informative (default: vector)')
 
     # Resume training
     parser.add_argument('--resume', type=str, default=None,

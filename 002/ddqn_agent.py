@@ -242,7 +242,7 @@ class DDQNAgent:
             batch_size: Batch size for training
             target_update_freq: Steps between target network updates
             device: Device to use ('auto', 'cuda', 'mps', or 'cpu')
-            state_mode: 'visual', 'synthetic' (both use CNN), or 'vector' (uses MLP)
+            state_mode: 'visual' (uses CNN), 'vector' or 'snapshot' (both use MLP)
         """
         self.state_shape = state_shape
         self.n_actions = n_actions
@@ -270,12 +270,12 @@ class DDQNAgent:
         print(f"Using state mode: {state_mode}")
 
         # Networks (choose based on state mode)
-        if state_mode == 'vector':
-            input_size = state_shape[0]  # e.g., 11 for CarRacing vector state
+        if state_mode in ['vector', 'snapshot']:
+            input_size = state_shape[0]  # e.g., 11 for vector, 36 for snapshot
             self.policy_net = VectorDQN(input_size, n_actions).to(self.device)
             self.target_net = VectorDQN(input_size, n_actions).to(self.device)
         else:
-            # Visual or synthetic mode (both use CNN for spatial features)
+            # Visual mode (uses CNN for spatial features)
             input_channels = state_shape[0]  # e.g., 4 for stacked frames
             self.policy_net = DQN(input_channels, n_actions).to(self.device)
             self.target_net = DQN(input_channels, n_actions).to(self.device)

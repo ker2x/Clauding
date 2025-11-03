@@ -28,7 +28,7 @@ def test_wiggling_stationary_car():
         terminate_stationary=True,
         stationary_patience=100,
         render_mode=None,
-        state_mode='vector'  # Fast mode for testing
+        state_mode='snapshot'  # Test with snapshot mode
     )
 
     state, _ = env.reset()
@@ -88,7 +88,7 @@ def test_moving_car():
         terminate_stationary=True,
         stationary_patience=100,
         render_mode=None,
-        state_mode='vector'
+        state_mode='snapshot'  # Test with snapshot mode
     )
 
     state, _ = env.reset()

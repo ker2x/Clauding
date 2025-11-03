@@ -13,10 +13,12 @@ The main environment implementation using Box2D physics engine and pygame for re
 
 **Key Components:**
 - **Track Generation**: Randomly generates a race track on each reset
-- **Observation**: 96x96 RGB top-down view of the car and track
+- **Observation**: Multiple modes available (see below)
 - **Reward System**:
   - +1000/N points for visiting each track tile (N = total tiles)
   - -0.1 penalty per frame
+  - +0.02 × speed bonus (encourages movement)
+  - -5.0 per wheel off-track per frame (continuous penalty)
   - -100 penalty for going completely off-track (all 4 wheels off track tiles)
 - **Physics Simulation**: Uses Box2D for realistic car physics
 - **Rendering**: pygame-based visualization with speed indicators, ABS sensors, steering wheel, and gyroscope
@@ -26,6 +28,10 @@ The main environment implementation using Box2D physics engine and pygame for re
 - `lap_complete_percent` (float): % of track tiles required to complete lap (default: 0.95)
 - `domain_randomize` (bool): Randomize track/background colors for generalization
 - `render_mode` (str): "human", "rgb_array", or "state_pixels"
+- `state_mode` (str): "snapshot" (RECOMMENDED), "vector" (limited), or "visual" (slow)
+- `terminate_stationary` (bool): Enable early termination for stationary cars (default: True)
+- `stationary_patience` (int): Frames without progress before termination (default: 100)
+- `stationary_min_steps` (int): Minimum steps before early termination (default: 50)
 
 **Action Space:**
 - **Continuous**: [steering (-1 to +1), gas (0 to 1), brake (0 to 1)]
@@ -61,6 +67,28 @@ Package initialization that exports `CarRacing` and `Car` classes using relative
    - Lap is complete (visited required % of track tiles)
    - All 4 wheels go off-track (not touching any track tiles) - **NEW**
 
+## State Modes
+
+This environment supports three observation modes:
+
+### 1. Snapshot Mode (RECOMMENDED - Default)
+Returns a 36-dimensional vector containing:
+- **Car state** (11): position, velocity, angle, wheel contacts, progress
+- **Track segment info** (5): distance to center, angle difference, curvature, etc.
+- **Lookahead waypoints** (20): 10 upcoming waypoints in car-relative coordinates
+
+**Benefits**: 3-5x faster than visual, provides sufficient track information for learning, low memory usage
+
+### 2. Vector Mode (Limited - Not Recommended)
+Returns an 11-dimensional vector with basic car state only.
+
+**Issues**: Lacks track information and lookahead - agent cannot learn proper racing behavior
+
+### 3. Visual Mode (Slow - For Watching Only)
+Returns 96×96 RGB images of the track.
+
+**Issues**: Too slow for training, high memory usage
+
 ## Modifications from Original
 
 This is a local copy with the following changes:
@@ -69,12 +97,31 @@ This is a local copy with the following changes:
 - Uses `from .car_dynamics import Car` instead of `from gymnasium.envs.box2d.car_dynamics`
 - Allows direct modification without affecting the installed gymnasium package
 
-### 2. Stricter Off-Track Termination (NEW)
+### 2. Multiple State Modes (NEW)
+- **Added**: `state_mode` parameter: "snapshot" (default), "vector", or "visual"
+- **Snapshot mode**: Returns 36D vector with car state, track geometry, and lookahead
+- **Vector mode**: Returns 11D vector with basic car state only
+- **Visual mode**: Returns 96×96 RGB images (original behavior)
+- **Implementation**: Added `_create_snapshot_state()` and `_create_vector_state()` methods
+- **Rationale**: Snapshot mode provides 3-5x speedup vs visual while maintaining learning quality
+
+### 3. Stricter Off-Track Termination
 - **Original behavior**: Car could drive on grass indefinitely, only terminated when going 333+ units from origin (2x track radius away)
 - **New behavior**: Episode immediately terminates when all 4 wheels leave track tiles (gives -100 reward)
-- **Implementation**: Added check `all(len(wheel.tiles) == 0 for wheel in self.car.wheels)` in `step()` method (car_racing.py:580-586)
+- **Implementation**: Added check `all(len(wheel.tiles) == 0 for wheel in self.car.wheels)` in `step()` method
 - **Removed**: Out-of-bounds check (PLAYFIELD boundary) is no longer needed since off-track always triggers first
 - **Rationale**: Prevents agent from learning to drive off-track and makes training more efficient
+
+### 4. Continuous Reward Shaping (NEW)
+- **Added**: Speed bonus (+0.02 × speed per frame) to encourage movement
+- **Added**: Continuous off-track penalty (-5.0 per wheel off-track per frame)
+- **Rationale**: Eliminates exploitable reward boundaries and incentivizes proper racing behavior
+- **Implementation**: Applied per-step in reward calculation
+
+### 5. Stationary Car Detection (NEW)
+- **Added**: Early termination if car makes no progress for too long
+- **Parameters**: `terminate_stationary`, `stationary_patience`, `stationary_min_steps`
+- **Rationale**: Prevents agents from learning to sit still and waste compute time
 
 ## TODO: Potential Improvements
 

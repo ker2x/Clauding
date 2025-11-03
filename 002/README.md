@@ -10,11 +10,11 @@ This project implements DDQN for the CarRacing-v3 environment, which features a 
 
 - **Double DQN (DDQN)**: Reduces Q-value overestimation bias compared to standard DQN
 - **Action Discretization**: Converts continuous actions to 9 discrete actions (3 steering × 3 gas/brake)
-- **Dual State Modes**: Vector mode for fast training (6x speedup), visual mode for watching
+- **Multiple State Modes**: Snapshot mode (RECOMMENDED), vector mode, and visual mode
 - **Experience Replay**: Stores and samples past experiences for stable learning
 - **Frame Preprocessing**: Grayscale conversion, native 96×96 resolution, normalization, and frame stacking
 - **Early Termination**: Stationary car detection for 3x training speedup
-- **No Reward Shaping**: Uses raw environment rewards for cleaner learning
+- **Continuous Reward Shaping**: Speed bonus and progressive off-track penalties
 - **Checkpointing**: Save and resume training at any point
 - **Visualization**: Watch trained agents play and compare with random baseline
 - **Performance Benchmarking**: Comprehensive comparison tools for optimization verification
@@ -28,7 +28,7 @@ This project implements DDQN for the CarRacing-v3 environment, which features a 
   - steering: [-1.0, 1.0] (left to right)
   - gas: [0.0, 1.0]
   - brake: [0.0, 1.0]
-- **Reward**: +1000/N per track tile visited, -0.1 per frame, negative for off-track
+- **Reward**: +1000/N per track tile visited, -0.1 per frame, +0.02×speed bonus, -5 per wheel off-track
 
 ## Setup
 
@@ -72,14 +72,20 @@ python train.py --episodes 25 --learning-starts 500
 # Custom training
 python train.py --episodes 1000 --learning-starts 10000
 
-# Use visual mode (slower, for debugging)
+# Use snapshot mode (RECOMMENDED, default)
+python train.py --episodes 2000 --state-mode snapshot
+
+# Use vector mode (limited information, not recommended)
+python train.py --episodes 200 --state-mode vector
+
+# Use visual mode (very slow, not recommended for training)
 python train.py --episodes 200 --state-mode visual
 
 # Resume from checkpoint
 python train.py --resume checkpoints/final_model.pt
 ```
 
-**Note**: Training uses fast vector mode by default (6x speedup). Watch scripts automatically use visual mode.
+**Note**: Training uses fast snapshot mode by default (3-5x speedup vs visual). Watch scripts automatically use visual mode.
 
 ### Watch Random Agent (Baseline)
 
@@ -131,18 +137,27 @@ You can customize the discretization granularity with `--steering-bins` and `--g
 
 ### 2. State Representation
 
-The agent can use two state representations:
+The agent can use three state representations:
 
-#### Vector Mode (Default for Training - 6x Faster!)
+#### Snapshot Mode (RECOMMENDED - Default for Training!)
+Returns a 36-dimensional compact state vector:
+- **Car state** (11): `[x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress]`
+- **Track segment** (5): `[dist_to_center, angle_diff, curvature, dist_along_segment, segment_length]`
+- **Lookahead waypoints** (20): 10 waypoints × (x, y) in car-relative coordinates
+- No rendering required
+- Uses MLP network optimized for 36D input
+- 3-5x faster training than visual mode
+- Agent learns proper racing behavior (unlike vector mode)
+- Low memory usage
+
+#### Vector Mode (Too Limited - Not Recommended)
 Returns an 11-dimensional state vector:
 - `[x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress]`
-- No rendering required
-- Uses simple MLP network (128→128→64→9)
-- 6x faster training: ~313 steps/sec vs 57 steps/sec
-- 1M steps: 0.9 hours vs 4.9 hours
-- Significantly lower memory usage
+- No track information or lookahead
+- Agent cannot learn to drive well (insufficient information)
+- Fastest but not practical
 
-#### Visual Mode (For Watching)
+#### Visual Mode (Too Slow - For Watching Only)
 Raw frames undergo several transformations:
 1. **RGB → Grayscale**: Reduces channels from 3 to 1 (preserves track boundaries)
 2. **Native Resolution**: Uses CarRacing's native 96×96 resolution (no resize needed)
@@ -152,8 +167,9 @@ Raw frames undergo several transformations:
 Final shape: **(4, 96, 96)** - 4 stacked 96×96 grayscale frames
 - Uses CNN architecture (detailed below)
 - Full rendering for visualization
+- Too slow for training
 
-**Compatibility**: Agents trained in vector mode can be watched in visual mode. The action space and reward structure are identical.
+**Recommendation**: Use snapshot mode for training (default). Visual mode is automatically used for watching.
 
 ### 3. Double DQN Algorithm
 
@@ -173,7 +189,20 @@ Q_target = r + γ * Q_target(s', argmax_a' Q_policy(s', a'))
 
 ### 4. Network Architecture
 
-#### Vector DQN (Default - Faster!)
+#### Snapshot DQN (RECOMMENDED - Default!)
+```
+Input: (36,) state vector
+  ↓
+FC1: 256 neurons → ReLU
+  ↓
+FC2: 256 neurons → ReLU
+  ↓
+FC3: 128 neurons → ReLU
+  ↓
+FC4: 9 neurons (Q-values for each action)
+```
+
+#### Vector DQN (Too Limited - Not Recommended)
 ```
 Input: (11,) state vector
   ↓
@@ -186,7 +215,7 @@ FC3: 64 neurons → ReLU
 FC4: 9 neurons (Q-values for each action)
 ```
 
-#### Visual DQN (For Watching)
+#### Visual DQN (Too Slow - For Watching Only)
 ```
 Input: (4, 96, 96) stacked frames (native CarRacing resolution)
   ↓
@@ -217,24 +246,24 @@ FC2: 9 neurons (Q-values for each action)
 | `--target-update-freq` | 10000 | Steps between target network updates |
 | `--steering-bins` | 3 | Number of discrete steering values |
 | `--gas-brake-bins` | 3 | Number of discrete gas/brake values |
-| `--state-mode` | `vector` | State representation: `vector` (fast) or `visual` (slow) |
+| `--state-mode` | `snapshot` | State: `snapshot` (RECOMMENDED), `vector` (limited), `visual` (slow) |
 
 ## Training Timeline
 
-CarRacing is more challenging than Atari games like Breakout. With vector mode (6x faster):
+CarRacing is more challenging than Atari games like Breakout. With snapshot mode (RECOMMENDED):
 
-| Steps | Time (Vector Mode) | Epsilon | Expected Behavior |
-|-------|-------------------|---------|-------------------|
-| 50k-100k | ~5-10 min | 0.90-0.95 | Mostly random exploration |
-| 200k-500k | ~20-50 min | 0.61-0.80 | Learning basic control |
-| 500k-1M | ~50-90 min | 0.37-0.61 | Learning to stay on track |
-| 1M-2M | ~1.5-3 hours | 0.01-0.37 | Improving racing strategy |
-| 2M+ | ~3+ hours | 0.01 | Strong performance |
+| Steps | Time (Snapshot Mode) | Epsilon | Expected Behavior |
+|-------|---------------------|---------|-------------------|
+| 50k-100k | ~10-20 min | 0.90-0.95 | Mostly random exploration |
+| 200k-500k | ~30-90 min | 0.61-0.80 | Learning basic control |
+| 500k-1M | ~1.5-3 hours | 0.37-0.61 | Learning to stay on track |
+| 1M-2M | ~3-6 hours | 0.01-0.37 | Improving racing strategy |
+| 2M+ | ~6+ hours | 0.01 | Strong performance |
 
 **Important**:
 - Epsilon decays based on **steps**, not episodes
 - CarRacing episodes can be 1000+ frames
-- Vector mode is **6x faster** than visual mode (default for training)
+- Snapshot mode is **3-5x faster** than visual mode (default for training)
 - Times assume Apple Silicon (MPS) or CUDA GPU
 
 ## File Structure

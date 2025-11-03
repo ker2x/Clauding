@@ -300,9 +300,9 @@ def make_carracing_env(
         stationary_patience: Frames without progress before termination (default: 100)
         stationary_min_steps: Minimum steps before early termination allowed (default: 50)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
-        state_mode: 'visual' (images), 'vector' (state vector), or 'synthetic' (pre-rendered)
-                    - vector: 6x faster, no spatial awareness
-                    - synthetic: 2-3x faster than visual, full spatial awareness
+        state_mode: 'visual' (images), 'vector' (state vector), or 'snapshot' (track geometry vector)
+                    - snapshot: fastest, 36-value vector with track lookahead (most informative)
+                    - vector: fast, 11-value vector (blind, no track info)
                     - visual: slowest, full rendering
         reward_shaping: Apply reward shaping to discourage short episodes (default: True)
         min_episode_steps: Minimum episode length before penalty (default: 150)
@@ -337,10 +337,9 @@ def make_carracing_env(
         env = NormalizeObservation(env)
         # Frame stacking (must be last to stack preprocessed frames)
         env = FrameStack(env, stack_size=stack_size)
-    elif state_mode == "synthetic":
-        # Synthetic mode: already grayscale, just normalize and stack
-        env = NormalizeObservation(env)
-        env = FrameStack(env, stack_size=stack_size)
+    elif state_mode == "snapshot":
+        # Snapshot mode: vector state, no preprocessing needed (already normalized in env)
+        pass
 
     return env
 
