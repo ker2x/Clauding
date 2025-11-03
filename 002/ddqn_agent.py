@@ -230,7 +230,7 @@ class DDQNAgent:
 
         Args:
             state_shape: Shape of state observation
-                         - Visual: (channels, height, width) e.g., (4, 96, 96)
+                         - Visual/Synthetic: (channels, height, width) e.g., (4, 96, 96)
                          - Vector: (size,) e.g., (11,)
             n_actions: Number of discrete actions
             learning_rate: Learning rate for optimizer
@@ -242,7 +242,7 @@ class DDQNAgent:
             batch_size: Batch size for training
             target_update_freq: Steps between target network updates
             device: Device to use ('auto', 'cuda', 'mps', or 'cpu')
-            state_mode: 'visual' for image-based or 'vector' for state vector
+            state_mode: 'visual', 'synthetic' (both use CNN), or 'vector' (uses MLP)
         """
         self.state_shape = state_shape
         self.n_actions = n_actions
@@ -275,6 +275,7 @@ class DDQNAgent:
             self.policy_net = VectorDQN(input_size, n_actions).to(self.device)
             self.target_net = VectorDQN(input_size, n_actions).to(self.device)
         else:
+            # Visual or synthetic mode (both use CNN for spatial features)
             input_channels = state_shape[0]  # e.g., 4 for stacked frames
             self.policy_net = DQN(input_channels, n_actions).to(self.device)
             self.target_net = DQN(input_channels, n_actions).to(self.device)
@@ -284,6 +285,13 @@ class DDQNAgent:
 
         # Optimizer
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
+        self.initial_learning_rate = learning_rate
+
+        # Learning rate scheduler (reduces LR when training plateaus)
+        # ReduceLROnPlateau: reduce LR by factor of 0.5 if no improvement for 100 episodes
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='max', factor=0.5, patience=100
+        )
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(buffer_size)
@@ -306,7 +314,7 @@ class DDQNAgent:
         # During evaluation, always use greedy policy
         if not training:
             with torch.no_grad():
-                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                state_tensor = torch.from_numpy(state).unsqueeze(0).to(self.device, dtype=torch.float32)
                 q_values = self.policy_net(state_tensor)
                 return q_values.argmax(dim=1).item()
 
@@ -317,7 +325,7 @@ class DDQNAgent:
         else:
             # Exploit: best action according to policy network
             with torch.no_grad():
-                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                state_tensor = torch.from_numpy(state).unsqueeze(0).to(self.device, dtype=torch.float32)
                 q_values = self.policy_net(state_tensor)
                 return q_values.argmax(dim=1).item()
 
@@ -332,6 +340,15 @@ class DDQNAgent:
             self.epsilon_start - (self.epsilon_start - self.epsilon_end)
             * self.steps_done / self.epsilon_decay_steps
         )
+
+    def update_learning_rate(self, metric: float):
+        """
+        Update learning rate based on performance metric.
+
+        Args:
+            metric: Performance metric (e.g., average evaluation reward)
+        """
+        self.scheduler.step(metric)
 
     def store_experience(self, state, action, reward, next_state, done):
         """Store experience in replay buffer."""
@@ -351,12 +368,12 @@ class DDQNAgent:
         # Sample batch from replay buffer
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
-        # Convert to tensors
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.LongTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).to(self.device)
+        # Convert to tensors (using from_numpy for zero-copy when possible)
+        states = torch.from_numpy(states).to(self.device, dtype=torch.float32)
+        actions = torch.from_numpy(actions).to(self.device, dtype=torch.long)
+        rewards = torch.from_numpy(rewards).to(self.device, dtype=torch.float32)
+        next_states = torch.from_numpy(next_states).to(self.device, dtype=torch.float32)
+        dones = torch.from_numpy(dones).to(self.device, dtype=torch.float32)
 
         # Current Q-values from policy network
         # Shape: (batch_size, n_actions)
@@ -397,6 +414,10 @@ class DDQNAgent:
 
         return loss.item()
 
+    def get_learning_rate(self) -> float:
+        """Get current learning rate."""
+        return self.optimizer.param_groups[0]['lr']
+
     def save(self, filepath: str):
         """
         Save agent state to file.
@@ -408,6 +429,7 @@ class DDQNAgent:
             'policy_net_state_dict': self.policy_net.state_dict(),
             'target_net_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
             'steps_done': self.steps_done,
             'epsilon': self.epsilon,
             'state_mode': self.state_mode,
@@ -431,11 +453,15 @@ class DDQNAgent:
         if load_optimizer and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
+        if load_optimizer and 'scheduler_state_dict' in checkpoint:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
         self.steps_done = checkpoint.get('steps_done', 0)
         self.epsilon = checkpoint.get('epsilon', self.epsilon_end)
 
         print(f"Agent loaded from {filepath}")
         print(f"Steps done: {self.steps_done}, Epsilon: {self.epsilon:.4f}")
+        print(f"Learning rate: {self.get_learning_rate():.6f}")
 
 
 if __name__ == "__main__":

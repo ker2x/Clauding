@@ -36,10 +36,12 @@ All components are implemented and working:
 - **No reward shaping** - agent receives raw environment rewards (including -100 off-track penalty)
 - Stationary car early termination (3x training speedup)
 - Training loop with checkpointing and evaluation
+- **Comprehensive file-based logging (CSV + human-readable logs)**
 - Unified environment (same config for training and evaluation)
 - Visualization tools (watch agent, watch random agent)
 - Apple Silicon GPU (MPS) acceleration working
 - **Vector state mode optimization (6x faster training)**
+- **Device selection support (auto, CPU, CUDA, MPS)**
 
 **Latest Verification**: 2025-11-03
 - Test training: 25 episodes, 25,000 steps completed successfully
@@ -51,6 +53,7 @@ All components are implemented and working:
 - Native 96×96 resolution working (no resize operation needed)
 - DQN network architecture updated for 4096 conv output (vs 3136 for 84×84)
 - Vector mode benchmark: 6x faster than visual mode (313 vs 57 steps/sec)
+- File-based logging: CSV metrics + training.log working correctly
 
 ## Critical Implementation Note
 
@@ -187,6 +190,74 @@ python benchmark_state_modes.py --episodes 50
 - Evaluation now shows real-time progress: `Eval episode 1/10: reward = 123.45`
 - No more silent pauses during evaluation
 - Consistent behavior across training, evaluation, and watching
+
+### Comprehensive File-Based Logging (2025-11-03)
+**Added**: Complete logging infrastructure for monitoring training progress
+
+**Problem**: Training could only be monitored through console output and plots (PNG images). This made it difficult to:
+- Monitor training progress programmatically
+- Parse metrics for custom analysis
+- Review training history after completion
+- Debug issues during long training runs
+
+**Solution**: Comprehensive file-based logging with multiple formats
+
+**Files Created**:
+1. **`logs/training_metrics.csv`** - Per-episode training metrics
+   - Columns: episode, total_steps, episode_steps, reward, avg_loss, epsilon, buffer_size, elapsed_time_sec, avg_reward_100, timestamp
+   - Written every episode for complete history
+   - Easy to parse with pandas/scripts
+
+2. **`logs/evaluation_metrics.csv`** - Evaluation results
+   - Columns: episode, total_steps, eval_mean_reward, eval_std_reward, eval_rewards, is_best, elapsed_time_sec, timestamp
+   - Tracks evaluation performance over time
+   - Records all individual episode rewards
+
+3. **`logs/training.log`** - Human-readable timestamped log
+   - Training session start with full configuration
+   - Learning start milestone (when reaching `learning_starts`)
+   - Episode progress (every 10 episodes)
+   - All evaluation episodes with individual rewards
+   - Best model saves and checkpoint saves
+   - Training session summary
+
+4. **`logs/system_info.txt`** - Complete configuration snapshot
+   - Device, state mode, hyperparameters
+   - Environment settings
+   - Training parameters
+   - For reproducibility
+
+**Implementation**:
+- `train.py`: Added `setup_logging()` function
+- Modified `evaluate_agent()` to accept optional `log_handle` parameter
+- CSV writing after every episode
+- Log file writing with timestamps
+- All logs use line buffering for real-time updates
+
+**Usage**:
+```bash
+# Monitor training in real-time
+tail -f logs/training.log
+
+# Read CSV metrics
+cat logs/training_metrics.csv
+cat logs/evaluation_metrics.csv
+
+# Check configuration
+cat logs/system_info.txt
+
+# Parse with Python
+import pandas as pd
+df = pd.read_csv('logs/training_metrics.csv')
+print(df[['episode', 'reward', 'epsilon']].tail())
+```
+
+**Benefits**:
+- Real-time monitoring without plots
+- Complete training history
+- Easy programmatic access to metrics
+- Debugging support with timestamps
+- Reproducibility with system info
 
 ## Reward Structure and Environment Behavior
 
@@ -332,9 +403,33 @@ python train.py --resume checkpoints/final_model.pt --episodes 1000
 
 # Resume with reset epsilon (more exploration)
 python train.py --resume checkpoints/final_model.pt --reset-epsilon --episodes 1000
+
+# Force CPU mode (useful if CPU is faster than MPS)
+python train.py --episodes 200 --device cpu
 ```
 
 **Note**: Training uses vector mode by default (6x faster). Watch scripts automatically use visual mode.
+
+### Monitoring Training Progress
+```bash
+# Watch training log in real-time (during training)
+tail -f logs/training.log
+
+# View all training metrics
+cat logs/training_metrics.csv
+
+# View evaluation results
+cat logs/evaluation_metrics.csv
+
+# Check system configuration
+cat logs/system_info.txt
+
+# Parse metrics with Python
+python -c "import pandas as pd; df = pd.read_csv('logs/training_metrics.csv'); print(df.tail(20))"
+
+# Get latest training stats
+python -c "import pandas as pd; df = pd.read_csv('logs/training_metrics.csv'); print(f\"Latest episode: {df.iloc[-1]['episode']}, Steps: {df.iloc[-1]['total_steps']}, Reward: {df.iloc[-1]['reward']:.2f}, Epsilon: {df.iloc[-1]['epsilon']:.4f}\")"
+```
 
 ### Evaluation and Benchmarking
 ```bash
@@ -461,16 +556,23 @@ python watch_random_agent.py --episodes 3
 # 4. Start training
 python train.py --episodes 2000 --learning-starts 10000
 
-# 5. Check training progress
+# 5. Monitor training progress (while training is running)
+tail -f logs/training.log
+
+# 6. Check training metrics
+cat logs/training_metrics.csv | tail -20
+
+# 7. Inspect checkpoint
 python inspect_checkpoint.py checkpoints/final_model.pt
 
-# 6. Watch trained agent
+# 8. Watch trained agent
 python watch_agent.py --checkpoint checkpoints/final_model.pt
 ```
 
 ### File Locations
 - **Checkpoints**: `checkpoints/` (final_model.pt, best_model.pt, checkpoint_ep*.pt)
-- **Training plots**: `logs/training_progress.png`
+- **Training logs**: `logs/` (training_metrics.csv, evaluation_metrics.csv, training.log, system_info.txt)
+- **Training plots**: `logs/training_progress.png`, `logs/benchmark_comparison.png`
 - **Code files**: All Python files in project root
 
 ### Expected Performance

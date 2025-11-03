@@ -63,10 +63,6 @@ def render_frame(frame, episode, step, reward, total_reward, action_meaning, eps
     # Convert to BGR for OpenCV
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    # Resize for better visibility
-    display_size = (600, 600)
-    frame = cv2.resize(frame, display_size, interpolation=cv2.INTER_NEAREST)
-
     # Add black bar at top for text
     frame = cv2.copyMakeBorder(frame, 80, 0, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
 

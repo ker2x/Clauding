@@ -181,6 +181,50 @@ class NormalizeObservation(gym.ObservationWrapper):
         return obs.astype(np.float32) / 255.0
 
 
+class RewardShaper(gym.Wrapper):
+    """
+    Shapes rewards to discourage degenerate strategies.
+
+    Specifically penalizes episodes that end too quickly (< min_steps),
+    which prevents the agent from exploiting stationary termination as
+    a "safe" strategy. This encourages the agent to actually drive and
+    make progress.
+
+    Penalty: -50 if episode ends in < min_steps (configurable)
+    """
+
+    def __init__(self, env, min_steps=150, short_episode_penalty=-50.0):
+        """
+        Args:
+            env: Environment to wrap
+            min_steps: Episodes shorter than this get penalized (default: 150)
+            short_episode_penalty: Penalty for short episodes (default: -50.0)
+        """
+        super().__init__(env)
+        self.min_steps = min_steps
+        self.short_episode_penalty = short_episode_penalty
+        self.steps_in_episode = 0
+
+    def reset(self, **kwargs):
+        """Reset episode step counter."""
+        self.steps_in_episode = 0
+        return self.env.reset(**kwargs)
+
+    def step(self, action):
+        """Apply reward shaping based on episode length."""
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.steps_in_episode += 1
+
+        # If episode is ending and it's too short, apply penalty
+        if (terminated or truncated) and self.steps_in_episode < self.min_steps:
+            shaped_reward = reward + self.short_episode_penalty
+            info['reward_shaping'] = self.short_episode_penalty
+            info['original_reward'] = reward
+            return obs, shaped_reward, terminated, truncated, info
+
+        return obs, reward, terminated, truncated, info
+
+
 class FrameStack(gym.Wrapper):
     """
     Stacks the last N frames to capture motion and velocity.
@@ -239,13 +283,16 @@ def make_carracing_env(
     stationary_patience=100,
     stationary_min_steps=50,
     render_mode=None,
-    state_mode="visual"
+    state_mode="visual",
+    reward_shaping=True,
+    min_episode_steps=150,
+    short_episode_penalty=-50.0
 ) -> gym.Env:
     """
     Creates a preprocessed CarRacing-v3 environment for DQN training.
 
     Args:
-        stack_size: Number of frames to stack (default: 4) - only used in visual mode
+        stack_size: Number of frames to stack (default: 4) - only used in visual/synthetic modes
         discretize_actions: Whether to discretize the action space (default: True)
         steering_bins: Number of discrete steering values (default: 3)
         gas_brake_bins: Number of discrete gas/brake combinations (default: 3)
@@ -253,7 +300,13 @@ def make_carracing_env(
         stationary_patience: Frames without progress before termination (default: 100)
         stationary_min_steps: Minimum steps before early termination allowed (default: 50)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
-        state_mode: 'visual' (images) or 'vector' (state vector) - vector is 3-5x faster
+        state_mode: 'visual' (images), 'vector' (state vector), or 'synthetic' (pre-rendered)
+                    - vector: 6x faster, no spatial awareness
+                    - synthetic: 2-3x faster than visual, full spatial awareness
+                    - visual: slowest, full rendering
+        reward_shaping: Apply reward shaping to discourage short episodes (default: True)
+        min_episode_steps: Minimum episode length before penalty (default: 150)
+        short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
 
     Returns:
         Wrapped environment ready for DQN training
@@ -273,13 +326,20 @@ def make_carracing_env(
     if discretize_actions:
         env = ActionDiscretizer(env, steering_bins=steering_bins, gas_brake_bins=gas_brake_bins)
 
-    # Only apply visual preprocessing in visual mode
+    # Reward shaping to discourage degenerate strategies
+    if reward_shaping:
+        env = RewardShaper(env, min_steps=min_episode_steps, short_episode_penalty=short_episode_penalty)
+
+    # Apply preprocessing based on state mode
     if state_mode == "visual":
         # Frame preprocessing (native 96x96, no resize needed)
         env = GrayscaleWrapper(env)
         env = NormalizeObservation(env)
-
         # Frame stacking (must be last to stack preprocessed frames)
+        env = FrameStack(env, stack_size=stack_size)
+    elif state_mode == "synthetic":
+        # Synthetic mode: already grayscale, just normalize and stack
+        env = NormalizeObservation(env)
         env = FrameStack(env, stack_size=stack_size)
 
     return env

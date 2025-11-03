@@ -1,13 +1,13 @@
 """
-Comprehensive benchmark comparing visual vs vector state modes.
+Comprehensive benchmark comparing visual, synthetic, and vector state modes.
 
-This script trains agents in both modes for a short duration and compares:
+This script trains agents in all three modes for a short duration and compares:
 1. Training speed (steps/second)
 2. Memory usage
 3. Learning progress (rewards over time)
 4. Total training time
 
-Expected runtime: ~5 minutes
+Expected runtime: ~5-10 minutes
 """
 
 import argparse
@@ -38,14 +38,15 @@ def get_memory_usage_mb():
     return process.memory_info().rss / 1024 / 1024
 
 
-def benchmark_mode(state_mode, episodes, learning_starts, verbose=True):
+def benchmark_mode(state_mode, episodes, learning_starts, device='auto', verbose=True):
     """
     Benchmark a specific state mode.
 
     Args:
-        state_mode: 'visual' or 'vector'
+        state_mode: 'visual', 'synthetic', or 'vector'
         episodes: Number of episodes to train
         learning_starts: Steps before training starts
+        device: Device to use for training ('auto', 'cpu', 'cuda', 'mps')
         verbose: Whether to print progress
 
     Returns:
@@ -85,7 +86,8 @@ def benchmark_mode(state_mode, episodes, learning_starts, verbose=True):
         buffer_size=10_000,  # Smaller buffer for benchmark
         batch_size=32,
         target_update_freq=1000,
-        state_mode=state_mode
+        state_mode=state_mode,
+        device=device
     )
 
     # Memory after initialization
@@ -363,6 +365,9 @@ Examples:
 
   # Benchmark with early training
   python benchmark_state_modes.py --episodes 50 --learning-starts 500
+
+  # Force CPU-only mode (useful if CPU is faster than MPS)
+  python benchmark_state_modes.py --episodes 50 --device cpu
         """
     )
 
@@ -372,8 +377,14 @@ Examples:
                         help='Steps before training starts (default: 1000)')
     parser.add_argument('--skip-visual', action='store_true',
                         help='Skip visual mode benchmark (faster)')
+    parser.add_argument('--skip-synthetic', action='store_true',
+                        help='Skip synthetic mode benchmark')
     parser.add_argument('--skip-vector', action='store_true',
                         help='Skip vector mode benchmark')
+
+    # Device selection
+    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda', 'mps'],
+                        help='Device to use for training: auto (default), cpu, cuda, or mps')
 
     return parser.parse_args()
 
@@ -388,22 +399,30 @@ def main():
     print(f"Configuration:")
     print(f"  Episodes per mode: {args.episodes}")
     print(f"  Learning starts: {args.learning_starts} steps")
+    print(f"  Device: {args.device}")
     print(f"  Expected runtime: ~{args.episodes * 0.1:.1f} minutes")
     print("="*70)
 
     results = {}
 
-    # Benchmark vector mode first (it's faster)
+    # Benchmark vector mode first (it's fastest)
     if not args.skip_vector:
         print("\n🚀 Starting VECTOR mode benchmark...")
-        results['vector'] = benchmark_mode('vector', args.episodes, args.learning_starts)
+        results['vector'] = benchmark_mode('vector', args.episodes, args.learning_starts, args.device)
     else:
         print("\n⏭️  Skipping VECTOR mode benchmark")
 
-    # Benchmark visual mode
+    # Benchmark synthetic mode second (faster than visual)
+    if not args.skip_synthetic:
+        print("\n🎯 Starting SYNTHETIC mode benchmark...")
+        results['synthetic'] = benchmark_mode('synthetic', args.episodes, args.learning_starts, args.device)
+    else:
+        print("\n⏭️  Skipping SYNTHETIC mode benchmark")
+
+    # Benchmark visual mode last (slowest)
     if not args.skip_visual:
         print("\n🎨 Starting VISUAL mode benchmark...")
-        results['visual'] = benchmark_mode('visual', args.episodes, args.learning_starts)
+        results['visual'] = benchmark_mode('visual', args.episodes, args.learning_starts, args.device)
     else:
         print("\n⏭️  Skipping VISUAL mode benchmark")
 

@@ -29,6 +29,13 @@ except ImportError as e:
         'pygame is not installed, run `pip install "gymnasium[box2d]"`'
     ) from e
 
+try:
+    import cv2
+except ImportError as e:
+    raise DependencyNotInstalled(
+        'opencv is not installed, run `pip install opencv-python`'
+    ) from e
+
 
 STATE_W = 96  # less than Atari 160x192
 STATE_H = 96
@@ -235,8 +242,8 @@ class CarRacing(gym.Env, EzPickle):
     ):
         """
         Args:
-            state_mode: "visual" (96x96 RGB images) or "vector" (car state vector).
-                        Vector mode is 3-5x faster for training.
+            state_mode: "visual" (96x96 RGB images), "vector" (car state vector),
+                        or "synthetic" (pre-rendered grayscale track, 2-3x faster than visual).
         """
         EzPickle.__init__(
             self,
@@ -277,6 +284,10 @@ class CarRacing(gym.Env, EzPickle):
             shape=polygonShape(vertices=[(0, 0), (1, 0), (1, -1), (0, -1)])
         )
 
+        # Synthetic mode: pre-rendered track map
+        self.track_map = None
+        self.map_origin = None
+
         # This will throw a warning in tests/envs/test_envs in utils/env_checker.py as the space is not symmetric
         #   or normalised however this is not possible here so ignore
         if self.continuous:
@@ -294,6 +305,11 @@ class CarRacing(gym.Env, EzPickle):
             # 11 values total
             self.observation_space = spaces.Box(
                 low=-np.inf, high=np.inf, shape=(11,), dtype=np.float32
+            )
+        elif self.state_mode == "synthetic":
+            # Synthetic visual state: 96x96 grayscale image (pre-rendered)
+            self.observation_space = spaces.Box(
+                low=0, high=255, shape=(STATE_H, STATE_W), dtype=np.uint8
             )
         else:
             # Visual state: 96x96 RGB image
@@ -575,6 +591,10 @@ class CarRacing(gym.Env, EzPickle):
                 )
         self.car = Car(self.world, *self.track[0][1:4])
 
+        # Pre-render track for synthetic mode
+        if self.state_mode == "synthetic":
+            self._prerender_track()
+
         if self.render_mode == "human":
             self.render()
         return self.step(None)[0], {}
@@ -605,6 +625,9 @@ class CarRacing(gym.Env, EzPickle):
         if self.state_mode == "vector":
             # Fast vector state (no rendering)
             self.state = self._create_vector_state()
+        elif self.state_mode == "synthetic":
+            # Synthetic visual state (pre-rendered track, fast)
+            self.state = self._create_synthetic_visual_state()
         elif self.render_mode is not None:
             # Visual state with rendering
             self.state = self._render("state_pixels")
@@ -766,6 +789,153 @@ class CarRacing(gym.Env, EzPickle):
 
         return state
 
+    def _prerender_track(self):
+        """
+        Pre-render the entire track once per episode into a large numpy array.
+        This is much faster than rendering every frame with pygame.
+
+        Creates a grayscale image where track=white (255) and grass=black (0).
+        """
+        # Find track bounds from road polygons
+        all_coords = []
+        for poly, _ in self.road_poly:
+            for x, y in poly:
+                all_coords.append((x, y))
+
+        if not all_coords:
+            # Fallback if no road polygons yet
+            self.track_map = np.zeros((STATE_H, STATE_W), dtype=np.uint8)
+            self.map_origin = (0, 0)
+            return
+
+        xs = [c[0] for c in all_coords]
+        ys = [c[1] for c in all_coords]
+
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        # Add padding around track
+        padding = 50
+        min_x -= padding
+        min_y -= padding
+        max_x += padding
+        max_y += padding
+
+        # Calculate map size (in world coordinates, scaled up for resolution)
+        # Use a scale factor to get good resolution
+        scale = 1.5  # pixels per world unit
+        width = int((max_x - min_x) * scale)
+        height = int((max_y - min_y) * scale)
+
+        # Create map (grass=black, track=white)
+        self.track_map = np.zeros((height, width), dtype=np.uint8)
+        self.map_origin = (min_x, min_y)
+        self.map_scale = scale
+
+        # Fill all track tiles
+        for poly, _ in self.road_poly:
+            # Convert world coordinates to map pixel coordinates
+            pts = np.array([
+                [int((x - min_x) * scale), int((y - min_y) * scale)]
+                for x, y in poly
+            ], dtype=np.int32)
+
+            # Fill polygon with white (track)
+            cv2.fillPoly(self.track_map, [pts], 255)
+
+        if self.verbose:
+            print(f"Pre-rendered track: {width}x{height} pixels")
+
+    def _create_synthetic_visual_state(self):
+        """
+        Extract car-centered 96×96 view from pre-rendered track map WITH car visualization.
+        Optimized for speed - no rotation, just direct extraction with oriented car marker.
+
+        Returns: 96x96 grayscale numpy array with car drawn on it
+        """
+        assert self.car is not None
+        assert self.track_map is not None, "Track map not pre-rendered"
+
+        # Car position in map coordinates
+        car_x, car_y = self.car.hull.position
+        px = int((car_x - self.map_origin[0]) * self.map_scale)
+        py = int((car_y - self.map_origin[1]) * self.map_scale)
+
+        # Extract 96x96 window directly centered on car (NO rotation, much faster!)
+        half = STATE_W // 2
+        map_h, map_w = self.track_map.shape
+
+        # Calculate extraction bounds
+        y1 = py - half
+        y2 = py + half
+        x1 = px - half
+        x2 = px + half
+
+        # Extract or pad if near edges
+        if y1 >= 0 and y2 <= map_h and x1 >= 0 and x2 <= map_w:
+            # Simple case: fully within bounds
+            view = self.track_map[y1:y2, x1:x2].copy()
+        else:
+            # Near edge: extract with padding
+            view = np.zeros((STATE_H, STATE_W), dtype=np.uint8)
+
+            # Calculate valid region
+            src_y1 = max(0, y1)
+            src_y2 = min(map_h, y2)
+            src_x1 = max(0, x1)
+            src_x2 = min(map_w, x2)
+
+            # Calculate destination region in view
+            dst_y1 = src_y1 - y1
+            dst_y2 = dst_y1 + (src_y2 - src_y1)
+            dst_x1 = src_x1 - x1
+            dst_x2 = dst_x1 + (src_x2 - src_x1)
+
+            # Copy valid region
+            view[dst_y1:dst_y2, dst_x1:dst_x2] = self.track_map[src_y1:src_y2, src_x1:src_x2]
+
+        # Draw car as a rotated triangle pointing in direction of travel
+        # Car is always at center of view
+        cx, cy = STATE_W // 2, STATE_H // 2
+
+        # Car angle (Box2D angle: counter-clockwise from east)
+        angle = self.car.hull.angle
+
+        # Define car shape as a triangle (points forward)
+        # Size in pixels
+        car_length = 8
+        car_width = 5
+
+        # Triangle vertices (pointing up in local coordinates)
+        local_points = np.array([
+            [0, -car_length],      # Front tip
+            [-car_width, car_length // 2],   # Back left
+            [car_width, car_length // 2],    # Back right
+        ], dtype=np.float32)
+
+        # Rotation matrix
+        cos_a = np.cos(angle)
+        sin_a = np.sin(angle)
+        rotation = np.array([
+            [cos_a, -sin_a],
+            [sin_a, cos_a]
+        ])
+
+        # Rotate and translate points
+        rotated_points = local_points @ rotation.T
+        world_points = rotated_points + np.array([cx, cy])
+        world_points = world_points.astype(np.int32)
+
+        # Draw car as filled triangle
+        cv2.fillPoly(view, [world_points], 180)
+
+        # Draw front indicator (small circle at tip)
+        front_x = int(cx + car_length * sin_a)
+        front_y = int(cy - car_length * cos_a)
+        cv2.circle(view, (front_x, front_y), 2, 220, -1)
+
+        return view
+
     def _create_headless_state(self):
         """
         Fast headless rendering for training (3-5x faster than full rendering).
@@ -843,8 +1013,8 @@ class CarRacing(gym.Env, EzPickle):
         assert self.car is not None
         # computing transformations
         angle = -self.car.hull.angle
-        # Animating first second zoom.
-        zoom = 0.1 * SCALE * max(1 - self.t, 0) + ZOOM * SCALE * min(self.t, 1)
+        # Use constant zoom (no animation)
+        zoom = ZOOM * SCALE
         scroll_x = -(self.car.hull.position[0]) * zoom
         scroll_y = -(self.car.hull.position[1]) * zoom
         trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
