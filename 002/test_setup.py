@@ -155,7 +155,6 @@ def test_preprocessing():
         print("Creating preprocessed environment...")
         env = make_carracing_env(
             stack_size=4,
-            frame_size=(96, 96),
             discretize_actions=True,
             steering_bins=3,
             gas_brake_bins=3,

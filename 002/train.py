@@ -175,11 +175,9 @@ def train(args):
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(96, 96),
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
-        shape_rewards=True,
         terminate_stationary=True,  # Speed up training
         stationary_patience=100,
         render_mode=None

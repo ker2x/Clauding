@@ -281,42 +281,11 @@ class StationaryCarTerminator(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
-class RewardShaping(gym.RewardWrapper):
-    """
-    Optional reward shaping for CarRacing.
-
-    Default CarRacing rewards:
-    - +1000/N for each track tile visited (N = total tiles)
-    - -0.1 for each frame
-    - Large negative for going off track
-
-    This wrapper can:
-    1. Clip extreme negative rewards (prevent catastrophic penalties)
-    2. Scale rewards for better learning dynamics
-    """
-
-    def __init__(self, env, clip_reward=True, negative_penalty=-5.0):
-        super().__init__(env)
-        self.clip_reward = clip_reward
-        self.negative_penalty = negative_penalty
-
-    def reward(self, reward):
-        """Shape the reward."""
-        if self.clip_reward:
-            # Clip large negative rewards (e.g., from going off track)
-            # This prevents single bad decisions from dominating learning
-            if reward < 0:
-                reward = max(reward, self.negative_penalty)
-
-        return reward
-
-
 def make_carracing_env(
     stack_size=4,
     discretize_actions=True,
     steering_bins=3,
     gas_brake_bins=3,
-    shape_rewards=True,
     terminate_stationary=True,
     stationary_patience=100,
     render_mode=None
@@ -329,7 +298,6 @@ def make_carracing_env(
         discretize_actions: Whether to discretize the action space (default: True)
         steering_bins: Number of discrete steering values (default: 3)
         gas_brake_bins: Number of discrete gas/brake combinations (default: 3)
-        shape_rewards: Whether to apply reward shaping (default: True)
         terminate_stationary: Terminate early if car is stationary (default: True)
         stationary_patience: Frames without progress before termination (default: 100)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
@@ -346,9 +314,6 @@ def make_carracing_env(
 
     if terminate_stationary:
         env = StationaryCarTerminator(env, patience=stationary_patience)
-
-    if shape_rewards:
-        env = RewardShaping(env)
 
     # Frame preprocessing (native 96x96, no resize needed)
     env = GrayscaleWrapper(env)

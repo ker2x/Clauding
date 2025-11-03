@@ -94,11 +94,9 @@ def watch_random_agent(args):
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(96, 96),
         discretize_actions=True,
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
-        shape_rewards=True,
         terminate_stationary=False,  # Full episodes for watching
         render_mode=render_mode
     )

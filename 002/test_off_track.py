@@ -3,9 +3,9 @@ Test to verify that episodes end when the car leaves the track
 and that appropriate negative rewards are received.
 
 This test ensures:
-1. Car receives negative rewards when going off-track
-2. Episodes terminate when off-track for too long
-3. RewardShaping wrapper clips extreme negative rewards appropriately
+1. Car receives -100 penalty when going off-track
+2. Episodes terminate when off-track
+3. No reward clipping - agent sees true environment penalties
 """
 
 import numpy as np
@@ -18,15 +18,14 @@ def test_off_track_termination():
     print("=" * 60)
     print("Testing Off-Track Termination and Rewards")
     print("=" * 60)
-    print("\nNote: CarRacing-v3 may not auto-terminate on off-track.")
-    print("Instead, it gives negative rewards and requires no progress for 100 frames.")
+    print("\nNote: CarRacing-v3 terminates immediately when going off-track.")
+    print("Expected penalty: -100.00")
 
-    # Create environment with reward shaping (clips to -5.0)
-    print("\nTest 1: Braking at start (should go off-track via grass)")
+    # Test 1: Brake at start
+    print("\nTest 1: Braking at start (should eventually go off-track)")
     print("-" * 60)
     env = make_carracing_env(
         terminate_stationary=False,  # Disable so we can test off-track separately
-        shape_rewards=True,          # Enable reward clipping
         render_mode=None
     )
 
@@ -38,7 +37,6 @@ def test_off_track_termination():
     rewards_history = []
 
     # Strategy: Start with gas to get moving, then hard brake
-    # This should cause the car to skid off track
     print(f"Strategy: GAS for 10 steps, then BRAKE")
     print(f"Expected: Car gains speed, then skids off-track when braking\n")
 
@@ -56,8 +54,10 @@ def test_off_track_termination():
         max_reward = max(max_reward, reward)
 
         # Print significant rewards
-        if reward < -1.0 or (reward > 1.0 and i >= 10):
-            print(f"  Step {steps}: reward = {reward:.2f} {'(brake+off-track?)' if reward < 0 else ''}")
+        if reward < -10.0:
+            print(f"  Step {steps}: reward = {reward:.2f} *** OFF-TRACK PENALTY ***")
+        elif reward > 1.0 and i < 15:
+            print(f"  Step {steps}: reward = {reward:.2f}")
 
         if terminated or truncated:
             termination_type = "terminated" if terminated else "truncated"
@@ -75,19 +75,11 @@ def test_off_track_termination():
     print(f"  Max reward (single step): {max_reward:.2f}")
     print(f"  Average reward per step: {total_reward/steps:.2f}")
 
-    # Count reward patterns
-    large_negatives = sum(1 for r in rewards_history if r < -1.0)
-    very_large_negatives = sum(1 for r in rewards_history if r <= -5.0)
-    print(f"  Steps with large negative rewards (< -1.0): {large_negatives}")
-    print(f"  Steps with very large negative rewards (<= -5.0): {very_large_negatives}")
+    catastrophic_negatives = sum(1 for r in rewards_history if r < -50.0)
+    print(f"  Steps with catastrophic rewards (< -50): {catastrophic_negatives}")
 
-    if very_large_negatives > 0:
-        print(f"  ✓ Reward clipping triggered! (found -5.0 rewards)")
-
-    if min_reward >= -5.0:
-        print(f"  ✓ Reward clipping working (min reward >= -5.0)")
-    else:
-        print(f"  ⚠ WARNING: Found reward {min_reward:.2f} < -5.0 (clipping failed)")
+    if catastrophic_negatives > 0:
+        print(f"  ✓ Found off-track penalty: {min_reward:.2f}")
 
     env.close()
 
@@ -97,7 +89,6 @@ def test_off_track_termination():
     print("-" * 60)
     env = make_carracing_env(
         terminate_stationary=False,
-        shape_rewards=False,  # Disable reward clipping to see raw rewards
         render_mode=None
     )
 
@@ -109,7 +100,7 @@ def test_off_track_termination():
     np.random.seed(42)  # Reproducible
 
     print(f"Strategy: Random actions")
-    print(f"Expected: Eventually goes off-track, shows raw negative rewards\n")
+    print(f"Expected: Eventually goes off-track, gets -100 penalty\n")
 
     for i in range(300):
         action = np.random.randint(0, 9)
@@ -120,8 +111,8 @@ def test_off_track_termination():
         min_reward = min(min_reward, reward)
 
         # Print when we get significant negative rewards (likely off-track)
-        if reward < -5.0:
-            print(f"  Step {steps}: reward = {reward:.2f} (RAW off-track penalty!)")
+        if reward < -50.0:
+            print(f"  Step {steps}: reward = {reward:.2f} *** OFF-TRACK PENALTY ***")
 
         if terminated or truncated:
             termination_type = "terminated" if terminated else "truncated"
@@ -136,25 +127,22 @@ def test_off_track_termination():
     print(f"  Min reward (single step): {min_reward:.2f}")
     print(f"  Average reward per step: {total_reward/steps:.2f}")
 
-    very_large_negatives = sum(1 for r in rewards_history if r < -5.0)
-    extreme_negatives = sum(1 for r in rewards_history if r < -10.0)
-    print(f"  Steps with very large negative rewards (< -5.0): {very_large_negatives}")
-    print(f"  Steps with extreme negative rewards (< -10.0): {extreme_negatives}")
+    catastrophic_negatives = sum(1 for r in rewards_history if r < -50.0)
+    print(f"  Steps with catastrophic rewards (< -50): {catastrophic_negatives}")
 
-    if very_large_negatives > 0:
-        print(f"  ✓ Found raw off-track penalties (< -5.0)")
+    if catastrophic_negatives > 0:
+        print(f"  ✓ Found raw off-track penalty: {min_reward:.2f}")
     else:
         print(f"  ⚠ No large penalties found (may not have gone off-track)")
 
     env.close()
 
-    # Test 3: Verify normal driving doesn't trigger early termination
+    # Test 3: Normal driving
     print("\n" + "=" * 60)
     print("Test 3: Normal driving (STRAIGHT+GAS)")
     print("-" * 60)
     env = make_carracing_env(
         terminate_stationary=False,
-        shape_rewards=True,
         render_mode=None
     )
 

@@ -127,7 +127,6 @@ def test_preprocessed_view():
     # Create fully preprocessed environment
     env = make_carracing_env(
         stack_size=4,
-        frame_size=(96, 96),
         discretize_actions=True,
         render_mode=None  # Headless mode - super fast!
     )

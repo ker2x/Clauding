@@ -32,7 +32,7 @@ All components are implemented and working:
 - DDQN agent with experience replay
 - Action discretization (continuous → 9 discrete actions)
 - Frame preprocessing pipeline (grayscale, native 96×96 resolution, normalize, stack)
-- Reward shaping (clips off-track penalties from -100 to -5)
+- **No reward shaping** - agent receives raw environment rewards (including -100 off-track penalty)
 - Stationary car early termination (3x training speedup)
 - Training loop with checkpointing and evaluation
 - Unified environment (same config for training and evaluation)
@@ -89,11 +89,13 @@ If you see `Steps: 0` in training output and no loss values, this fix may not be
 - Minimal computational overhead with significant quality gain
 
 **Implementation Changes**:
-- `preprocessing.py`: Updated default `frame_size=(96, 96)` (was 84×84)
+- `preprocessing.py`: Native 96×96 resolution, no `frame_size` parameter needed
 - `ddqn_agent.py`: Updated DQN network `conv_output_size = 64 * 8 * 8 = 4096` (was 3136)
-- All scripts updated: `train.py`, `watch_agent.py`, `watch_random_agent.py`, `test_setup.py`, etc.
+- `train.py`: Removed invalid `frame_size` parameter from `make_carracing_env()` call
 
-**Bug Fix**: The DQN network had hardcoded conv output size for 84×84 input. This caused shape mismatch errors with 96×96 input. Fixed by updating the conv output calculation.
+**Bug Fixes**:
+1. The DQN network had hardcoded conv output size for 84×84 input. This caused shape mismatch errors with 96×96 input. Fixed by updating the conv output calculation.
+2. **[2025-11-03 LATEST]** `train.py` was passing invalid `frame_size=(96, 96)` parameter to `make_carracing_env()`. The function doesn't accept this parameter since it uses native 96×96 resolution. Fixed by removing the parameter.
 
 ### Unified Environment Configuration
 **Changed from**: Separate training and evaluation environments
@@ -128,14 +130,10 @@ CarRacing-v3 has the following reward structure:
 ### Off-Track Detection
 - Going off-track (onto grass) triggers an immediate **-100** reward and episode termination
 - Test: Going STRAIGHT+GAS hits first curve at ~step 250 → -100 penalty → terminated
-- **Critical**: Without reward shaping, single mistakes wipe out 100+ frames of progress
-
-### Reward Shaping Wrapper
-The `RewardShaping` wrapper (enabled by default) clips extreme negative rewards:
-- Raw off-track penalty: **-100.00**
-- Clipped penalty: **-5.00**
-- This prevents catastrophic punishment for single mistakes while maintaining negative feedback
-- Essential for stable learning and encouraging exploration
+- **Design Decision**: The agent receives the full -100 penalty (no reward clipping)
+  - This harsh penalty teaches the agent that going off-track is catastrophic
+  - Reward shaping would weaken this signal and make the agent think off-track is "okay"
+  - The natural reward structure is sufficient for learning
 
 ### Stationary Car Early Termination
 
@@ -264,7 +262,7 @@ python inspect_checkpoint.py checkpoints/final_model.pt
 - **Breakout**: Simple sparse rewards (brick destroyed = +1, ball lost = 0)
 - **CarRacing**: Dense rewards (continuous progress tracking, time penalties)
   - Requires different hyperparameter tuning (gamma, reward scaling)
-  - May need reward shaping to encourage exploration
+  - Uses raw environment rewards without shaping
 
 ### State Preprocessing
 - **Breakout**: Grayscale conversion, resize to 84×84
@@ -288,7 +286,7 @@ python inspect_checkpoint.py checkpoints/final_model.pt
 
 ### CarRacing-Specific Challenges
 1. **Sparse Exploration**: Agent must learn to stay on track before learning to race
-   - Consider reward shaping to encourage staying on track
+   - The harsh -100 off-track penalty provides strong learning signal
    - May need longer training than Breakout
 2. **Action Coordination**: Steering + gas must be coordinated
    - Poor discretization can lead to jerky, unstable control
@@ -321,7 +319,7 @@ python inspect_checkpoint.py checkpoints/final_model.pt
 1. Initial training runs to establish baseline
 2. Hyperparameter tuning (learning rate, epsilon decay, etc.)
 3. Experiment with DDQN vs DQN
-4. Reward shaping if needed
+4. Monitor learning with raw environment rewards
 
 ### Phase 4: Advanced Improvements
 1. Optimize action discretization based on results
