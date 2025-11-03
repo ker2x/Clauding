@@ -16,6 +16,9 @@ Usage:
     # Custom configuration
     python train.py --episodes 2000 --learning-starts 10000
 
+    # Force CPU-only mode (useful if CPU is faster than MPS)
+    python train.py --device cpu
+
     # Resume from checkpoint
     python train.py --resume checkpoints/final_model.pt --episodes 1000
 
@@ -81,6 +84,10 @@ def parse_args():
                         help='Directory to save checkpoints (default: checkpoints)')
     parser.add_argument('--log-dir', type=str, default='logs',
                         help='Directory to save logs (default: logs)')
+
+    # Device selection
+    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda', 'mps'],
+                        help='Device to use for training: auto (default), cpu, cuda, or mps')
 
     return parser.parse_args()
 
@@ -208,7 +215,8 @@ def train(args):
         buffer_size=args.buffer_size,
         batch_size=args.batch_size,
         target_update_freq=args.target_update_freq,
-        state_mode=args.state_mode
+        state_mode=args.state_mode,
+        device=args.device
     )
 
     # Resume from checkpoint if specified
