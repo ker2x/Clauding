@@ -43,17 +43,24 @@ def check_imports():
 
 
 def check_pytorch():
-    """Check PyTorch and CUDA availability"""
+    """Check PyTorch and CUDA/MPS availability"""
     print("Checking PyTorch configuration...")
     import torch
 
     print(f"  PyTorch version: {torch.__version__}")
     print(f"  CUDA available: {torch.cuda.is_available()}")
 
+    # Check for MPS (Apple Silicon)
+    has_mps = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+    if has_mps:
+        print(f"  MPS (Apple Silicon) available: True")
+
     if torch.cuda.is_available():
         print(f"  CUDA version: {torch.version.cuda}")
         print(f"  GPU device: {torch.cuda.get_device_name(0)}")
-        print("\n✅ GPU training available! Training will be much faster.\n")
+        print("\n✅ GPU training available (CUDA)! Training will be much faster.\n")
+    elif has_mps:
+        print("\n✅ GPU training available (Apple Silicon MPS)! Training will be accelerated.\n")
     else:
         print("\n⚠️  GPU not available. Training will be slow on CPU.")
         print("   Consider using Google Colab for free GPU access.\n")

@@ -42,9 +42,16 @@ def visualize_preprocessing(env_name='ALE/Breakout-v5', num_steps=10):
     processed_obs, _ = processed_env.reset(seed=seed)
 
     # Take a few random steps to get interesting frames
+    # Sample from processed_env since it has fewer actions (3 vs 4)
     for _ in range(num_steps):
-        action = raw_env.action_space.sample()
-        raw_obs, _, terminated, truncated, _ = raw_env.step(action)
+        action = processed_env.action_space.sample()
+        # Map processed action back to raw action space
+        # Processed: 0=NOOP, 1=RIGHT, 2=LEFT
+        # Raw: 0=NOOP, 1=FIRE, 2=RIGHT, 3=LEFT
+        raw_action_mapping = {0: 0, 1: 2, 2: 3}
+        raw_action = raw_action_mapping[action]
+
+        raw_obs, _, terminated, truncated, _ = raw_env.step(raw_action)
         processed_obs, _, terminated2, truncated2, _ = processed_env.step(action)
 
         if terminated or truncated:

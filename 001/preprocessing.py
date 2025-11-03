@@ -94,6 +94,73 @@ class AtariPreprocessing(gym.Wrapper):
         return self.env.render()
 
 
+class FireResetWrapper(gym.Wrapper):
+    """
+    Take action FIRE on reset and after losing a life.
+
+    Many Atari games like Breakout require pressing FIRE to:
+    1. Start the game at the beginning
+    2. Launch the ball after losing a life
+
+    Without this, the ball never launches and the game stays frozen.
+    """
+    def __init__(self, env):
+        super().__init__(env)
+        assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
+        self.lives = 0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        # Take FIRE action to start the game
+        obs, _, _, _, _ = self.env.step(1)  # Action 1 is FIRE
+        self.lives = self.env.unwrapped.ale.lives()
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Check if we lost a life
+        current_lives = self.env.unwrapped.ale.lives()
+        if current_lives < self.lives and current_lives > 0:
+            # Lost a life but game not over - need to fire again
+            self.lives = current_lives
+            # Take FIRE action to launch the ball
+            obs, _, _, _, _ = self.env.step(1)
+
+        return obs, reward, terminated, truncated, info
+
+
+class NoopFireLeftRightActions(gym.Wrapper):
+    """
+    Simplify action space to only NOOP, LEFT, RIGHT (remove FIRE).
+
+    Since FireResetWrapper automatically handles FIRE, the agent doesn't need it.
+    This simplifies learning by reducing the action space from 4 to 3 actions.
+
+    Original Breakout actions: [NOOP, FIRE, RIGHT, LEFT]
+    Simplified actions: [NOOP, RIGHT, LEFT]
+
+    Agent selects 0, 1, or 2 → maps to env actions 0, 2, 3
+    """
+    def __init__(self, env):
+        super().__init__(env)
+        # Verify original action space
+        assert env.action_space.n == 4
+        # Create simplified action space (3 actions instead of 4)
+        self.action_space = gym.spaces.Discrete(3)
+        # Mapping: agent_action -> env_action
+        self.action_mapping = {
+            0: 0,  # NOOP -> NOOP
+            1: 2,  # RIGHT -> RIGHT
+            2: 3,  # LEFT -> LEFT
+        }
+
+    def step(self, action):
+        # Map simplified action to original action
+        env_action = self.action_mapping[action]
+        return self.env.step(env_action)
+
+
 class RewardClipping(gym.Wrapper):
     """
     Clip rewards to {-1, 0, +1}
@@ -123,6 +190,12 @@ def make_atari_env(env_name='ALE/Breakout-v5', frame_stack=4, clip_rewards=True)
     """
     # Create base environment
     env = gym.make(env_name, render_mode='rgb_array')
+
+    # Apply FIRE on reset and after losing lives (needed for Breakout)
+    env = FireResetWrapper(env)
+
+    # Simplify action space: remove FIRE, keep only NOOP/LEFT/RIGHT
+    env = NoopFireLeftRightActions(env)
 
     # Apply preprocessing
     env = AtariPreprocessing(env, frame_stack=frame_stack)

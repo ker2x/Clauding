@@ -41,11 +41,15 @@ The agent uses two neural networks (policy and target) to learn Q-values:
 Key concept: The Bellman equation `Q(s,a) = r + γ * max Q(s',a')` drives learning through MSE loss between current and target Q-values.
 
 ### Preprocessing (`preprocessing.py`)
-Atari frames undergo standard preprocessing:
-1. RGB (210×160×3) → Grayscale (210×160)
-2. Resize to 84×84 (reduces computation ~84%)
-3. Stack 4 frames → (4, 84, 84) to capture motion/velocity
-4. Optional reward clipping to {-1, 0, +1}
+Atari frames undergo standard preprocessing plus game-specific wrappers:
+1. **FireResetWrapper**: Auto-fires at game start and after losing lives (Breakout requires FIRE to launch ball)
+2. **NoopFireLeftRightActions**: Simplifies action space from 4→3 actions (removes FIRE, keeps NOOP/RIGHT/LEFT)
+3. RGB (210×160×3) → Grayscale (210×160)
+4. Resize to 84×84 (reduces computation ~84%)
+5. Stack 4 frames → (4, 84, 84) to capture motion/velocity
+6. Optional reward clipping to {-1, 0, +1}
+
+**Action Space**: The agent learns with 3 actions (NOOP, RIGHT, LEFT). FIRE is handled automatically by the wrapper.
 
 ### Training Loop (`train.py`)
 1. Collect experiences by playing with epsilon-greedy policy
@@ -98,6 +102,9 @@ python watch_agent.py --checkpoint checkpoints/final_model.pt
 
 # Watch specific checkpoint for 3 episodes
 python watch_agent.py --checkpoint checkpoints/checkpoint_ep1000.pt --episodes 3
+
+# Watch random agent (test game mechanics)
+python watch_random_agent.py --episodes 3
 
 # Inspect checkpoint details (steps, epsilon, recommendations)
 python inspect_checkpoint.py checkpoints/final_model.pt
@@ -186,6 +193,7 @@ Checkpoints store:
 ├── train.py                       # Main training script
 ├── train_fast_decay.py            # Alternative training with faster epsilon decay
 ├── watch_agent.py                 # Visualize trained agent
+├── watch_random_agent.py          # Test game mechanics with random actions
 ├── test_setup.py                  # Verify installation
 ├── inspect_checkpoint.py          # Inspect saved models
 ├── visualize_preprocessing.py     # Visualize preprocessing pipeline
@@ -267,6 +275,26 @@ loss = (current_Q - target_Q)²
 
 ### Gradient Clipping
 Clips gradients to max norm of 10 to prevent exploding gradients during training.
+
+### Game-Specific Wrappers
+
+#### FireResetWrapper
+Atari Breakout requires pressing FIRE to launch the ball at game start and after losing each life. Without this, the game stays frozen. This wrapper:
+- Automatically presses FIRE on episode reset
+- Tracks lives and auto-presses FIRE whenever a life is lost
+- Ensures continuous gameplay without manual intervention
+
+#### NoopFireLeftRightActions
+The original Breakout action space has 4 actions: NOOP, FIRE, RIGHT, LEFT. Since FireResetWrapper handles FIRE automatically, the agent doesn't need to learn when to press it. This wrapper:
+- Simplifies action space from 4→3 actions (removes FIRE)
+- Maps agent actions: 0→NOOP, 1→RIGHT, 2→LEFT
+- Reduces learning complexity (agent focuses on paddle movement only)
+- Makes training more efficient by removing an unnecessary action
+
+**Why this matters**: Without these wrappers, agents often learn suboptimal policies (e.g., constantly pressing FIRE even when unnecessary) or fail to progress through lives.
+
+### Rendering on macOS
+The codebase uses OpenCV (`cv2.imshow`) instead of pygame for rendering because pygame's `render_mode='human'` can freeze on macOS. The scripts use `render_mode='rgb_array'` and manually display frames with OpenCV, providing reliable cross-platform visualization.
 
 ## Development Considerations
 
