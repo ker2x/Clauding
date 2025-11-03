@@ -230,57 +230,6 @@ class FrameStack(gym.Wrapper):
         return np.stack(self.frames, axis=0)
 
 
-class StationaryCarTerminator(gym.Wrapper):
-    """
-    Terminates episodes early if the car is stationary for too long.
-
-    Problem: Agents can learn to brake and sit still to avoid negative rewards
-    from going off-track. This wastes compute time and prevents exploration.
-
-    Solution: Track car progress. If no positive rewards (no new tiles visited)
-    for a certain number of frames, terminate the episode early.
-    """
-
-    def __init__(self, env, patience=100, min_steps=50):
-        """
-        Args:
-            env: The environment to wrap
-            patience: Number of frames without progress before terminating (default: 100)
-            min_steps: Minimum steps before early termination is allowed (default: 50)
-        """
-        super().__init__(env)
-        self.patience = patience
-        self.min_steps = min_steps
-        self.frames_since_progress = 0
-        self.total_steps = 0
-
-    def reset(self, **kwargs):
-        """Reset counters on episode reset."""
-        self.frames_since_progress = 0
-        self.total_steps = 0
-        return self.env.reset(**kwargs)
-
-    def step(self, action):
-        """Track progress and terminate if car is stationary."""
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        self.total_steps += 1
-
-        # Check if car made progress (positive reward = visited new tile)
-        if reward > 0:
-            self.frames_since_progress = 0
-        else:
-            self.frames_since_progress += 1
-
-        # Terminate early if:
-        # 1. We've taken enough steps (min_steps)
-        # 2. No progress for 'patience' frames
-        if self.total_steps >= self.min_steps and self.frames_since_progress >= self.patience:
-            truncated = True
-            info['stationary_termination'] = True
-
-        return obs, reward, terminated, truncated, info
-
-
 def make_carracing_env(
     stack_size=4,
     discretize_actions=True,
@@ -288,6 +237,7 @@ def make_carracing_env(
     gas_brake_bins=3,
     terminate_stationary=True,
     stationary_patience=100,
+    stationary_min_steps=50,
     render_mode=None
 ) -> gym.Env:
     """
@@ -300,20 +250,25 @@ def make_carracing_env(
         gas_brake_bins: Number of discrete gas/brake combinations (default: 3)
         terminate_stationary: Terminate early if car is stationary (default: True)
         stationary_patience: Frames without progress before termination (default: 100)
+        stationary_min_steps: Minimum steps before early termination allowed (default: 50)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
 
     Returns:
         Wrapped environment ready for DQN training
     """
     # Create base environment using local CarRacing class (native 96x96 resolution)
-    env = CarRacing(render_mode=render_mode, continuous=True)
+    # Stationary car termination is now a core feature of the environment
+    env = CarRacing(
+        render_mode=render_mode,
+        continuous=True,
+        terminate_stationary=terminate_stationary,
+        stationary_patience=stationary_patience,
+        stationary_min_steps=stationary_min_steps
+    )
 
     # Apply wrappers in order
     if discretize_actions:
         env = ActionDiscretizer(env, steering_bins=steering_bins, gas_brake_bins=gas_brake_bins)
-
-    if terminate_stationary:
-        env = StationaryCarTerminator(env, patience=stationary_patience)
 
     # Frame preprocessing (native 96x96, no resize needed)
     env = GrayscaleWrapper(env)
@@ -333,9 +288,16 @@ if __name__ == "__main__":
     print(f"Original CarRacing action space: [steering, gas, brake]")
     print(f"Discretized action space: {env.action_space}")
     print(f"Number of discrete actions: {env.action_space.n}")
+
+    # Find the ActionDiscretizer wrapper to get action meanings
     print(f"\nAction meanings:")
-    for i, meaning in enumerate(env.unwrapped.get_action_meanings()):
-        print(f"  {i}: {meaning}")
+    current_env = env
+    while current_env:
+        if isinstance(current_env, ActionDiscretizer):
+            for i, meaning in enumerate(current_env.get_action_meanings()):
+                print(f"  {i}: {meaning}")
+            break
+        current_env = getattr(current_env, 'env', None)
 
     print(f"\nObservation space: {env.observation_space}")
     print(f"Expected shape: (4, 96, 96) for 4 stacked 96×96 grayscale frames")

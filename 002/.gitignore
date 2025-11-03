@@ -13,6 +13,9 @@ venv/
 .venv/
 ENV/
 
+# EXCEPTION: Track our custom env/ directory (local CarRacing environment)
+!env/
+
 # IDEs
 .vscode/
 .idea/

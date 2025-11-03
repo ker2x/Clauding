@@ -95,7 +95,29 @@ If you see `Steps: 0` in training output and no loss values, this fix may not be
 
 **Bug Fixes**:
 1. The DQN network had hardcoded conv output size for 84×84 input. This caused shape mismatch errors with 96×96 input. Fixed by updating the conv output calculation.
-2. **[2025-11-03 LATEST]** `train.py` was passing invalid `frame_size=(96, 96)` parameter to `make_carracing_env()`. The function doesn't accept this parameter since it uses native 96×96 resolution. Fixed by removing the parameter.
+2. `train.py` was passing invalid `frame_size=(96, 96)` parameter to `make_carracing_env()`. The function doesn't accept this parameter since it uses native 96×96 resolution. Fixed by removing the parameter.
+
+### Stationary Car Termination as Core Feature
+**Changed from**: Preprocessing wrapper (`StationaryCarTerminator`)
+**Changed to**: Built-in CarRacing environment feature (2025-11-03)
+
+**Rationale**:
+- Stationary car termination is a fundamental environment behavior, not preprocessing
+- Cleaner architecture: core behavior belongs in the environment itself
+- Easier to maintain and test
+- More discoverable for users of the environment
+
+**Implementation Changes**:
+- **[2025-11-03 LATEST]** Moved stationary car termination logic from `StationaryCarTerminator` wrapper to `CarRacing` class
+- Added `terminate_stationary`, `stationary_patience`, `stationary_min_steps` parameters to `CarRacing.__init__()`
+- Removed `StationaryCarTerminator` wrapper from `preprocessing.py`
+- Updated `make_carracing_env()` to pass parameters to `CarRacing` constructor
+- Added comprehensive test suite: `test_stationary_termination.py`
+
+**Testing**:
+- All tests pass (stationary termination, normal movement, disable feature)
+- Training script verified to work correctly with new implementation
+- Preprocessing test updated and passes
 
 ### Unified Environment Configuration
 **Changed from**: Separate training and evaluation environments
@@ -137,25 +159,33 @@ CarRacing-v3 has the following reward structure:
 
 ### Stationary Car Early Termination
 
-**IMPLEMENTED**: `StationaryCarTerminator` wrapper (2025-11-03)
+**IMPLEMENTED**: Core environment feature (2025-11-03)
 
 **Problem**: Early in training, agents often learn to brake/coast and sit still to avoid off-track penalties. This wastes ~80% of episode time (900+ frames) on a stationary car.
 
-**Solution**: The `StationaryCarTerminator` wrapper tracks progress and terminates episodes early:
+**Solution**: Stationary car termination is now a **core feature** of the CarRacing environment itself:
 - Monitors positive rewards (new tiles visited)
 - If no progress for 100 frames (configurable), episode terminates
 - Minimum 50 steps before early termination can trigger
+- Implemented directly in `env/car_racing.py`, not as a preprocessing wrapper
 
 **Performance Impact**:
 - Episodes with early termination: ~300 steps/episode (vs 1000 before) → **3x speedup**
 - Episodes complete faster, allowing more training iterations per hour
 
 **Implementation**:
-- **UNIFIED ENVIRONMENT**: Both training and evaluation use `terminate_stationary=True`
-- Early termination is part of the environment design, not just a training shortcut
+- Built into the `CarRacing` class in `env/car_racing.py`
+- Parameters: `terminate_stationary=True`, `stationary_patience=100`, `stationary_min_steps=50`
+- **UNIFIED ENVIRONMENT**: Both training and evaluation use the same environment configuration
+- Early termination is part of the environment design, not a training shortcut
 - All episodes (training, evaluation, watching) use consistent environment behavior
-- Configurable via `make_carracing_env(terminate_stationary=True, stationary_patience=100)`
+- Configurable via `CarRacing(terminate_stationary=True, stationary_patience=100, stationary_min_steps=50)`
+- Can be disabled by setting `terminate_stationary=False`
 - Progress output during evaluation shows each episode's reward in real-time
+
+**Testing**:
+- Comprehensive test suite in `test_stationary_termination.py`
+- Verifies termination when stationary, no termination during movement, and ability to disable
 
 ## Environment Setup
 
