@@ -231,7 +231,13 @@ class CarRacing(gym.Env, EzPickle):
         terminate_stationary: bool = True,
         stationary_patience: int = 100,
         stationary_min_steps: int = 50,
+        state_mode: str = "visual",
     ):
+        """
+        Args:
+            state_mode: "visual" (96x96 RGB images) or "vector" (car state vector).
+                        Vector mode is 3-5x faster for training.
+        """
         EzPickle.__init__(
             self,
             render_mode,
@@ -242,6 +248,7 @@ class CarRacing(gym.Env, EzPickle):
             terminate_stationary,
             stationary_patience,
             stationary_min_steps,
+            state_mode,
         )
         self.continuous = continuous
         self.domain_randomize = domain_randomize
@@ -249,6 +256,7 @@ class CarRacing(gym.Env, EzPickle):
         self.terminate_stationary = terminate_stationary
         self.stationary_patience = stationary_patience
         self.stationary_min_steps = stationary_min_steps
+        self.state_mode = state_mode
         self._init_colors()
 
         self.contactListener_keepref = FrictionDetector(self, self.lap_complete_percent)
@@ -280,9 +288,18 @@ class CarRacing(gym.Env, EzPickle):
             self.action_space = spaces.Discrete(5)
             # do nothing, right, left, gas, brake
 
-        self.observation_space = spaces.Box(
-            low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8
-        )
+        # Observation space depends on state_mode
+        if self.state_mode == "vector":
+            # Vector state: [x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress]
+            # 11 values total
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(11,), dtype=np.float32
+            )
+        else:
+            # Visual state: 96x96 RGB image
+            self.observation_space = spaces.Box(
+                low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8
+            )
 
         self.render_mode = render_mode
 
@@ -584,11 +601,15 @@ class CarRacing(gym.Env, EzPickle):
         self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
         self.t += 1.0 / FPS
 
-        # OPTIMIZATION: Only render if we have a render mode that requires it
-        if self.render_mode is not None:
+        # Create state based on state_mode
+        if self.state_mode == "vector":
+            # Fast vector state (no rendering)
+            self.state = self._create_vector_state()
+        elif self.render_mode is not None:
+            # Visual state with rendering
             self.state = self._render("state_pixels")
         else:
-            # Headless mode: create minimal state without rendering
+            # Headless visual mode: create minimal state without rendering
             self.state = self._create_headless_state()
 
         step_reward = 0
@@ -693,6 +714,48 @@ class CarRacing(gym.Env, EzPickle):
         pygame.display.flip()
 
         return agent_view
+
+    def _create_vector_state(self):
+        """
+        Create vector state representation (fast, no rendering).
+
+        Returns 11-dimensional state vector:
+        - x, y: car position (normalized by PLAYFIELD)
+        - vx, vy: car velocity
+        - angle: car angle (normalized by 2*pi)
+        - angular_vel: car angular velocity
+        - wheel_contacts: 4 binary values (1 if wheel on track, 0 if off)
+        - track_progress: fraction of track completed (0 to 1)
+        """
+        assert self.car is not None
+
+        # Normalize position by playfield size
+        x = self.car.hull.position[0] / PLAYFIELD
+        y = self.car.hull.position[1] / PLAYFIELD
+
+        # Velocity (already reasonable scale)
+        vx = self.car.hull.linearVelocity[0]
+        vy = self.car.hull.linearVelocity[1]
+
+        # Normalize angle to [-1, 1]
+        angle = self.car.hull.angle / (2 * np.pi)
+
+        # Angular velocity
+        angular_vel = self.car.hull.angularVelocity
+
+        # Wheel contacts (1 if on track, 0 if off)
+        wheel_contacts = [1.0 if len(wheel.tiles) > 0 else 0.0 for wheel in self.car.wheels]
+
+        # Track progress
+        track_progress = self.tile_visited_count / len(self.track) if len(self.track) > 0 else 0.0
+
+        state = np.array([
+            x, y, vx, vy, angle, angular_vel,
+            wheel_contacts[0], wheel_contacts[1], wheel_contacts[2], wheel_contacts[3],
+            track_progress
+        ], dtype=np.float32)
+
+        return state
 
     def _create_headless_state(self):
         """

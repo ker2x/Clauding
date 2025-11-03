@@ -91,6 +91,7 @@ def render_frame(frame, episode, step, reward, total_reward, action_meaning):
 def watch_random_agent(args):
     """Watch random agent play episodes."""
     # Create environment with rendering
+    # ALWAYS use visual mode for watching
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
@@ -98,7 +99,8 @@ def watch_random_agent(args):
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
         terminate_stationary=False,  # Full episodes for watching
-        render_mode=render_mode
+        render_mode=render_mode,
+        state_mode='visual'  # Always use visual mode for watching
     )
 
     n_actions = env.action_space.n

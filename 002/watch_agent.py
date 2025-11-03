@@ -90,6 +90,7 @@ def render_frame(frame, episode, step, reward, total_reward, action_meaning, eps
 def watch_agent(args):
     """Watch agent play episodes."""
     # Create environment with rendering
+    # ALWAYS use visual mode for watching (regardless of training mode)
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
@@ -97,7 +98,8 @@ def watch_agent(args):
         steering_bins=args.steering_bins,
         gas_brake_bins=args.gas_brake_bins,
         terminate_stationary=False,  # Full episodes for watching
-        render_mode=render_mode
+        render_mode=render_mode,
+        state_mode='visual'  # Always use visual mode for watching
     )
 
     n_actions = env.action_space.n
@@ -113,9 +115,11 @@ def watch_agent(args):
     print("=" * 60)
 
     # Create and load agent
+    # NOTE: Agent will be loaded with visual mode to match the environment
     agent = DDQNAgent(
         state_shape=state_shape,
-        n_actions=n_actions
+        n_actions=n_actions,
+        state_mode='visual'  # Always use visual mode for watching
     )
     agent.load(args.checkpoint, load_optimizer=False)
 

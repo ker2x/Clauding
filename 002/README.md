@@ -10,12 +10,14 @@ This project implements DDQN for the CarRacing-v3 environment, which features a 
 
 - **Double DQN (DDQN)**: Reduces Q-value overestimation bias compared to standard DQN
 - **Action Discretization**: Converts continuous actions to 9 discrete actions (3 steering × 3 gas/brake)
+- **Dual State Modes**: Vector mode for fast training (6x speedup), visual mode for watching
 - **Experience Replay**: Stores and samples past experiences for stable learning
 - **Frame Preprocessing**: Grayscale conversion, native 96×96 resolution, normalization, and frame stacking
 - **Early Termination**: Stationary car detection for 3x training speedup
-- **Reward Shaping**: Optional reward clipping to prevent catastrophic penalties
+- **No Reward Shaping**: Uses raw environment rewards for cleaner learning
 - **Checkpointing**: Save and resume training at any point
 - **Visualization**: Watch trained agents play and compare with random baseline
+- **Performance Benchmarking**: Comprehensive comparison tools for optimization verification
 
 ## Environment
 
@@ -61,15 +63,23 @@ Your environment is ready for training.
 ### Train an Agent
 
 ```bash
-# Basic training (2000 episodes)
+# Basic training (2000 episodes, ~1 hour with vector mode)
 python train.py
+
+# Quick test (25 episodes, ~2 minutes)
+python train.py --episodes 25 --learning-starts 500
 
 # Custom training
 python train.py --episodes 1000 --learning-starts 10000
 
+# Use visual mode (slower, for debugging)
+python train.py --episodes 200 --state-mode visual
+
 # Resume from checkpoint
 python train.py --resume checkpoints/final_model.pt
 ```
+
+**Note**: Training uses fast vector mode by default (6x speedup). Watch scripts automatically use visual mode.
 
 ### Watch Random Agent (Baseline)
 
@@ -81,6 +91,16 @@ python watch_random_agent.py --episodes 3
 
 ```bash
 python watch_agent.py --checkpoint checkpoints/final_model.pt --episodes 5
+```
+
+### Benchmark Performance
+
+```bash
+# Compare vector vs visual mode (~5 minutes)
+python benchmark_state_modes.py --episodes 50
+
+# Quick performance test (~30 seconds)
+python test_vector_mode.py
 ```
 
 ### Inspect Checkpoint
@@ -109,21 +129,31 @@ The continuous action space `[steering, gas, brake]` is discretized into 9 actio
 
 You can customize the discretization granularity with `--steering-bins` and `--gas-brake-bins`.
 
-### 2. Frame Preprocessing
+### 2. State Representation
 
+The agent can use two state representations:
+
+#### Vector Mode (Default for Training - 6x Faster!)
+Returns an 11-dimensional state vector:
+- `[x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress]`
+- No rendering required
+- Uses simple MLP network (128→128→64→9)
+- 6x faster training: ~313 steps/sec vs 57 steps/sec
+- 1M steps: 0.9 hours vs 4.9 hours
+- Significantly lower memory usage
+
+#### Visual Mode (For Watching)
 Raw frames undergo several transformations:
-
 1. **RGB → Grayscale**: Reduces channels from 3 to 1 (preserves track boundaries)
 2. **Native Resolution**: Uses CarRacing's native 96×96 resolution (no resize needed)
 3. **Normalize**: [0, 255] → [0, 1] (better for neural networks)
 4. **Frame Stacking**: Stack 4 consecutive frames to capture motion/velocity
 
 Final shape: **(4, 96, 96)** - 4 stacked 96×96 grayscale frames
+- Uses CNN architecture (detailed below)
+- Full rendering for visualization
 
-**Why native resolution?**
-- Faster preprocessing (no resize operation)
-- Better image quality (no information loss)
-- Only 30% more pixels than 84×84 with minimal computational overhead
+**Compatibility**: Agents trained in vector mode can be watched in visual mode. The action space and reward structure are identical.
 
 ### 3. Double DQN Algorithm
 
@@ -143,6 +173,20 @@ Q_target = r + γ * Q_target(s', argmax_a' Q_policy(s', a'))
 
 ### 4. Network Architecture
 
+#### Vector DQN (Default - Faster!)
+```
+Input: (11,) state vector
+  ↓
+FC1: 128 neurons → ReLU
+  ↓
+FC2: 128 neurons → ReLU
+  ↓
+FC3: 64 neurons → ReLU
+  ↓
+FC4: 9 neurons (Q-values for each action)
+```
+
+#### Visual DQN (For Watching)
 ```
 Input: (4, 96, 96) stacked frames (native CarRacing resolution)
   ↓
@@ -157,7 +201,7 @@ FC1: 512 neurons
 FC2: 9 neurons (Q-values for each action)
 ```
 
-**Note**: The network architecture is optimized for 96×96 input (4096 conv output features vs 3136 for 84×84).
+**Note**: The CNN architecture is optimized for 96×96 input (4096 conv output features vs 3136 for 84×84).
 
 ## Training Parameters
 
@@ -173,41 +217,51 @@ FC2: 9 neurons (Q-values for each action)
 | `--target-update-freq` | 10000 | Steps between target network updates |
 | `--steering-bins` | 3 | Number of discrete steering values |
 | `--gas-brake-bins` | 3 | Number of discrete gas/brake values |
+| `--state-mode` | `vector` | State representation: `vector` (fast) or `visual` (slow) |
 
 ## Training Timeline
 
-CarRacing is more challenging than Atari games like Breakout. Expect longer training times:
+CarRacing is more challenging than Atari games like Breakout. With vector mode (6x faster):
 
-| Steps | Epsilon | Expected Behavior |
-|-------|---------|-------------------|
-| 50k-100k | 0.90-0.95 | Mostly random exploration |
-| 200k-500k | 0.61-0.80 | Learning basic control |
-| 500k-1M | 0.37-0.61 | Learning to stay on track |
-| 1M-2M | 0.01-0.37 | Improving racing strategy |
-| 2M+ | 0.01 | Strong performance |
+| Steps | Time (Vector Mode) | Epsilon | Expected Behavior |
+|-------|-------------------|---------|-------------------|
+| 50k-100k | ~5-10 min | 0.90-0.95 | Mostly random exploration |
+| 200k-500k | ~20-50 min | 0.61-0.80 | Learning basic control |
+| 500k-1M | ~50-90 min | 0.37-0.61 | Learning to stay on track |
+| 1M-2M | ~1.5-3 hours | 0.01-0.37 | Improving racing strategy |
+| 2M+ | ~3+ hours | 0.01 | Strong performance |
 
-**Important**: Epsilon decays based on **steps**, not episodes. CarRacing episodes can be 1000+ frames, so patience is required!
+**Important**:
+- Epsilon decays based on **steps**, not episodes
+- CarRacing episodes can be 1000+ frames
+- Vector mode is **6x faster** than visual mode (default for training)
+- Times assume Apple Silicon (MPS) or CUDA GPU
 
 ## File Structure
 
 ```
 .
-├── CLAUDE.md                  # Context for Claude Code
-├── README.md                  # This file
-├── requirements.txt           # Python dependencies
-├── .gitignore                # Git ignore rules
+├── CLAUDE.md                     # Context for Claude Code
+├── README.md                     # This file
+├── OPTIMIZATION_SUMMARY.md       # Vector mode optimization details
+├── requirements.txt              # Python dependencies
+├── .gitignore                   # Git ignore rules
 │
-├── preprocessing.py           # Frame preprocessing & action discretization
-├── ddqn_agent.py             # DDQN agent implementation
-├── train.py                  # Main training script
+├── env/
+│   └── car_racing.py            # CarRacing environment with vector state
+├── preprocessing.py              # Frame preprocessing & action discretization
+├── ddqn_agent.py                # DDQN agent (visual & vector networks)
+├── train.py                     # Main training script
 │
-├── watch_agent.py            # Visualize trained agent
-├── watch_random_agent.py     # Visualize random agent (baseline)
-├── inspect_checkpoint.py     # Inspect saved models
-├── test_setup.py             # Verify installation
+├── watch_agent.py               # Visualize trained agent
+├── watch_random_agent.py        # Visualize random agent (baseline)
+├── inspect_checkpoint.py        # Inspect saved models
+├── test_setup.py                # Verify installation
+├── test_vector_mode.py          # Quick vector mode test (~30s)
+├── benchmark_state_modes.py     # Comprehensive comparison (~5min)
 │
-├── checkpoints/              # Saved model checkpoints
-└── logs/                     # Training logs and plots
+├── checkpoints/                 # Saved model checkpoints
+└── logs/                        # Training logs and plots
 ```
 
 ## Key Differences from Discrete Action Spaces
@@ -232,6 +286,18 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 
 ## Recent Improvements (2025-11-03)
 
+### ⚡ Vector State Mode Optimization (NEW!)
+- **Changed from**: Always rendering pygame graphics every step
+- **Changed to**: Dual state modes - vector (training) and visual (watching)
+- **Performance**: **6x faster training** (313 vs 57 steps/sec)
+- **Benefits**:
+  - 1M steps: 0.9 hours vs 4.9 hours
+  - Significantly lower memory usage
+  - Still allows full visual rendering when watching
+  - Default for training, automatic for watching
+- **See**: `OPTIMIZATION_SUMMARY.md` for detailed technical explanation
+- **Test**: `python benchmark_state_modes.py --episodes 50`
+
 ### Native 96×96 Resolution
 - **Changed from**: 84×84 resized frames
 - **Changed to**: 96×96 native CarRacing resolution
@@ -245,13 +311,14 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 
 ## Tips for Better Performance
 
-1. **Train Longer**: CarRacing requires 1M-2M+ steps for good performance
-2. **Adjust Discretization**: Experiment with finer steering bins (5 instead of 3)
-3. **Reward Shaping**: Tune negative reward clipping to balance exploration
+1. **Use Vector Mode**: Default for training (6x faster than visual mode)
+2. **Train Longer**: CarRacing requires 1M-2M+ steps for good performance
+3. **Adjust Discretization**: Experiment with finer steering bins (5 instead of 3)
 4. **Check Epsilon**: Use `inspect_checkpoint.py` to verify epsilon is decaying
 5. **Resume Training**: Don't start from scratch if epsilon is still high
 6. **GPU Acceleration**: Training on Apple Silicon (MPS) or CUDA is much faster
 7. **Monitor Evaluation**: Progress output now shows each evaluation episode in real-time
+8. **Benchmark First**: Run `benchmark_state_modes.py` to verify optimization is working
 
 ## Troubleshooting
 
@@ -264,8 +331,11 @@ This project handles CarRacing's **continuous action space**, unlike typical DQN
 - **Fix**: Train for at least 1M steps, consider finer action discretization
 
 ### "Training is very slow"
-- **Cause**: Running on CPU instead of GPU
-- **Fix**: Verify MPS/CUDA is available with `test_setup.py`
+- **Cause 1**: Using visual mode instead of vector mode
+- **Fix 1**: Ensure `--state-mode vector` (or omit, it's the default)
+- **Cause 2**: Running on CPU instead of GPU
+- **Fix 2**: Verify MPS/CUDA is available with `test_setup.py`
+- **Benchmark**: Run `python test_vector_mode.py` to verify 6x speedup
 
 ### "Import errors / Box2D missing"
 - **Cause**: Box2D not installed

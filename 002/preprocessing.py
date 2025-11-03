@@ -238,13 +238,14 @@ def make_carracing_env(
     terminate_stationary=True,
     stationary_patience=100,
     stationary_min_steps=50,
-    render_mode=None
+    render_mode=None,
+    state_mode="visual"
 ) -> gym.Env:
     """
     Creates a preprocessed CarRacing-v3 environment for DQN training.
 
     Args:
-        stack_size: Number of frames to stack (default: 4)
+        stack_size: Number of frames to stack (default: 4) - only used in visual mode
         discretize_actions: Whether to discretize the action space (default: True)
         steering_bins: Number of discrete steering values (default: 3)
         gas_brake_bins: Number of discrete gas/brake combinations (default: 3)
@@ -252,6 +253,7 @@ def make_carracing_env(
         stationary_patience: Frames without progress before termination (default: 100)
         stationary_min_steps: Minimum steps before early termination allowed (default: 50)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
+        state_mode: 'visual' (images) or 'vector' (state vector) - vector is 3-5x faster
 
     Returns:
         Wrapped environment ready for DQN training
@@ -263,19 +265,22 @@ def make_carracing_env(
         continuous=True,
         terminate_stationary=terminate_stationary,
         stationary_patience=stationary_patience,
-        stationary_min_steps=stationary_min_steps
+        stationary_min_steps=stationary_min_steps,
+        state_mode=state_mode
     )
 
     # Apply wrappers in order
     if discretize_actions:
         env = ActionDiscretizer(env, steering_bins=steering_bins, gas_brake_bins=gas_brake_bins)
 
-    # Frame preprocessing (native 96x96, no resize needed)
-    env = GrayscaleWrapper(env)
-    env = NormalizeObservation(env)
+    # Only apply visual preprocessing in visual mode
+    if state_mode == "visual":
+        # Frame preprocessing (native 96x96, no resize needed)
+        env = GrayscaleWrapper(env)
+        env = NormalizeObservation(env)
 
-    # Frame stacking (must be last to stack preprocessed frames)
-    env = FrameStack(env, stack_size=stack_size)
+        # Frame stacking (must be last to stack preprocessed frames)
+        env = FrameStack(env, stack_size=stack_size)
 
     return env
 

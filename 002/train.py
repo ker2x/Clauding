@@ -67,6 +67,8 @@ def parse_args():
                         help='Number of discrete steering values (default: 3)')
     parser.add_argument('--gas-brake-bins', type=int, default=3,
                         help='Number of discrete gas/brake values (default: 3)')
+    parser.add_argument('--state-mode', type=str, default='vector', choices=['visual', 'vector'],
+                        help='State representation: visual (images) or vector (state) - vector is 3-5x faster (default: vector)')
 
     # Resume training
     parser.add_argument('--resume', type=str, default=None,
@@ -180,13 +182,15 @@ def train(args):
         gas_brake_bins=args.gas_brake_bins,
         terminate_stationary=True,  # Speed up training
         stationary_patience=100,
-        render_mode=None
+        render_mode=None,
+        state_mode=args.state_mode
     )
 
     n_actions = env.action_space.n
     state_shape = env.observation_space.shape
 
     print(f"Environment created:")
+    print(f"  State mode: {args.state_mode}")
     print(f"  State shape: {state_shape}")
     print(f"  Number of actions: {n_actions}")
     print(f"  Early termination enabled (patience=100 frames)")
@@ -203,7 +207,8 @@ def train(args):
         epsilon_decay_steps=args.epsilon_decay,
         buffer_size=args.buffer_size,
         batch_size=args.batch_size,
-        target_update_freq=args.target_update_freq
+        target_update_freq=args.target_update_freq,
+        state_mode=args.state_mode
     )
 
     # Resume from checkpoint if specified

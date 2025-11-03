@@ -97,6 +97,53 @@ class DQN(nn.Module):
         return x
 
 
+class VectorDQN(nn.Module):
+    """
+    Deep Q-Network for processing vector state observations.
+
+    Architecture:
+        Input: (batch, 11) - vector state [x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress]
+        FC layers: Process vector and output Q-values
+        Output: (batch, n_actions) - Q-value for each action
+
+    Much simpler and faster than CNN-based DQN.
+    """
+
+    def __init__(self, input_size: int, n_actions: int):
+        """
+        Args:
+            input_size: Size of input vector (11 for CarRacing vector state)
+            n_actions: Number of discrete actions
+        """
+        super(VectorDQN, self).__init__()
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(input_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, n_actions)
+
+        # Activation
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        """
+        Forward pass through network.
+
+        Args:
+            x: Input tensor (batch, 11)
+
+        Returns:
+            Q-values for each action (batch, n_actions)
+        """
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.fc4(x)
+
+        return x
+
+
 class ReplayBuffer:
     """
     Experience Replay Buffer for storing and sampling experiences.
@@ -165,7 +212,7 @@ class DDQNAgent:
 
     def __init__(
         self,
-        state_shape: Tuple[int, int, int],
+        state_shape: Tuple,
         n_actions: int,
         learning_rate: float = 0.00025,
         gamma: float = 0.99,
@@ -175,13 +222,16 @@ class DDQNAgent:
         buffer_size: int = 100_000,
         batch_size: int = 32,
         target_update_freq: int = 10_000,
-        device: str = 'auto'
+        device: str = 'auto',
+        state_mode: str = 'visual'
     ):
         """
         Initialize DDQN agent.
 
         Args:
-            state_shape: Shape of state observation (channels, height, width)
+            state_shape: Shape of state observation
+                         - Visual: (channels, height, width) e.g., (4, 96, 96)
+                         - Vector: (size,) e.g., (11,)
             n_actions: Number of discrete actions
             learning_rate: Learning rate for optimizer
             gamma: Discount factor for future rewards
@@ -192,6 +242,7 @@ class DDQNAgent:
             batch_size: Batch size for training
             target_update_freq: Steps between target network updates
             device: Device to use ('auto', 'cuda', 'mps', or 'cpu')
+            state_mode: 'visual' for image-based or 'vector' for state vector
         """
         self.state_shape = state_shape
         self.n_actions = n_actions
@@ -202,6 +253,7 @@ class DDQNAgent:
         self.epsilon_decay_steps = epsilon_decay_steps
         self.batch_size = batch_size
         self.target_update_freq = target_update_freq
+        self.state_mode = state_mode
 
         # Device selection
         if device == 'auto':
@@ -215,11 +267,18 @@ class DDQNAgent:
             self.device = torch.device(device)
 
         print(f"Using device: {self.device}")
+        print(f"Using state mode: {state_mode}")
 
-        # Networks
-        input_channels = state_shape[0]
-        self.policy_net = DQN(input_channels, n_actions).to(self.device)
-        self.target_net = DQN(input_channels, n_actions).to(self.device)
+        # Networks (choose based on state mode)
+        if state_mode == 'vector':
+            input_size = state_shape[0]  # e.g., 11 for CarRacing vector state
+            self.policy_net = VectorDQN(input_size, n_actions).to(self.device)
+            self.target_net = VectorDQN(input_size, n_actions).to(self.device)
+        else:
+            input_channels = state_shape[0]  # e.g., 4 for stacked frames
+            self.policy_net = DQN(input_channels, n_actions).to(self.device)
+            self.target_net = DQN(input_channels, n_actions).to(self.device)
+
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()  # Target network is always in eval mode
 
