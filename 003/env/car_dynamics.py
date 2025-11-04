@@ -220,7 +220,11 @@ class Car:
 
             vr = w.omega * w.wheel_rad  # rotating wheel speed
             f_force = -vf + vr  # force direction is direction of speed difference
-            p_force = -vs
+#            p_force = -vs
+            # This is a simple approximation of slip angle (vs / vf)
+            # which provides much more grip at low forward speeds.
+            # The 5.0 and 0.1 are "magic numbers" you can tune.
+            p_force = -vs * 20.0 / (abs(vf) + 0.1)
 
             # Physically correct is to always apply friction_limit until speed is equal.
             # But dt is finite, that will lead to oscillations if difference is already near zero.
