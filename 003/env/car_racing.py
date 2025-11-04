@@ -608,11 +608,10 @@ class CarRacing(gym.Env, EzPickle):
         if action is not None:
             if self.continuous:
                 action = action.astype(np.float64)
+                # Actions in native bounds: steering [-1, 1], gas [0, 1], brake [0, 1]
                 self.car.steer(-action[0])
-                # Rescale gas and brake from [-1, 1] to [0, 1]
-                # SAC outputs actions in [-1, 1], but gas/brake expect [0, 1]
-                gas = np.clip((action[1] + 1.0) / 2.0, 0.0, 1.0)
-                brake = np.clip((action[2] + 1.0) / 2.0, 0.0, 1.0)
+                gas = np.clip(action[1], 0.0, 1.0)
+                brake = np.clip(action[2], 0.0, 1.0)
                 self.car.gas(gas)
                 self.car.brake(brake)
             else:

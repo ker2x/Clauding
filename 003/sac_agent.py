@@ -268,6 +268,25 @@ class SACAgent:
         else:
             self.alpha = torch.tensor(alpha, device=self.device)
 
+    def _apply_action_bounds(self, z):
+        """
+        Apply proper bounds to sampled actions (native action space):
+        - Steering (dim 0): tanh → [-1, 1]
+        - Gas (dim 1): sigmoid → [0, 1]
+        - Brake (dim 2): sigmoid → [0, 1]
+
+        Args:
+            z: Unbounded sampled actions from Gaussian
+
+        Returns:
+            action: Actions in native bounds
+        """
+        action = z.clone()
+        action[:, 0] = torch.tanh(z[:, 0])  # Steering: [-1, 1]
+        action[:, 1] = torch.sigmoid(z[:, 1])  # Gas: [0, 1]
+        action[:, 2] = torch.sigmoid(z[:, 2])  # Brake: [0, 1]
+        return action
+
     def select_action(self, state, evaluate=False):
         """
         Select action from policy.
@@ -277,7 +296,7 @@ class SACAgent:
             evaluate: If True, use mean action (deterministic). If False, sample from distribution.
 
         Returns:
-            action: Action to take
+            action: Action to take in native bounds
         """
         state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
@@ -285,14 +304,14 @@ class SACAgent:
             mean, log_std = self.actor(state)
 
             if evaluate:
-                # Deterministic action (mean)
-                action = torch.tanh(mean)
+                # Deterministic action (mean) - apply bounds
+                action = self._apply_action_bounds(mean)
             else:
                 # Stochastic action (sample from distribution)
                 std = log_std.exp()
                 normal = Normal(mean, std)
                 z = normal.sample()
-                action = torch.tanh(z)
+                action = self._apply_action_bounds(z)
 
         return action.cpu().numpy()[0]
 
@@ -300,17 +319,31 @@ class SACAgent:
         """
         Sample action and compute log probability.
         Used during training for policy updates.
+
+        Applies native action bounds:
+        - Steering (dim 0): tanh → [-1, 1]
+        - Gas (dim 1): sigmoid → [0, 1]
+        - Brake (dim 2): sigmoid → [0, 1]
         """
         mean, log_std = self.actor(state)
         std = log_std.exp()
 
         normal = Normal(mean, std)
         z = normal.rsample()  # Reparameterization trick
-        action = torch.tanh(z)
+        action = self._apply_action_bounds(z)
 
-        # Log probability with tanh correction
-        # log π(a|s) = log μ(z|s) - Σ log(1 - tanh²(z))
-        log_prob = normal.log_prob(z) - torch.log(1 - action.pow(2) + 1e-6)
+        # Compute log probability with proper corrections for each action dimension
+        log_prob = normal.log_prob(z)
+
+        # Steering (dim 0): tanh transformation
+        log_prob[:, 0] -= torch.log(1 - action[:, 0].pow(2) + 1e-6)
+
+        # Gas (dim 1): sigmoid transformation
+        log_prob[:, 1] -= torch.log(action[:, 1] * (1 - action[:, 1]) + 1e-6)
+
+        # Brake (dim 2): sigmoid transformation
+        log_prob[:, 2] -= torch.log(action[:, 2] * (1 - action[:, 2]) + 1e-6)
+
         log_prob = log_prob.sum(1, keepdim=True)
 
         return action, log_prob
