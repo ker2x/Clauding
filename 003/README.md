@@ -96,6 +96,24 @@ python watch_random_agent.py --episodes 3
 python watch_agent.py --checkpoint checkpoints/best_model.pt --episodes 5
 ```
 
+### Play as Human
+
+Want to try driving the car yourself? Use the human playable script:
+
+```bash
+python play_human.py --episodes 1
+```
+
+**Controls:**
+- **Steering**: A/D or Arrow Left/Right
+- **Gas**: W or Arrow Up
+- **Brake**: S or Arrow Down
+- **Reset Action**: SPACE (coast to neutral)
+- **Reset Episode**: R
+- **Quit**: Q or ESC
+
+This is a great way to understand how difficult the task is and why 500+ reward (completing laps) is impressive for a trained agent!
+
 ## How It Works
 
 ### 1. Continuous Action Space
@@ -256,6 +274,7 @@ CarRacing is more challenging than Atari games. With vector mode (RECOMMENDED):
 │
 ├── watch_agent.py               # Visualize trained agent
 ├── watch_random_agent.py        # Visualize random agent (baseline)
+├── play_human.py                # Play as human (keyboard control)
 ├── test_setup.py                # Verify installation
 │
 ├── checkpoints/                 # Saved model checkpoints

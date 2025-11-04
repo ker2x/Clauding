@@ -23,17 +23,21 @@ except ImportError as e:
     ) from e
 
 
-SIZE = 0.02
-ENGINE_POWER = 100000000 * SIZE * SIZE
-WHEEL_MOMENT_OF_INERTIA = 4000 * SIZE * SIZE
-FRICTION_LIMIT = (
-    1000000 * SIZE * SIZE
-)  # friction ~= mass ~= size^2 (calculated implicitly using density)
-WHEEL_R = 27
-WHEEL_W = 14
-WHEELPOS = [(-55, +80), (+55, +80), (-55, -82), (+55, -82)]
-HULL_POLY1 = [(-60, +130), (+60, +130), (+60, +110), (-60, +110)]
-HULL_POLY2 = [(-15, +120), (+15, +120), (+20, +20), (-20, 20)]
+SIZE = 0.02     # Scaling factor for the car's dimensions,
+                # used to adjust the overall size of the car and its components
+ENGINE_POWER = 100000000 * SIZE * SIZE      # Total power of the car's engine,
+                                            # scaled with the car's size to maintain proportional performance
+WHEEL_MOMENT_OF_INERTIA = 4000 * SIZE * SIZE    # Rotational inertia of the wheels,
+                                                # affecting how quickly they can change angular velocity
+FRICTION_LIMIT = (1000000 * SIZE * SIZE)    # Maximum friction force,
+                                            # scaled with size to represent the car's mass and grip characteristics
+WHEEL_R = 27    # Wheel radius in simulation units (affects wheel size and rotation)
+WHEEL_W = 14    # Wheel width in simulation units (affects wheel's lateral contact area)
+
+WHEELPOS = [(-55, +80), (+55, +80), (-55, -82), (+55, -82)]         # Wheel positions relative to the car's body (front-left, front-right, rear-left, rear-right)
+HULL_POLY1 = [(-60, +130), (+60, +130), (+60, +110), (-60, +110)]   # Front top body polygon vertices defining car's upper front shape
+HULL_POLY2 = [(-15, +120), (+15, +120), (+20, +20), (-20, 20)]      # Front mid body polygon vertices defining car's front-mid section
+
 HULL_POLY3 = [
     (+25, +20),
     (+50, -10),
@@ -43,11 +47,13 @@ HULL_POLY3 = [
     (-50, -40),
     (-50, -10),
     (-25, +20),
-]
-HULL_POLY4 = [(-50, -120), (+50, -120), (+50, -90), (-50, -90)]
-WHEEL_COLOR = (0, 0, 0)
-WHEEL_WHITE = (77, 77, 77)
-MUD_COLOR = (102, 102, 0)
+]  # Complex polygon vertices defining the car's body shape, including side and rear contours
+
+HULL_POLY4 = [(-50, -120), (+50, -120), (+50, -90), (-50, -90)]     # Rear bottom body polygon vertices
+                                                                    # defining car's lower rear shape
+WHEEL_COLOR = (0, 0, 0)     # Default wheel color (black)
+WHEEL_WHITE = (77, 77, 77)  # Light gray color used for wheel highlights
+MUD_COLOR = (102, 102, 0)   # Color used to represent mud/grass when wheel is on non-road surface
 
 
 class Car:
@@ -172,18 +178,16 @@ class Car:
 
     def step(self, dt):
         for w in self.wheels:
-            # Steer each wheel
+            # Steer each wheel gradually according to a "motorSpeed" (the actuator that turn the wheel)
             dir = np.sign(w.steer - w.joint.angle)
             val = abs(w.steer - w.joint.angle)
-            w.joint.motorSpeed = dir * min(50.0 * val, 3.0)
+            w.joint.motorSpeed = dir * min(20.0 * val, 1)  # Reduced multiplier and max speed for smoother steering
 
             # Position => friction_limit
             grass = True
             friction_limit = FRICTION_LIMIT * 0.6  # Grass friction if no tile
             for tile in w.tiles:
-                friction_limit = max(
-                    friction_limit, FRICTION_LIMIT * tile.road_friction
-                )
+                friction_limit = max(friction_limit, FRICTION_LIMIT * tile.road_friction)
                 grass = False
 
             # Force
@@ -219,12 +223,10 @@ class Car:
             w.phase += w.omega * dt
 
             vr = w.omega * w.wheel_rad  # rotating wheel speed
-            f_force = -vf + vr  # force direction is direction of speed difference
-#            p_force = -vs
-            # This is a simple approximation of slip angle (vs / vf)
-            # which provides much more grip at low forward speeds.
-            # The 5.0 and 0.1 are "magic numbers" you can tune.
-            p_force = -vs * 20.0 / (abs(vf) + 0.1)
+            f_force = -vf + vr          # force direction is direction of speed difference
+
+            # Lateral force scales WITH forward speed (higher speed = more cornering grip).
+            p_force = -vs * 1.0 * abs(vf) / (abs(vf) + 4.0)
 
             # Physically correct is to always apply friction_limit until speed is equal.
             # But dt is finite, that will lead to oscillations if difference is already near zero.
@@ -234,7 +236,7 @@ class Car:
             p_force *= 205000 * SIZE * SIZE
             force = np.sqrt(np.square(f_force) + np.square(p_force))
 
-            # Skid trace
+            # Skid trace if force exceeds friction limit * 2
             if abs(force) > 2.0 * friction_limit:
                 if (
                     w.skid_particle

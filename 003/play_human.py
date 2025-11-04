@@ -127,6 +127,11 @@ def update_action_from_key(current_action, key):
 
     Returns:
         Updated action [steering, gas, brake]
+
+    Note: Action space is:
+          steering: [-1, 1]
+          gas: [0, 1]
+          brake: [0, 1]
     """
     steering, gas, brake = current_action
 
@@ -140,13 +145,13 @@ def update_action_from_key(current_action, key):
     elif key == 83:  # Right arrow (special OpenCV code)
         steering = 1.0
 
-    # Gas and brake
+    # Gas and brake (in [0, 1] range)
     elif key == ord('w') or key == ord('W'):
-        gas = 1.0
-        brake = 0.0
+        gas = 1.0   # Full acceleration
+        brake = 0.0  # No braking
     elif key == ord('s') or key == ord('S'):
-        brake = 1.0
-        gas = 0.0
+        brake = 1.0   # Full braking
+        gas = 0.0  # No acceleration
 
     action = np.array([steering, gas, brake], dtype=np.float32)
     return action
@@ -205,6 +210,7 @@ def play_human(args):
             done = False
 
             # Current action state (persists between frames)
+            # Action space: steering [-1, 1], gas [0, 1], brake [0, 1]
             action = np.array([0.0, 0.0, 0.0], dtype=np.float32)
             key_timeout = 0  # Frames since last key press
 
@@ -251,7 +257,7 @@ def play_human(args):
                     if key != 255:  # 255 means no key pressed
                         key_timeout = 0  # Reset timeout on any input
 
-                        if key == 27 or key == ord('q') or key == ord('Q'):  # ESC or Q
+                        if key == 27 or key == ord('x') or key == ord('X'):  # ESC or x
                             print("\nQuitting...")
                             env.close()
                             cv2.destroyAllWindows()
