@@ -1,27 +1,25 @@
 """
-Human-controlled playable CarRacing-v3.
+Human-controlled playable CarRacing-v3 with arcade-style keyboard controls.
 
-This script lets you drive the car directly using keyboard controls.
-Useful for understanding the environment and getting a feel for the game difficulty.
+This script uses Pygame to properly handle continuous key presses (key-down)
+and key releases, providing a much more intuitive "arcade" driving experience.
 
 Usage:
-    # Play a game
     python play_human.py
 
-    # Play multiple episodes
-    python play_human.py --episodes 5
-
-    # Faster playback
-    python play_human.py --fps 60
-
-    # Skip rendering (just compute rewards, for testing)
-    python play_human.py --no-render
+Controls:
+    - Steering:   A/D, Left/Right
+    - Gas:        W, Z, Up Arrow
+    - Brake:      S, Down Arrow
+    - Reset:      R
+    - Quit:       ESC or Q
 """
 
 import argparse
-import cv2
 import numpy as np
 import time
+import pygame
+import sys
 
 from preprocessing import make_carracing_env
 
@@ -29,30 +27,18 @@ from preprocessing import make_carracing_env
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Play CarRacing-v3 as a human')
-
-    parser.add_argument('--episodes', type=int, default=1,
-                        help='Number of episodes to play (default: 1)')
-    parser.add_argument('--fps', type=int, default=30,
-                        help='Display FPS (default: 30)')
+    parser.add_argument('--episodes', type=int, default=5,
+                        help='Number of episodes to play (default: 5)')
+    parser.add_argument('--fps', type=int, default=50,
+                        help='Display FPS (default: 50)')
     parser.add_argument('--no-render', action='store_true',
                         help='Disable rendering (just compute rewards)')
-
     return parser.parse_args()
 
 
 def format_action(action):
-    """
-    Format continuous action for display.
-
-    Args:
-        action: Continuous action [steering, gas, brake]
-
-    Returns:
-        Human-readable action description
-    """
+    """Format continuous action for display."""
     steering, gas, brake = action
-
-    # Describe steering
     if steering < -0.3:
         steer_desc = f"LEFT({steering:.2f})"
     elif steering > 0.3:
@@ -60,145 +46,80 @@ def format_action(action):
     else:
         steer_desc = f"STRAIGHT({steering:.2f})"
 
-    # Describe gas/brake
     if brake > 0.1:
         pedal_desc = f"BRAKE({brake:.2f})"
     elif gas > 0.1:
         pedal_desc = f"GAS({gas:.2f})"
     else:
         pedal_desc = "COAST"
-
     return f"{steer_desc} + {pedal_desc}"
 
 
-def render_frame(frame, episode, step, reward, total_reward, action, controls_hint=None):
-    """
-    Render frame with overlay information.
+def render_info(screen, font, episode, step, reward, total_reward, action):
+    """Render text overlay onto the pygame screen."""
+    info_area_height = 130
+    w, h = screen.get_size()
 
-    Args:
-        frame: RGB frame from environment
-        episode: Current episode number
-        step: Current step number
-        reward: Current step reward
-        total_reward: Cumulative episode reward
-        action: Continuous action [steering, gas, brake]
-        controls_hint: Optional controls hint text
+    # Clear the top info bar
+    screen.fill((0, 0, 0), (0, 0, w, info_area_height))
 
-    Returns:
-        Frame with overlay text
-    """
-    # Convert to BGR for OpenCV
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    def draw_text(text, y, color=(255, 255, 255)):
+        text_surf = font.render(text, True, color)
+        screen.blit(text_surf, (10, y))
 
-    # Add black bar at top for text
-    frame = cv2.copyMakeBorder(frame, 130, 0, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    def draw_text_right(text, y, color=(255, 255, 255)):
+        text_surf = font.render(text, True, color)
+        screen.blit(text_surf, (w - text_surf.get_width() - 10, y))
 
-    # Add text overlay
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.5
-    thickness = 1
-    color = (255, 255, 255)
+    draw_text(f"HUMAN PLAYER (You're in control!)", 10, (0, 255, 100))
+    draw_text(f"Episode: {episode}", 30)
+    draw_text(f"Step: {step}", 50)
 
-    cv2.putText(frame, f"HUMAN PLAYER (You're in control!)", (10, 20), font, font_scale, (0, 255, 100), thickness)
-    cv2.putText(frame, f"Episode: {episode}", (10, 40), font, font_scale, color, thickness)
-    cv2.putText(frame, f"Step: {step}", (10, 60), font, font_scale, color, thickness)
-
-    # Display continuous action values
     action_str = format_action(action)
-    cv2.putText(frame, f"Action: {action_str}", (10, 80), font, font_scale, (0, 255, 0), thickness)
+    draw_text(f"Action: {action_str}", 70, (0, 255, 0))
+    draw_text(f"Controls: Arrows/ZQSD (W/S) | R: reset | Q/ESC: quit", 90, (100, 100, 255))
 
-    # Controls hint
-    if controls_hint:
-        cv2.putText(frame, controls_hint, (10, 100), font, font_scale, (100, 100, 255), thickness)
-
-    cv2.putText(frame, f"Reward: {reward:+.2f}", (350, 40), font, font_scale, color, thickness)
-    cv2.putText(frame, f"Total: {total_reward:+.2f}", (350, 60), font, font_scale, color, thickness)
-
-    return frame
-
-
-def update_action_from_key(current_action, key):
-    """
-    Update action based on a single key press.
-
-    Args:
-        current_action: Current action [steering, gas, brake]
-        key: Key code from cv2.waitKey()
-
-    Returns:
-        Updated action [steering, gas, brake]
-
-    Note: Action space is:
-          steering: [-1, 1]
-          gas: [0, 1]
-          brake: [0, 1]
-    """
-    steering, gas, brake = current_action
-
-    # Steering: A/D or arrow keys
-    if key == ord('a') or key == ord('A'):
-        steering = -1.0
-    elif key == ord('d') or key == ord('D'):
-        steering = 1.0
-    elif key == 81:  # Left arrow (special OpenCV code)
-        steering = -1.0
-    elif key == 83:  # Right arrow (special OpenCV code)
-        steering = 1.0
-
-    # Gas and brake (in [0, 1] range)
-    elif key == ord('w') or key == ord('W'):
-        gas = 1.0   # Full acceleration
-        brake = 0.0  # No braking
-    elif key == ord('s') or key == ord('S'):
-        brake = 1.0   # Full braking
-        gas = 0.0  # No acceleration
-
-    action = np.array([steering, gas, brake], dtype=np.float32)
-    return action
+    draw_text_right(f"Reward: {reward:+.2f}", 30)
+    draw_text_right(f"Total: {total_reward:+.2f}", 50)
 
 
 def play_human(args):
-    """Play episodes as a human."""
-    # Create environment with rendering
+    """Play episodes as a human using arcade-style controls."""
+
+    # Initialize Pygame
+    pygame.init()
+    pygame.font.init()
+    font = pygame.font.Font(None, 24)
+    screen = None
+
+    # Create environment
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         stack_size=4,
-        terminate_stationary=True,
+        terminate_stationary=False,
         stationary_patience=100,
         render_mode=render_mode,
-        state_mode='visual'  # Always visual for human play
+        state_mode='visual'
     )
 
     action_dim = env.action_space.shape[0]
     state_shape = env.observation_space.shape
 
     print("=" * 60)
-    print(f"CarRacing-v3 - HUMAN PLAYER")
+    print(f"CarRacing-v3 - HUMAN PLAYER (Arcade Controls)")
     print("=" * 60)
     print(f"Episodes: {args.episodes}")
     print(f"State shape: {state_shape}")
-    print(f"Action space: Continuous")
-    print(f"  - Steering: [{env.action_space.low[0]:.1f}, {env.action_space.high[0]:.1f}]")
-    print(f"  - Gas:      [{env.action_space.low[1]:.1f}, {env.action_space.high[1]:.1f}]")
-    print(f"  - Brake:    [{env.action_space.low[2]:.1f}, {env.action_space.high[2]:.1f}]")
+    print("=" * 60)
+    print("\nKEYBOARD CONTROLS:")
+    print("  - Steering:   A / D or Left / Right Arrow")
+    print("  - Gas:        W / Z or Up Arrow")
+    print("  - Brake:      S or Down Arrow")
+    print("  - Reset:      R")
+    print("  - Quit:       Q or ESC")
+    print("\nNote: Releasing keys will return to neutral (coast).")
     print("=" * 60)
 
-    if not args.no_render:
-        print("\nKEYBOARD CONTROLS:")
-        print("  Steering:")
-        print("    - Arrow Left / A: Steer left")
-        print("    - Arrow Right / D: Steer right")
-        print("  Speed Control:")
-        print("    - W / Arrow Up: Accelerate (gas)")
-        print("    - S / Arrow Down: Brake")
-        print("  Episode Control:")
-        print("    - SPACE: Reset action to neutral (coast)")
-        print("    - R: Reset current episode")
-        print("    - Q / ESC: Quit")
-        print("\nNote: You can combine controls (e.g., steer left + gas at same time)")
-        print("=" * 60)
-
-    # Statistics
     episode_rewards = []
     target_frame_time = 1.0 / args.fps
 
@@ -209,71 +130,95 @@ def play_human(args):
             step = 0
             done = False
 
-            # Current action state (persists between frames)
-            # Action space: steering [-1, 1], gas [0, 1], brake [0, 1]
+            # Action: [steering, gas, brake]
             action = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-            key_timeout = 0  # Frames since last key press
+
+            # Smooth steering state
+            current_steering = 0.0
 
             print(f"\n{'-' * 60}")
             print(f"Episode {episode + 1}/{args.episodes}")
             print(f"{'-' * 60}")
-            print("Ready! Use WASD/Arrows to control the car")
+            print("Ready! Use keyboard to control the car")
 
             while not done:
                 frame_start = time.time()
 
-                # Decay action after timeout (return to neutral if no input)
-                # Action persists for ~10 frames, then gradually decays
-                key_timeout += 1
-                if key_timeout > 10:
-                    # Smooth decay of action
-                    action = action * 0.95
+                # --- Pygame Event Handling (Quit/Reset) ---
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        print("\nQuitting...")
+                        env.close()
+                        pygame.quit()
+                        sys.exit()
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_r:
+                            print("Resetting episode...")
+                            done = True  # Break inner loop to reset
+                        if event.key == pygame.K_x or event.key == pygame.K_ESCAPE:
+                            print("\nQuitting...")
+                            env.close()
+                            pygame.quit()
+                            sys.exit()
 
-                # Take step with current action
+                # --- Arcade-Style Input (Key-Down State) ---
+                keys = pygame.key.get_pressed()
+
+                # 1. Gas and Brake (Digital)
+                # Note: ZQSD (French AZERTY) or WASD (US QWERTY)
+                gas = 1.0 if keys[pygame.K_w] or keys[pygame.K_z] or keys[pygame.K_UP] else 0.0
+                brake = 1.0 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0.0
+
+                # Prioritize brake over gas
+                if brake > 0:
+                    gas = 0.0
+
+                # 2. Steering (Smoothed)
+                # Note: Q/D (AZERTY) or A/D (QWERTY)
+                target_steering = 0.0
+                if keys[pygame.K_a] or keys[pygame.K_q] or keys[pygame.K_LEFT]:
+                    target_steering = -1.0
+                if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+                    target_steering = 1.0  # Use 'if' not 'elif' to handle both keys
+
+                # Smoothly interpolate to the target steering
+                # This creates a "return to center" effect when keys are released
+                STEER_SPEED = 0.2 # How fast to turn the wheel (20% per frame)
+                current_steering = (1.0 - STEER_SPEED) * current_steering + STEER_SPEED * target_steering
+
+                # Assemble the final action
+                action = np.array([current_steering, gas, brake], dtype=np.float32)
+
+                # --- Step Environment ---
                 next_state, reward, terminated, truncated, _ = env.step(action)
-                done = terminated or truncated
+                if done: # If we reset, 'terminated' might be false
+                    break
 
+                done = terminated or truncated
                 total_reward += reward
                 step += 1
 
-                # Render if enabled
+                # --- Render (if enabled) ---
                 if not args.no_render:
-                    # Get RGB frame for display
                     rgb_frame = env.render()
+                    frame_h, frame_w = rgb_frame.shape[:2]
+                    info_area_height = 130 # Space for text
 
-                    # Add overlay
-                    controls_hint = "SPACE: coast | R: reset | Q: quit"
-                    display_frame = render_frame(
-                        rgb_frame, episode + 1, step, reward, total_reward,
-                        action, controls_hint
-                    )
+                    # Create screen on first frame
+                    if screen is None:
+                        screen = pygame.display.set_mode((frame_w, frame_h + info_area_height))
+                        pygame.display.set_caption("CarRacing-v3 - Human Player")
 
-                    # Display
-                    cv2.imshow('CarRacing-v3 - Human Player', display_frame)
+                    # Convert env frame (H, W, 3) to pygame surface (W, H)
+                    # We must transpose the array for pygame
+                    frame_pygame = np.transpose(rgb_frame, (1, 0, 2))
+                    surf = pygame.surfarray.make_surface(frame_pygame)
 
-                    # Handle keyboard input (non-blocking)
-                    key = cv2.waitKey(1) & 0xFF
+                    # Draw game frame and info
+                    screen.blit(surf, (0, info_area_height))
+                    render_info(screen, font, episode + 1, step, reward, total_reward, action)
 
-                    if key != 255:  # 255 means no key pressed
-                        key_timeout = 0  # Reset timeout on any input
-
-                        if key == 27 or key == ord('x') or key == ord('X'):  # ESC or x
-                            print("\nQuitting...")
-                            env.close()
-                            cv2.destroyAllWindows()
-                            return
-
-                        elif key == ord(' '):  # SPACE - reset to neutral
-                            action = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-                            print("Reset to neutral (coasting)")
-
-                        elif key == ord('r') or key == ord('R'):  # R - reset episode
-                            print("Resetting episode...")
-                            break
-
-                        # Control keys
-                        else:
-                            action = update_action_from_key(action, key)
+                    pygame.display.flip()
 
                     # FPS control
                     elapsed = time.time() - frame_start
@@ -291,11 +236,9 @@ def play_human(args):
 
     except KeyboardInterrupt:
         print("\nInterrupted by user")
-
     finally:
         env.close()
-        if not args.no_render:
-            cv2.destroyAllWindows()
+        pygame.quit()
 
     # Final statistics
     print("\n" + "=" * 60)
@@ -307,12 +250,6 @@ def play_human(args):
         print(f"Std dev: {np.std(episode_rewards):.2f}")
         print(f"Min reward: {np.min(episode_rewards):.2f}")
         print(f"Max reward: {np.max(episode_rewards):.2f}")
-    print("=" * 60)
-    print("\nTips for better performance:")
-    print("- Smooth steering is better than sharp turns")
-    print("- Avoid going off-road (grass)")
-    print("- Keep consistent speed rather than braking hard")
-    print("- A trained SAC agent can achieve 500+ reward!")
     print("=" * 60)
 
 

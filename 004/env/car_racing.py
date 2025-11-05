@@ -11,13 +11,8 @@ from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 
 
-try:
-    import Box2D
-    from Box2D.b2 import contactListener, fixtureDef, polygonShape
-except ImportError as e:
-    raise DependencyNotInstalled(
-        'Box2D is not installed, you can install it by run `pip install swig` followed by `pip install "gymnasium[box2d]"`'
-    ) from e
+# Box2D no longer needed - using custom 2D physics engine
+# Removed Box2D dependency for cleaner, more interpretable physics
 
 try:
     # As pygame is necessary for using the environment (reset and step) even without a render mode
@@ -36,21 +31,24 @@ except ImportError as e:
         'opencv is not installed, run `pip install opencv-python`'
     ) from e
 
-
-STATE_W = 96  # less than Atari 160x192
+# visual mode resolution
+STATE_W = 96
 STATE_H = 96
+
+# rendering resolution
 VIDEO_W = 600
 VIDEO_H = 400
+
+# window size (rendering + gui)
 WINDOW_W = 1000
 WINDOW_H = 800
 
-SCALE = 6.0  # Track scale
-TRACK_RAD = 900 / SCALE  # Track is heavily morphed circle with this radius
-PLAYFIELD = 2000 / SCALE  # Game over boundary
+SCALE = 6.0                 # Track scale
+TRACK_RAD = 900 / SCALE     # Track is heavily morphed circle with this radius
+PLAYFIELD = 2000 / SCALE    # Game over boundary
+
 FPS = 50  # Frames per second
 ZOOM = 2.7  # Camera zoom
-ZOOM_FOLLOW = True  # Set to False for fixed view (don't use zoom)
-
 
 TRACK_DETAIL_STEP = 21 / SCALE
 TRACK_TURN_RATE = 0.31
@@ -63,52 +61,58 @@ MAX_SHAPE_DIM = (
 )
 
 
-class FrictionDetector(contactListener):
+class FrictionDetector:
+    """
+    Detects wheel-track collisions using simple distance-based checks.
+    Replaces Box2D contact listener with spatial geometry queries.
+    """
     def __init__(self, env, lap_complete_percent):
-        contactListener.__init__(self)
         self.env = env
         self.lap_complete_percent = lap_complete_percent
 
-    def BeginContact(self, contact):
-        self._contact(contact, True)
+    def update_contacts(self, car, road_tiles):
+        """
+        Update wheel-tile contacts based on proximity.
+        Called each step to determine which tiles each wheel is touching.
+        """
+        WHEEL_RADIUS = 0.3
+        CONTACT_THRESHOLD = 8.0  # Tolerance for wheel-to-tile contact
 
-    def EndContact(self, contact):
-        self._contact(contact, False)
+        # Clear old contacts
+        for wheel in car.wheels:
+            wheel.tiles.clear()
 
-    def _contact(self, contact, begin):
-        tile = None
-        obj = None
-        u1 = contact.fixtureA.body.userData
-        u2 = contact.fixtureB.body.userData
-        if u1 and "road_friction" in u1.__dict__:
-            tile = u1
-            obj = u2
-        if u2 and "road_friction" in u2.__dict__:
-            tile = u2
-            obj = u1
-        if not tile:
-            return
+        # Check each wheel against each track tile
+        for wheel_idx, wheel in enumerate(car.wheels):
+            # Use actual wheel position (set in Car._update_hull())
+            wheel_world_x = wheel.position[0]
+            wheel_world_y = wheel.position[1]
 
-        # inherit tile color from env
-        tile.color[:] = self.env.road_color
-        if not obj or "tiles" not in obj.__dict__:
-            return
-        if begin:
-            obj.tiles.add(tile)
-            if not tile.road_visited:
-                tile.road_visited = True
-                self.env.reward += 1000.0 / len(self.env.track)
-                self.env.tile_visited_count += 1
+            for tile in road_tiles:
+                # Get tile center
+                tile_vertices = self.env.road_poly[tile.idx][0]
+                tile_cx = np.mean([v[0] for v in tile_vertices])
+                tile_cy = np.mean([v[1] for v in tile_vertices])
 
-                # Lap is considered completed if enough % of the track was covered
-                if (
-                    tile.idx == 0
-                    and self.env.tile_visited_count / len(self.env.track)
-                    > self.lap_complete_percent
-                ):
-                    self.env.new_lap = True
-        else:
-            obj.tiles.remove(tile)
+                # Distance from wheel to tile center
+                dist = np.sqrt((wheel_world_x - tile_cx)**2 + (wheel_world_y - tile_cy)**2)
+
+                # Simple distance check
+                if dist < CONTACT_THRESHOLD:
+                    wheel.tiles.add(tile)
+
+                    # Handle tile visitation
+                    if not tile.road_visited:
+                        tile.road_visited = True
+                        self.env.reward += 1000.0 / len(self.env.track)
+                        self.env.tile_visited_count += 1
+
+                        # Lap completion check
+                        if (
+                            tile.idx == 0 and
+                            self.env.tile_visited_count / len(self.env.track) > self.lap_complete_percent
+                        ):
+                            self.env.new_lap = True
 
 
 class CarRacing(gym.Env, EzPickle):
@@ -168,69 +172,7 @@ class CarRacing(gym.Env, EzPickle):
      no progress (no new tiles visited) for `stationary_patience` frames (default: 100), after a
      minimum of `stationary_min_steps` steps (default: 50). This prevents agents from learning to
      sit still and waste compute time.
-
-    ## Arguments
-
-    ```python
-    >>> import gymnasium as gym
-    >>> env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=True)
-    >>> env
-    <TimeLimit<OrderEnforcing<PassiveEnvChecker<CarRacing<CarRacing-v3>>>>>
-
-    ```
-
-    * `lap_complete_percent=0.95` dictates the percentage of tiles that must be visited by
-     the agent before a lap is considered complete.
-
-    * `domain_randomize=False` enables the domain randomized variant of the environment.
-     In this scenario, the background and track colours are different on every reset.
-
-    * `continuous=True` specifies if the agent has continuous (true) or discrete (false) actions.
-     See action space section for a description of each.
-
-    * `terminate_stationary=True` enables early termination if the car makes no progress for too long.
-
-    * `stationary_patience=100` sets the number of frames without progress before early termination.
-
-    * `stationary_min_steps=50` sets the minimum steps before early termination can occur.
-
-    * `state_mode="vector"` (RECOMMENDED) selects observation space format:
-        - "vector": 36D track geometry with lookahead (default recommendation, fast training)
-        - "visual": 96x96 RGB images (slow, use only for watching)
-
-    ## Reset Arguments
-
-    Passing the option `options["randomize"] = True` will change the current colour of the environment on demand.
-    Correspondingly, passing the option `options["randomize"] = False` will not change the current colour of the environment.
-    `domain_randomize` must be `True` on init for this argument to work.
-
-    ```python
-    >>> import gymnasium as gym
-    >>> env = gym.make("CarRacing-v3", domain_randomize=True)
-
-    # normal reset, this changes the colour scheme by default
-    >>> obs, _ = env.reset()
-
-    # reset with colour scheme change
-    >>> randomize_obs, _ = env.reset(options={"randomize": True})
-
-    # reset with no colour scheme change
-    >>> non_random_obs, _ = env.reset(options={"randomize": False})
-
-    ```
-
-    ## Version History
-    - v2: Change truncation to termination when finishing the lap (1.0.0)
-    - v1: Change track completion logic and add domain randomization (0.24.0)
-    - v0: Original version
-
-    ## References
-    - Chris Campbell (2014), http://www.iforce2d.net/b2dtut/top-down-car.
-
-    ## Credits
-    Created by Oleg Klimov
-    """
-
+"""
     metadata = {
         "render_modes": [
             "human",
@@ -280,8 +222,9 @@ class CarRacing(gym.Env, EzPickle):
         self.state_mode = state_mode
         self._init_colors()
 
-        self.contactListener_keepref = FrictionDetector(self, self.lap_complete_percent)
-        self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
+        self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
+        # No Box2D world needed - using custom physics engine
+        self.world = None  # Kept for compatibility with Car.__init__
         self.screen: pygame.Surface | None = None
         self.surf = None
         self.clock = None
@@ -294,9 +237,6 @@ class CarRacing(gym.Env, EzPickle):
         self.prev_reward = 0.0
         self.verbose = verbose
         self.new_lap = False
-        self.fd_tile = fixtureDef(
-            shape=polygonShape(vertices=[(0, 0), (1, 0), (1, -1), (0, -1)])
-        )
 
         # Vector mode: waypoint lookahead count
         self.vector_lookahead = 10
@@ -330,8 +270,7 @@ class CarRacing(gym.Env, EzPickle):
     def _destroy(self):
         if not self.road:
             return
-        for t in self.road:
-            self.world.DestroyBody(t)
+        # Tiles are just objects now, no Box2D bodies to destroy
         self.road = []
         assert self.car is not None
         self.car.destroy()
@@ -498,7 +437,7 @@ class CarRacing(gym.Env, EzPickle):
             for neg in range(BORDER_MIN_COUNT):
                 border[i - neg] |= border[i]
 
-        # Create tiles
+        # Create tiles (no Box2D, just geometry)
         for i in range(len(track)):
             alpha1, beta1, x1, y1 = track[i]
             alpha2, beta2, x2, y2 = track[i - 1]
@@ -519,15 +458,17 @@ class CarRacing(gym.Env, EzPickle):
                 y2 + TRACK_WIDTH * math.sin(beta2),
             )
             vertices = [road1_l, road1_r, road2_r, road2_l]
-            self.fd_tile.shape.vertices = vertices
-            t = self.world.CreateStaticBody(fixtures=self.fd_tile)
+
+            # Create simple tile object (no Box2D)
+            t = type('Tile', (), {})()
             t.userData = t
             c = 0.01 * (i % 3) * 255
             t.color = self.road_color + c
             t.road_visited = False
             t.road_friction = 1.0
             t.idx = i
-            t.fixtures[0].sensor = True
+            t.vertices = vertices
+
             self.road_poly.append(([road1_l, road1_r, road2_r, road2_l], t.color))
             self.road.append(t)
             if border[i]:
@@ -565,10 +506,8 @@ class CarRacing(gym.Env, EzPickle):
     ):
         super().reset(seed=seed)
         self._destroy()
-        self.world.contactListener_bug_workaround = FrictionDetector(
-            self, self.lap_complete_percent
-        )
-        self.world.contactListener = self.world.contactListener_bug_workaround
+        # Recreate friction detector for new episode
+        self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
         self.reward = 0.0
         self.prev_reward = 0.0
         self.tile_visited_count = 0
@@ -597,7 +536,14 @@ class CarRacing(gym.Env, EzPickle):
                     "retry to generate track (normal if there are not many"
                     "instances of this message)"
                 )
-        self.car = Car(self.world, *self.track[0][1:4])
+        init_beta, init_x, init_y = self.track[0][1:4]
+        # The car's "front" is its +X axis in physics.
+        # The track's "forward" direction is 90 degrees (pi/2) from its
+        # normal (beta). We set the car's initial yaw to align these.
+        init_yaw = init_beta + (math.pi / 2.0)
+
+        # Create the car
+        self.car = Car(self.world, init_yaw, init_x, init_y)
 
         if self.render_mode == "human":
             self.render()
@@ -605,13 +551,25 @@ class CarRacing(gym.Env, EzPickle):
 
     def step(self, action: np.ndarray | int):
         assert self.car is not None
+
+        # Debug: Add a step counter
+        if not hasattr(self, 'debug_step_counter'):
+            self.debug_step_counter = 0
+        self.debug_step_counter += 1
+
+        # Initialize action vars for debug print
+        gas, brake = 0.0, 0.0
+        steer_action = 0.0
+
         if action is not None:
             if self.continuous:
                 action = action.astype(np.float64)
                 # Actions in native bounds: steering [-1, 1], gas [0, 1], brake [0, 1]
-                self.car.steer(-action[0])
+                steer_action = -action[0]
                 gas = np.clip(action[1], 0.0, 1.0)
                 brake = np.clip(action[2], 0.0, 1.0)
+
+                self.car.steer(steer_action)
                 self.car.gas(gas)
                 self.car.brake(brake)
             else:
@@ -620,12 +578,19 @@ class CarRacing(gym.Env, EzPickle):
                         f"you passed the invalid action `{action}`. "
                         f"The supported action_space is `{self.action_space}`"
                     )
-                self.car.steer(-0.6 * (action == 1) + 0.6 * (action == 2))
-                self.car.gas(0.2 * (action == 3))
-                self.car.brake(0.8 * (action == 4))
+                steer_action = -0.6 * (action == 1) + 0.6 * (action == 2)
+                gas = 0.2 * (action == 3)
+                brake = 0.8 * (action == 4)
 
-        self.car.step(1.0 / FPS)
-        self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
+                self.car.steer(steer_action)
+                self.car.gas(gas)
+                self.car.brake(brake)
+
+        # Step custom physics engine and get debug info
+        debug_info = self.car.step(1.0 / FPS)
+
+        # Update wheel-tile contacts for friction computation
+        self.friction_detector.update_contacts(self.car, self.road)
         self.t += 1.0 / FPS
 
         # Create state based on state_mode
@@ -643,6 +608,9 @@ class CarRacing(gym.Env, EzPickle):
         terminated = False
         truncated = False
         info = {}
+        speed = 0.0
+        wheels_off_track = 0
+
         if action is not None:  # First step without action, called from reset()
             self.reward -= 0.1
             # We actually don't want to count fuel spent, we want car to be faster.
@@ -651,8 +619,8 @@ class CarRacing(gym.Env, EzPickle):
 
             # Add speed bonus to encourage movement
             speed = np.sqrt(
-                self.car.hull.linearVelocity[0]**2 +
-                self.car.hull.linearVelocity[1]**2
+                self.car.hull.linearVelocity[0] ** 2 +
+                self.car.hull.linearVelocity[1] ** 2
             )
             self.reward += 0.02 * speed  # Reward for moving fast
 
@@ -681,7 +649,7 @@ class CarRacing(gym.Env, EzPickle):
                 # 1. We've taken enough steps (min_steps)
                 # 2. No progress for 'patience' frames
                 if (self.total_steps >= self.stationary_min_steps and
-                    self.frames_since_progress >= self.stationary_patience):
+                        self.frames_since_progress >= self.stationary_patience):
                     truncated = True
                     info['stationary_termination'] = True
 
@@ -697,6 +665,28 @@ class CarRacing(gym.Env, EzPickle):
                 info["lap_finished"] = False
                 info["off_track"] = True
                 step_reward = -100
+
+        # === NEW DEBUG PRINT BLOCK ===
+        if action is not None and self.debug_step_counter % 10 == 0:
+            print(f"--- STEP {self.debug_step_counter} ---")
+            print(f"  ACTION:  Gas={gas:0.2f}, Brake={brake:0.2f}, Steer={steer_action:0.2f}")
+            print(
+                f"  CAR:     vx={self.car.vx: >6.2f} (long), vy={self.car.vy: >6.2f} (lat), yaw_rate={self.car.yaw_rate: >6.2f}")
+            print(f"  WORLD:   Speed={speed: >6.2f} m/s")
+            print(
+                f"  PHYSICS: Fx={debug_info['fx_total']: >8.2f}, Fy={debug_info['fy_total']: >8.2f}, Torque={debug_info['torque']: >8.2f}")
+            print(
+                f"  REWARD:  WheelsOff={wheels_off_track}, StepRwd={step_reward: >6.2f}, TotalRwd={self.reward: >8.2f}")
+            print(f"  TIRES (SlipRatio, SlipAngle):")
+            f_fl = debug_info['tire_forces'][0]
+            f_fr = debug_info['tire_forces'][1]
+            f_rl = debug_info['tire_forces'][2]
+            f_rr = debug_info['tire_forces'][3]
+            print(
+                f"    FL: SR={f_fl['slip_ratio']: >5.2f}, SA={f_fl['slip_angle']: >5.2f} | FR: SR={f_fr['slip_ratio']: >5.2f}, SA={f_fr['slip_angle']: >5.2f}")
+            print(
+                f"    RL: SR={f_rl['slip_ratio']: >5.2f}, SA={f_rl['slip_angle']: >5.2f} | RR: SR={f_rr['slip_ratio']: >5.2f}, SA={f_rr['slip_angle']: >5.2f}")
+        # =============================
 
         if self.render_mode == "human":
             self.render()
@@ -892,6 +882,7 @@ class CarRacing(gym.Env, EzPickle):
         """
         Fast headless rendering for training (3-5x faster than full rendering).
         Creates minimal pygame surface at target resolution without expensive elements.
+        Compatible with new physics engine (no Box2D fixtures).
         """
         # Use smaller surface size directly
         target_size = (STATE_W, STATE_H)
@@ -923,28 +914,63 @@ class CarRacing(gym.Env, EzPickle):
             except:
                 pass  # Skip if polygon is off-screen
 
-        # Draw car (simplified)
-        for obj in self.car.drawlist:
-            for f in obj.fixtures:
-                trans = f.body.transform
-                path = [trans * v for v in f.shape.vertices]
-                screen_path = []
-                for coords in path:
-                    x = coords[0] * zoom_factor + scroll_x
-                    y = coords[1] * zoom_factor + scroll_y
-                    screen_path.append((x, y))
-
-                color = [int(c * 255) for c in obj.color]
-                try:
-                    pygame.draw.polygon(surf, color, screen_path)
-                except:
-                    pass
+        # Draw car body (simplified for new physics engine)
+        self._draw_car_simple(surf, zoom_factor, scroll_x, scroll_y)
 
         # Flip vertically to match standard rendering
         surf = pygame.transform.flip(surf, False, True)
 
         # Convert to numpy array
         return self._create_image_array(surf, (STATE_W, STATE_H))
+
+    def _draw_car_simple(self, surf, zoom_factor, scroll_x, scroll_y):
+        """
+        Draw car body using simple geometry (no Box2D fixtures).
+        Draws a simple box representing the car.
+        """
+        assert self.car is not None
+
+        # Car dimensions in local frame
+        car_x, car_y = self.car.hull.position
+        angle = -self.car.hull.angle + (math.pi / 2.0)
+
+        # Draw car as a simple rectangle
+        # Approximate car as 4m long, 2m wide
+        car_length = 2.0
+        car_width = 1.0
+
+        # Car corners in local frame
+        corners_local = [
+            (-car_width / 2, car_length / 2),   # Front left
+            (car_width / 2, car_length / 2),    # Front right
+            (car_width / 2, -car_length / 2),   # Rear right
+            (-car_width / 2, -car_length / 2),  # Rear left
+        ]
+
+        # Rotate and translate to world frame
+        cos_a = np.cos(car_angle)
+        sin_a = np.sin(car_angle)
+        corners_world = []
+        for dx, dy in corners_local:
+            # Rotate
+            x = dx * cos_a - dy * sin_a
+            y = dx * sin_a + dy * cos_a
+            # Translate
+            corners_world.append((car_x + x, car_y + y))
+
+        # Transform to screen coordinates
+        screen_corners = []
+        for x, y in corners_world:
+            sx = x * zoom_factor + scroll_x
+            sy = y * zoom_factor + scroll_y
+            screen_corners.append((sx, sy))
+
+        # Draw car body
+        try:
+            color = [int(c * 255) for c in self.car.hull.color]
+            pygame.draw.polygon(surf, color, screen_corners)
+        except:
+            pass
 
     def _render(self, mode: str):
         assert mode in self.metadata["render_modes"]
@@ -964,8 +990,7 @@ class CarRacing(gym.Env, EzPickle):
 
         assert self.car is not None
         # computing transformations
-        angle = -self.car.hull.angle
-        # Use constant zoom (no animation)
+        angle = -self.car.hull.angle + (math.pi / 2.0)        # Use constant zoom (no animation)
         zoom = ZOOM * SCALE
         scroll_x = -(self.car.hull.position[0]) * zoom
         scroll_y = -(self.car.hull.position[1]) * zoom
@@ -973,13 +998,8 @@ class CarRacing(gym.Env, EzPickle):
         trans = (WINDOW_W / 2 + trans[0], WINDOW_H / 4 + trans[1])
 
         self._render_road(zoom, trans, angle)
-        self.car.draw(
-            self.surf,
-            zoom,
-            trans,
-            angle,
-            mode not in ["state_pixels_list", "state_pixels"],
-        )
+        # Draw car (simplified for new physics engine, no Box2D)
+        self._render_car(zoom, trans, angle, mode not in ["state_pixels_list", "state_pixels"])
 
         self.surf = pygame.transform.flip(self.surf, False, True)
 
@@ -1005,6 +1025,123 @@ class CarRacing(gym.Env, EzPickle):
             return self._create_image_array(self.surf, (STATE_W, STATE_H))
         else:
             return self.isopen
+
+    def _render_car(self, zoom, translation, angle, draw_particles=True):
+        """
+        Render car and particles for full rendering (compatible with new physics engine).
+        Draws the car body AND the four wheels, rotating the front wheels with steering.
+        """
+        assert self.car is not None
+
+        # 1. DRAW CAR BODY
+        car_x, car_y = self.car.hull.position
+        car_world_angle = self.car.hull.angle
+
+        # Car corners in local frame (MATCHING PHYSICS COORDS)
+        front_x = self.car.LF
+        rear_x = -self.car.LR
+        left_y = self.car.WIDTH / 2
+        right_y = -self.car.WIDTH / 2
+
+        corners = [
+            (front_x, left_y),  # FL
+            (front_x, right_y),  # FR
+            (rear_x, right_y),  # RR
+            (rear_x, left_y)  # RL
+        ]
+
+        # === ADD HOOD/WINDSHIELD POLYGON ===
+        # Define in local coords (e.g., a triangle on the front)
+        hood_corners = [
+            (front_x, left_y * 0.7),  # Mid-left
+            (front_x, right_y * 0.7),  # Mid-right
+            (front_x * 0.5, 0.0)  # Point halfway to center
+        ]
+        # ===================================
+
+        # Rotate corners to world orientation and translate to world position
+        cos_a = np.cos(car_world_angle)
+        sin_a = np.sin(car_world_angle)
+
+        body_poly = []
+        for dx, dy in corners:
+            # Rotate
+            x = dx * cos_a - dy * sin_a
+            y = dx * sin_a + dy * cos_a
+            # Translate
+            body_poly.append((car_x + x, car_y + y))
+
+        # === TRANSFORM HOOD POLYGON ===
+        hood_poly = []
+        for dx, dy in hood_corners:
+            x = dx * cos_a - dy * sin_a
+            y = dx * sin_a + dy * cos_a
+            hood_poly.append((car_x + x, car_y + y))
+        # ==============================
+
+        # Apply camera transform (rotate by camera angle, zoom, translate)
+        body_poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in body_poly]
+        body_poly = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in body_poly]
+
+        # === TRANSFORM HOOD TO SCREEN ===
+        hood_poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in hood_poly]
+        hood_poly = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in
+                     hood_poly]
+        # ================================
+
+        # Draw car body
+        color = [int(c * 255) for c in self.car.hull.color]
+        gfxdraw.filled_polygon(self.surf, body_poly, color)
+
+        # === DRAW HOOD ===
+        gfxdraw.filled_polygon(self.surf, hood_poly, (200, 200, 200))  # Light grey
+        # =================
+
+        # 2. DRAW WHEELS
+        tire_length = self.car.TIRE_RADIUS * 2  # Length of the tire
+        tire_width = self.car.TIRE_WIDTH
+        hw = tire_width / 2  # half-width
+        hl = tire_length / 2  # half-length (radius)
+
+        # === BUG FIX HERE ===
+        # Define wheel corners in local frame (centered at 0,0)
+        # Length (hl) should be along X-axis, Width (hw) along Y-axis
+        wheel_corners_local = [
+            (hl, hw),  # Front-Left
+            (hl, -hw),  # Front-Right
+            (-hl, -hw),  # Rear-Right
+            (-hl, hw)  # Rear-Left
+        ]
+        # ==================
+
+        for i, wheel in enumerate(self.car.wheels):
+            # Get wheel's world position (from dynamics)
+            wx, wy = wheel.position
+
+            # Get wheel's world angle
+            wheel_world_angle = self.car.hull.angle
+            if i < 2:  # Front wheels
+                wheel_world_angle += self.car.steering_angle
+
+            # Rotate corners to world orientation and translate to world position
+            cos_w = np.cos(wheel_world_angle)
+            sin_w = np.sin(wheel_world_angle)
+
+            wheel_poly_world = []
+            for dx, dy in wheel_corners_local:
+                # Rotate
+                rx = dx * cos_w - dy * sin_w
+                ry = dx * sin_w + dy * cos_w
+                # Translate
+                wheel_poly_world.append((wx + rx, wy + ry))
+
+            # Apply camera transform (same as body)
+            wheel_poly_screen = [pygame.math.Vector2(c).rotate_rad(angle) for c in wheel_poly_world]
+            wheel_poly_screen = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in
+                                 wheel_poly_screen]
+
+            # Draw the wheel (black)
+            gfxdraw.filled_polygon(self.surf, wheel_poly_screen, (0, 0, 0))
 
     def _render_road(self, zoom, translation, angle):
         bounds = PLAYFIELD
@@ -1102,13 +1239,13 @@ class CarRacing(gym.Env, EzPickle):
         )
 
         render_if_min(
-            self.car.wheels[0].joint.angle,
-            horiz_ind(20, -10.0 * self.car.wheels[0].joint.angle),
+            self.car.steering_angle,
+            horiz_ind(20, -10.0 * self.car.steering_angle),
             (0, 255, 0),
         )
         render_if_min(
-            self.car.hull.angularVelocity,
-            horiz_ind(30, -0.8 * self.car.hull.angularVelocity),
+            self.car.yaw_rate,
+            horiz_ind(30, -0.8 * self.car.yaw_rate),
             (255, 0, 0),
         )
 
