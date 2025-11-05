@@ -69,7 +69,7 @@ class PacejkaTire:
         sr = np.clip(slip_ratio, -1.0, 1.0)
 
         # Use LONGITUDINAL coefficients
-        # this is pretty much the as as the LATERAL force (but long) except it use slip_ratio instead of slip_angle
+        # this is pretty much the as as the LATERAL force (but longitudinal) except it uses slip_ratio instead of slip_angle
         arg = self.B_lon * sr
         F = (self.D_lon * normal_force * max_friction * np.sin(self.C_lon * np.arctan(arg - self.E_lon * (arg - np.arctan(arg)))))
 
