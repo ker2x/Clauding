@@ -47,12 +47,18 @@ def format_action(action):
     Format continuous action for display.
 
     Args:
-        action: Continuous action [steering, gas, brake]
+        action: Continuous action [steering, acceleration]
+               steering: -1 (left) to +1 (right)
+               acceleration: -1 (brake) to +1 (gas)
 
     Returns:
         Human-readable action description
     """
-    steering, gas, brake = action
+    steering, acceleration = action
+
+    # Convert acceleration to gas/brake for display
+    gas = max(0.0, acceleration)
+    brake = max(0.0, -acceleration)
 
     # Describe steering
     if steering < -0.3:
@@ -83,7 +89,7 @@ def render_frame(frame, episode, step, reward, total_reward, action):
         step: Current step number
         reward: Current step reward
         total_reward: Cumulative episode reward
-        action: Continuous action [steering, gas, brake]
+        action: Continuous action [steering, acceleration]
 
     Returns:
         Frame with overlay text
@@ -135,10 +141,9 @@ def watch_random_agent(args):
     print("=" * 60)
     print(f"Episodes: {args.episodes}")
     print(f"State shape: {state_shape}")
-    print(f"Action space: Continuous")
-    print(f"  - Steering: [{env.action_space.low[0]:.1f}, {env.action_space.high[0]:.1f}]")
-    print(f"  - Gas:      [{env.action_space.low[1]:.1f}, {env.action_space.high[1]:.1f}]")
-    print(f"  - Brake:    [{env.action_space.low[2]:.1f}, {env.action_space.high[2]:.1f}]")
+    print(f"Action space: Continuous (2D)")
+    print(f"  - Steering:     [{env.action_space.low[0]:+.1f}, {env.action_space.high[0]:+.1f}]")
+    print(f"  - Acceleration: [{env.action_space.low[1]:+.1f}, {env.action_space.high[1]:+.1f}] (negative=brake, positive=gas)")
     print("=" * 60)
 
     if not args.no_render:

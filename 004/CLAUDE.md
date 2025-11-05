@@ -12,7 +12,7 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 - The custom 2D car physics engine (`car_dynamics.py`) has been completely reworked with refined Pacejka tire modeling
 - Physics code is clean and well-documented with no dead code or debug markers
 - Environment code (`car_racing.py`) has been cleaned up with improved comments
-- Bug fix: Fixed undefined `car_angle` variable in headless visual rendering (line 951)
+- Exception handling improved: replaced bare `except:` clauses with specific exception types
 
 **Key Architecture Principle**: SAC uses separate actor (policy) and critic (value) networks with automatic entropy tuning via a learned alpha parameter. The algorithm maintains twin Q-networks to reduce overestimation bias and uses soft target updates for stability.
 
@@ -143,7 +143,9 @@ agent = SACAgent(..., state_mode=state_mode)
 **Why This Matters**: Mismatching state mode causes architecture errors (trying to load CNN weights into MLP or vice versa).
 
 #### Action Space Handling
-Actions are continuous `[steering, gas, brake]`:
+Actions are continuous `[steering, acceleration]`:
+- `steering`: -1.0 (full left) to +1.0 (full right)
+- `acceleration`: -1.0 (full brake) to +1.0 (full gas)
 - Raw policy outputs unbounded Gaussian samples
 - Tanh squashing bounds actions: `action = tanh(z)` where z ~ N(mean, std)
 - Log probability correction: `log_prob = log_normal(z) - log(1 - tanh²(z))`
@@ -151,7 +153,7 @@ Actions are continuous `[steering, gas, brake]`:
 
 #### Entropy Tuning
 Alpha (entropy coefficient) is automatically learned:
-- Target entropy = -action_dim (for 3D actions: -3.0)
+- Target entropy = -action_dim (for 2D actions: -2.0)
 - Alpha is parameterized as `exp(log_alpha)` to ensure positivity
 - Loss: `alpha_loss = -log_alpha * (log_prob + target_entropy).detach()`
 - Alpha typically decreases during training (0.8 → 0.01-0.2)
@@ -250,7 +252,7 @@ Checkpoints (.pt files) contain:
     'log_alpha': log_alpha,  # If auto_entropy_tuning
     'alpha_optimizer': alpha_optimizer.state_dict(),  # If auto_entropy_tuning
     'state_mode': 'vector' or 'visual',  # Critical for loading
-    'action_dim': 3
+    'action_dim': 2
 }
 ```
 
@@ -260,10 +262,9 @@ Checkpoints (.pt files) contain:
 
 ## Continuous Action Space
 
-Unlike project 002 (discrete 9 actions), this uses continuous actions:
-- `steering` ∈ [-1.0, 1.0]
-- `gas` ∈ [0.0, 1.0]
-- `brake` ∈ [0.0, 1.0]
+Unlike project 002 (discrete 9 actions), this uses a 2D continuous action space:
+- `steering` ∈ [-1.0, 1.0] (negative = left, positive = right)
+- `acceleration` ∈ [-1.0, 1.0] (negative = brake, positive = gas)
 
 Actions are sampled from Gaussian distribution and bounded with tanh. No discretization or ActionDiscretizer class exists in this project.
 

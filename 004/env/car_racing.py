@@ -551,11 +551,6 @@ class CarRacing(gym.Env, EzPickle):
     def step(self, action: np.ndarray | int):
         assert self.car is not None
 
-        # Debug: Add a step counter
-        if not hasattr(self, 'debug_step_counter'):
-            self.debug_step_counter = 0
-        self.debug_step_counter += 1
-
         # Initialize action vars for debug print
         gas, brake = 0.0, 0.0
         steer_action = 0.0
@@ -912,8 +907,8 @@ class CarRacing(gym.Env, EzPickle):
             # Simple filled polygon (no anti-aliasing)
             try:
                 pygame.draw.polygon(surf, color, screen_poly)
-            except:
-                pass  # Skip if polygon is off-screen
+            except (pygame.error, ValueError, TypeError):
+                pass  # Skip if polygon is off-screen or has invalid coordinates
 
         # Draw car body (simplified for new physics engine)
         self._draw_car_simple(surf, zoom_factor, scroll_x, scroll_y)
@@ -970,8 +965,8 @@ class CarRacing(gym.Env, EzPickle):
         try:
             color = [int(c * 255) for c in self.car.hull.color]
             pygame.draw.polygon(surf, color, screen_corners)
-        except:
-            pass
+        except (pygame.error, ValueError, TypeError, AttributeError):
+            pass  # Skip if car rendering fails (e.g., color not set or invalid coordinates)
 
     def _render(self, mode: str):
         assert mode in self.metadata["render_modes"]
