@@ -2,10 +2,13 @@
 Visualize what the model sees in visual state mode.
 
 This script demonstrates the visual preprocessing pipeline:
-1. RGB rendering (96×96×3)
+1. RGB headless rendering (96×96×3) - no GUI/telemetry overlays
 2. Grayscale conversion (96×96)
 3. Normalization [0, 255] → [0.0, 1.0]
 4. Frame stacking (4 frames → 4×96×96)
+
+IMPORTANT: Uses headless rendering (render_mode=None) to show the exact same
+view the model sees during training - pure camera view without any telemetry bars.
 
 The output shows all 4 stacked frames side by side, which is what the
 visual actor network receives as input.
@@ -86,7 +89,7 @@ def visualize_visual_state(state, output_path, display=False):
         f"Value Range: [{state.min():.3f}, {state.max():.3f}]\n"
         f"Mean: {state.mean():.3f}, Std: {state.std():.3f}\n\n"
         f"Preprocessing Pipeline:\n"
-        f"  1. RGB render (96×96×3)\n"
+        f"  1. RGB headless render (96×96×3) - no telemetry!\n"
         f"  2. Grayscale conversion\n"
         f"  3. Normalize to [0.0, 1.0]\n"
         f"  4. Stack 4 frames\n\n"
@@ -125,7 +128,7 @@ def main():
     env = make_carracing_env(
         stack_size=4,
         terminate_stationary=True,
-        render_mode='rgb_array',  # Enable rendering for visual mode
+        render_mode=None,  # Use headless rendering (same as training) - no telemetry
         state_mode='visual'
     )
 
