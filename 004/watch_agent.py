@@ -46,28 +46,49 @@ def format_action(action):
     Format continuous action for display.
 
     Args:
-        action: Continuous action [steering, gas, brake]
+        action: Continuous action [steering, acceleration] (2D) or [steering, gas, brake] (3D, old)
 
     Returns:
         Human-readable action description
     """
-    steering, gas, brake = action
+    if len(action) == 2:
+        # New 2D action space: [steering, acceleration]
+        steering, accel = action
 
-    # Describe steering
-    if steering < -0.3:
-        steer_desc = f"LEFT({steering:.2f})"
-    elif steering > 0.3:
-        steer_desc = f"RIGHT({steering:.2f})"
-    else:
-        steer_desc = f"STRAIGHT({steering:.2f})"
+        # Describe steering
+        if steering < -0.3:
+            steer_desc = f"LEFT({steering:.2f})"
+        elif steering > 0.3:
+            steer_desc = f"RIGHT({steering:.2f})"
+        else:
+            steer_desc = f"STRAIGHT({steering:.2f})"
 
-    # Describe gas/brake
-    if brake > 0.1:
-        pedal_desc = f"BRAKE({brake:.2f})"
-    elif gas > 0.1:
-        pedal_desc = f"GAS({gas:.2f})"
+        # Describe acceleration
+        if accel > 0.1:
+            pedal_desc = f"GAS({accel:.2f})"
+        elif accel < -0.1:
+            pedal_desc = f"BRAKE({-accel:.2f})"
+        else:
+            pedal_desc = "COAST"
     else:
-        pedal_desc = "COAST"
+        # Old 3D action space: [steering, gas, brake]
+        steering, gas, brake = action
+
+        # Describe steering
+        if steering < -0.3:
+            steer_desc = f"LEFT({steering:.2f})"
+        elif steering > 0.3:
+            steer_desc = f"RIGHT({steering:.2f})"
+        else:
+            steer_desc = f"STRAIGHT({steering:.2f})"
+
+        # Describe gas/brake
+        if brake > 0.1:
+            pedal_desc = f"BRAKE({brake:.2f})"
+        elif gas > 0.1:
+            pedal_desc = f"GAS({gas:.2f})"
+        else:
+            pedal_desc = "COAST"
 
     return f"{steer_desc} + {pedal_desc}"
 
@@ -155,10 +176,14 @@ def watch_agent(args):
     print(f"Episodes: {args.episodes}")
     print(f"State mode: {state_mode}")
     print(f"State shape: {state_shape}")
-    print(f"Action space: Continuous")
-    print(f"  - Steering: [{env.action_space.low[0]:.1f}, {env.action_space.high[0]:.1f}]")
-    print(f"  - Gas:      [{env.action_space.low[1]:.1f}, {env.action_space.high[1]:.1f}]")
-    print(f"  - Brake:    [{env.action_space.low[2]:.1f}, {env.action_space.high[2]:.1f}]")
+    print(f"Action space: Continuous ({action_dim}D)")
+    if action_dim == 2:
+        print(f"  - Steering:      [{env.action_space.low[0]:.1f}, {env.action_space.high[0]:.1f}]")
+        print(f"  - Acceleration:  [{env.action_space.low[1]:.1f}, {env.action_space.high[1]:.1f}]")
+    else:  # 3D (old checkpoints)
+        print(f"  - Steering: [{env.action_space.low[0]:.1f}, {env.action_space.high[0]:.1f}]")
+        print(f"  - Gas:      [{env.action_space.low[1]:.1f}, {env.action_space.high[1]:.1f}]")
+        print(f"  - Brake:    [{env.action_space.low[2]:.1f}, {env.action_space.high[2]:.1f}]")
     print("=" * 60)
 
     # Create agent with same state mode as training

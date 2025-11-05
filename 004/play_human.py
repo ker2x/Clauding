@@ -38,20 +38,41 @@ def parse_args():
 
 def format_action(action):
     """Format continuous action for display."""
-    steering, gas, brake = action
-    if steering < -0.3:
-        steer_desc = f"LEFT({steering:.2f})"
-    elif steering > 0.3:
-        steer_desc = f"RIGHT({steering:.2f})"
-    else:
-        steer_desc = f"STRAIGHT({steering:.2f})"
+    if len(action) == 2:
+        # New 2D action space: [steering, acceleration]
+        steering, accel = action
 
-    if brake > 0.1:
-        pedal_desc = f"BRAKE({brake:.2f})"
-    elif gas > 0.1:
-        pedal_desc = f"GAS({gas:.2f})"
+        if steering < -0.3:
+            steer_desc = f"LEFT({steering:.2f})"
+        elif steering > 0.3:
+            steer_desc = f"RIGHT({steering:.2f})"
+        else:
+            steer_desc = f"STRAIGHT({steering:.2f})"
+
+        if accel > 0.1:
+            pedal_desc = f"GAS({accel:.2f})"
+        elif accel < -0.1:
+            pedal_desc = f"BRAKE({-accel:.2f})"
+        else:
+            pedal_desc = "COAST"
     else:
-        pedal_desc = "COAST"
+        # Old 3D action space: [steering, gas, brake]
+        steering, gas, brake = action
+
+        if steering < -0.3:
+            steer_desc = f"LEFT({steering:.2f})"
+        elif steering > 0.3:
+            steer_desc = f"RIGHT({steering:.2f})"
+        else:
+            steer_desc = f"STRAIGHT({steering:.2f})"
+
+        if brake > 0.1:
+            pedal_desc = f"BRAKE({brake:.2f})"
+        elif gas > 0.1:
+            pedal_desc = f"GAS({gas:.2f})"
+        else:
+            pedal_desc = "COAST"
+
     return f"{steer_desc} + {pedal_desc}"
 
 
@@ -130,8 +151,8 @@ def play_human(args):
             step = 0
             done = False
 
-            # Action: [steering, gas, brake]
-            action = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+            # Action: [steering, acceleration] (2D action space)
+            action = np.array([0.0, 0.0], dtype=np.float32)
 
             # Smooth steering state
             current_steering = 0.0
@@ -164,14 +185,16 @@ def play_human(args):
                 # --- Arcade-Style Input (Key-Down State) ---
                 keys = pygame.key.get_pressed()
 
-                # 1. Gas and Brake (Digital)
+                # 1. Acceleration (combines gas and brake into single dimension)
                 # Note: ZQSD (French AZERTY) or WASD (US QWERTY)
                 gas = 1.0 if keys[pygame.K_w] or keys[pygame.K_z] or keys[pygame.K_UP] else 0.0
                 brake = 1.0 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0.0
 
-                # Prioritize brake over gas
+                # Convert to single acceleration dimension: [-1, +1]
                 if brake > 0:
-                    gas = 0.0
+                    acceleration = -brake  # Negative = brake
+                else:
+                    acceleration = gas     # Positive = gas
 
                 # 2. Steering (Smoothed)
                 # Note: Q/D (AZERTY) or A/D (QWERTY)
@@ -186,8 +209,8 @@ def play_human(args):
                 STEER_SPEED = 0.1 # How fast to turn the wheel (10% per frame)
                 current_steering = (1.0 - STEER_SPEED) * current_steering + STEER_SPEED * target_steering
 
-                # Assemble the final action
-                action = np.array([current_steering, gas, brake], dtype=np.float32)
+                # Assemble the final action: [steering, acceleration]
+                action = np.array([current_steering, acceleration], dtype=np.float32)
 
                 # --- Step Environment ---
                 next_state, reward, terminated, truncated, _ = env.step(action)

@@ -4,6 +4,15 @@ Clean 2D top-down car dynamics simulation using Pacejka magic formula tires.
 This replaces the Box2D implementation with a more interpretable physics model:
 - Pacejka magic formula for tire forces
 - No external physics library dependency
+
+The curves output tire forces (lateral/longitudinal) and moments (Mz for aligning moment for example) based on just a few inputs. These inputs are:
+
+slip angle; the difference between the direction the tire is facing, and its velocity. 0 means the tire is going straight ahead (no slip). Typical peak slip angles for tire are around 3-6 degrees.
+slip ratio; the spin velocity divided by its actual world velocity. A slip ratio of -1 means full braking lock; a ratio of 0 means the tire is spinning at the exact same rate as the road is disappearing below it. A slip ratio of 1 means it's spinning.
+camber; the angle of the tire with respect to the surface
+load; the amount of force pressing down on the tire. Typically each wheel carries around 1/4th of the car's weight.
+
+
 """
 
 import numpy as np
@@ -328,50 +337,41 @@ class Car:
                 y_pos = self.WIDTH / 2 if i == 2 else -self.WIDTH / 2
             wheel_vx = self.vx - self.yaw_rate * y_pos
 
-            # --- REVISED LOGIC ---
-            # Priority: 1. Brakes, 2. Engine, 3. Free-Rolling
+            # Simple logic: Apply brakes, engine, or free-roll
+            # Note: Environment ensures gas and brake are mutually exclusive
+            # (only one can be non-zero at a time)
 
-            # 1. Apply Brakes (highest priority)
+            # 1. Apply Brakes
             if self._brake >= 0.9:
+                # Hard brake: lock wheels
                 wheel.omega = 0.0
             elif self._brake > 0:
-                # Use our brake constant
+                # Progressive braking
                 brake_alpha = self.BRAKE_ANG_DECEL * self._brake
                 sign = -np.sign(wheel.omega) if wheel.omega != 0 else 0
 
-                # Calculate the change in angular velocity for this time step
                 delta_omega = brake_alpha * dt
 
-                # Clamp the *change* so it doesn't "overshoot"
+                # Clamp to avoid overshoot
                 if delta_omega > abs(wheel.omega):
                     wheel.omega = 0.0
                 else:
                     wheel.omega += sign * delta_omega
 
-            # 2. Apply Engine (if not braking and is a driven wheel)
-            elif is_rear and self._gas > 0.0:
-                gas_factor = self._gas
-
-                # Use a stable torque curve model:
-                # 1. Constant torque (MAX_TORQUE) up to POWER_TRANSITION_OMEGA
-                # 2. Constant power (P = P/ω) after that speed
+            # 2. Apply Engine (rear-wheel drive)
+            elif is_rear and self._gas > 0:
+                # Torque curve: constant torque → constant power
                 if abs(wheel.omega) < self.POWER_TRANSITION_OMEGA:
-                    # 1. Constant torque region (like 1st gear)
-                    torque = self.MAX_TORQUE_PER_WHEEL * gas_factor
+                    torque = self.MAX_TORQUE_PER_WHEEL * self._gas
                 else:
-                    # 2. Constant power region (torque falls off)
-                    # Power per driven wheel = ENGINE_POWER / 2
-                    torque = (self.ENGINE_POWER / 2) * gas_factor / abs(wheel.omega)
+                    torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
 
-                # Apply acceleration
                 accel = torque / self.INERTIA
                 wheel.omega += accel * dt
 
-            # 3. Free Rolling (if not braking and not engine-driven)
+            # 3. Free Rolling (coasting)
             else:
-                # Wheel is free-rolling. Its angular velocity should match the
-                # longitudinal velocity of the contact patch.
-                # This results in a slip_ratio of 0.
+                # Match wheel speed to ground speed (zero slip)
                 wheel.omega = wheel_vx / self.TIRE_RADIUS
 
             # Sync to wheel_omega array for consistency

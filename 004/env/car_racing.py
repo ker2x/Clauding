@@ -132,10 +132,9 @@ class CarRacing(gym.Env, EzPickle):
     and turn at the same time.
 
     ## Action Space
-    If continuous there are 3 actions :
+    If continuous there are 2 actions:
     - 0: steering, -1 is full left, +1 is full right
-    - 1: gas
-    - 2: braking
+    - 1: acceleration, -1 is full brake, +1 is full gas
 
     If discrete there are 5 actions:
     - 0: do nothing
@@ -241,13 +240,13 @@ class CarRacing(gym.Env, EzPickle):
         # Vector mode: waypoint lookahead count
         self.vector_lookahead = 10
 
-        # This will throw a warning in tests/envs/test_envs in utils/env_checker.py as the space is not symmetric
-        #   or normalised however this is not possible here so ignore
+        # Continuous: 2D action space [steering, acceleration]
+        # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
         if self.continuous:
             self.action_space = spaces.Box(
-                np.array([-1, 0, 0]).astype(np.float32),
-                np.array([+1, +1, +1]).astype(np.float32),
-            )  # steer, gas, brake
+                np.array([-1, -1]).astype(np.float32),
+                np.array([+1, +1]).astype(np.float32),
+            )  # steer, acceleration
         else:
             self.action_space = spaces.Discrete(5)
             # do nothing, right, left, gas, brake
@@ -560,14 +559,22 @@ class CarRacing(gym.Env, EzPickle):
         # Initialize action vars for debug print
         gas, brake = 0.0, 0.0
         steer_action = 0.0
+        accel = 0.0
 
         if action is not None:
             if self.continuous:
                 action = action.astype(np.float64)
-                # Actions in native bounds: steering [-1, 1], gas [0, 1], brake [0, 1]
+                # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
                 steer_action = -action[0]
-                gas = np.clip(action[1], 0.0, 1.0)
-                brake = np.clip(action[2], 0.0, 1.0)
+                accel = np.clip(action[1], -1.0, 1.0)
+
+                # Convert acceleration to gas/brake
+                if accel > 0:
+                    gas = accel
+                    brake = 0.0
+                else:
+                    gas = 0.0
+                    brake = -accel
 
                 self.car.steer(steer_action)
                 self.car.gas(gas)

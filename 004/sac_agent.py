@@ -272,8 +272,7 @@ class SACAgent:
         """
         Apply proper bounds to sampled actions (native action space):
         - Steering (dim 0): tanh → [-1, 1]
-        - Gas (dim 1): sigmoid → [0, 1]
-        - Brake (dim 2): sigmoid → [0, 1]
+        - Acceleration (dim 1): tanh → [-1 (brake), +1 (gas)]
 
         Args:
             z: Unbounded sampled actions from Gaussian
@@ -281,10 +280,8 @@ class SACAgent:
         Returns:
             action: Actions in native bounds
         """
-        action = z.clone()
-        action[:, 0] = torch.tanh(z[:, 0])  # Steering: [-1, 1]
-        action[:, 1] = torch.sigmoid(z[:, 1])  # Gas: [0, 1]
-        action[:, 2] = torch.sigmoid(z[:, 2])  # Brake: [0, 1]
+        # Both actions use tanh squashing to [-1, 1]
+        action = torch.tanh(z)
         return action
 
     def select_action(self, state, evaluate=False):
@@ -322,8 +319,7 @@ class SACAgent:
 
         Applies native action bounds:
         - Steering (dim 0): tanh → [-1, 1]
-        - Gas (dim 1): sigmoid → [0, 1]
-        - Brake (dim 2): sigmoid → [0, 1]
+        - Acceleration (dim 1): tanh → [-1 (brake), +1 (gas)]
         """
         mean, log_std = self.actor(state)
         std = log_std.exp()
@@ -332,18 +328,14 @@ class SACAgent:
         z = normal.rsample()  # Reparameterization trick
         action = self._apply_action_bounds(z)
 
-        # Compute log probability with proper corrections for each action dimension
+        # Compute log probability with tanh correction
+        # For y = tanh(z): log|dy/dz| = log(1 - tanh^2(z))
         log_prob = normal.log_prob(z)
 
-        # Steering (dim 0): tanh transformation
-        log_prob[:, 0] -= torch.log(1 - action[:, 0].pow(2) + 1e-6)
+        # Apply tanh Jacobian correction for all dimensions
+        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
 
-        # Gas (dim 1): sigmoid transformation
-        log_prob[:, 1] -= torch.log(action[:, 1] * (1 - action[:, 1]) + 1e-6)
-
-        # Brake (dim 2): sigmoid transformation
-        log_prob[:, 2] -= torch.log(action[:, 2] * (1 - action[:, 2]) + 1e-6)
-
+        # Sum over action dimensions
         log_prob = log_prob.sum(1, keepdim=True)
 
         return action, log_prob
