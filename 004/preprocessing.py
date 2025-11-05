@@ -172,7 +172,8 @@ def make_carracing_env(
     state_mode="vector",
     reward_shaping=True,
     min_episode_steps=150,
-    short_episode_penalty=-50.0
+    short_episode_penalty=-50.0,
+    verbose=False
 ) -> gym.Env:
     """
     Creates a preprocessed CarRacing-v3 environment for SAC training.
@@ -189,6 +190,7 @@ def make_carracing_env(
         reward_shaping: Apply reward shaping to discourage short episodes (default: True)
         min_episode_steps: Minimum episode length before penalty (default: 150)
         short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
+        verbose: Enable verbose mode from environment for debugging (default: False)
 
     Returns:
         Wrapped environment ready for SAC training with continuous actions
@@ -197,6 +199,7 @@ def make_carracing_env(
     # Stationary car termination is now a core feature of the environment
     env = CarRacing(
         render_mode=render_mode,
+        verbose=verbose,
         continuous=True,  # Always use continuous actions for SAC
         terminate_stationary=terminate_stationary,
         stationary_patience=stationary_patience,

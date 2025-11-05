@@ -18,6 +18,7 @@ from torch.distributions import Normal
 import numpy as np
 from collections import deque
 import random
+import time
 
 
 # ===========================
@@ -133,6 +134,9 @@ class VisualCritic(nn.Module):
         self.fc1 = nn.Linear(conv_out_size + action_dim, 512)
         self.fc2 = nn.Linear(512, 1)
 
+        # Timing diagnostics
+        self.verbose_timing = False
+
     def _get_conv_out_size(self, shape):
         """Calculate the output size of conv layers."""
         o = self.conv1(torch.zeros(1, *shape))
@@ -141,14 +145,37 @@ class VisualCritic(nn.Module):
         return int(np.prod(o.size()))
 
     def forward(self, state, action):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-        x = torch.cat([x, action], dim=1)
-        x = F.relu(self.fc1(x))
-        q_value = self.fc2(x)
-        return q_value
+        if self.verbose_timing:
+            t0 = time.perf_counter()
+            x = F.relu(self.conv1(state))
+            t1 = time.perf_counter()
+            x = F.relu(self.conv2(x))
+            t2 = time.perf_counter()
+            x = F.relu(self.conv3(x))
+            t3 = time.perf_counter()
+            x = x.view(x.size(0), -1)
+            x = torch.cat([x, action], dim=1)
+            x = F.relu(self.fc1(x))
+            t4 = time.perf_counter()
+            q_value = self.fc2(x)
+            t5 = time.perf_counter()
+
+            return q_value, {
+                'conv1': (t1 - t0) * 1000,
+                'conv2': (t2 - t1) * 1000,
+                'conv3': (t3 - t2) * 1000,
+                'fc_layers': (t5 - t4) * 1000,
+                'total': (t5 - t0) * 1000
+            }
+        else:
+            x = F.relu(self.conv1(state))
+            x = F.relu(self.conv2(x))
+            x = F.relu(self.conv3(x))
+            x = x.view(x.size(0), -1)
+            x = torch.cat([x, action], dim=1)
+            x = F.relu(self.fc1(x))
+            q_value = self.fc2(x)
+            return q_value
 
 
 # ===========================
@@ -232,6 +259,11 @@ class SACAgent:
         self.gamma = gamma
         self.tau = tau
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # Verbose mode for timing diagnostics
+        self.verbose = False
+        self.update_counter = 0
+        self.layer_timings = []  # Store layer-level timings for analysis
 
         # Create networks based on state mode
         if state_mode == 'vector':
@@ -347,20 +379,37 @@ class SACAgent:
         Returns:
             Dictionary with training metrics
         """
+        # Timing diagnostics
+        update_start = time.perf_counter() if self.verbose else None
+        timings = {}
+
         # Sample batch
+        sample_start = time.perf_counter() if self.verbose else None
         states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size)
+        if self.verbose:
+            timings['sample'] = (time.perf_counter() - sample_start) * 1000
 
         # ===========================
         # Update Critics
         # ===========================
 
+        target_start = time.perf_counter() if self.verbose else None
         with torch.no_grad():
             # Sample next actions from current policy
             next_actions, next_log_probs = self._sample_action(next_states)
 
             # Compute target Q-values (minimum of two critics)
+            forward_target_start = time.perf_counter() if self.verbose else None
             target_q1 = self.critic_target_1(next_states, next_actions)
             target_q2 = self.critic_target_2(next_states, next_actions)
+            if self.verbose:
+                # Synchronize to get accurate timing
+                if self.device.type == 'cuda':
+                    torch.cuda.synchronize()
+                elif self.device.type == 'mps':
+                    torch.mps.synchronize()
+                timings['target_forward'] = (time.perf_counter() - forward_target_start) * 1000
+
             target_q = torch.min(target_q1, target_q2)
 
             # Add entropy term
@@ -368,25 +417,76 @@ class SACAgent:
 
             # Compute target
             target_q = rewards + (1 - dones) * self.gamma * target_q
+        if self.verbose:
+            timings['target_total'] = (time.perf_counter() - target_start) * 1000
 
         # Update critic 1
-        current_q1 = self.critic_1(states, actions)
+        critic1_start = time.perf_counter() if self.verbose else None
+        forward_c1_start = time.perf_counter() if self.verbose else None
+
+        # Enable detailed timing for visual critics
+        if self.verbose and hasattr(self.critic_1, 'verbose_timing'):
+            self.critic_1.verbose_timing = True
+            result = self.critic_1(states, actions)
+            if isinstance(result, tuple):
+                current_q1, layer_times_c1 = result
+                timings['c1_layers'] = layer_times_c1
+            else:
+                current_q1 = result
+            self.critic_1.verbose_timing = False
+        else:
+            current_q1 = self.critic_1(states, actions)
+
+        if self.verbose:
+            if self.device.type == 'cuda':
+                torch.cuda.synchronize()
+            elif self.device.type == 'mps':
+                torch.mps.synchronize()
+            timings['critic1_forward'] = (time.perf_counter() - forward_c1_start) * 1000
+
         critic_1_loss = F.mse_loss(current_q1, target_q)
         self.critic_1_optimizer.zero_grad()
         critic_1_loss.backward()
         self.critic_1_optimizer.step()
+        if self.verbose:
+            timings['critic1_total'] = (time.perf_counter() - critic1_start) * 1000
 
         # Update critic 2
-        current_q2 = self.critic_2(states, actions)
+        critic2_start = time.perf_counter() if self.verbose else None
+        forward_c2_start = time.perf_counter() if self.verbose else None
+
+        # Enable detailed timing for visual critics
+        if self.verbose and hasattr(self.critic_2, 'verbose_timing'):
+            self.critic_2.verbose_timing = True
+            result = self.critic_2(states, actions)
+            if isinstance(result, tuple):
+                current_q2, layer_times_c2 = result
+                timings['c2_layers'] = layer_times_c2
+            else:
+                current_q2 = result
+            self.critic_2.verbose_timing = False
+        else:
+            current_q2 = self.critic_2(states, actions)
+
+        if self.verbose:
+            if self.device.type == 'cuda':
+                torch.cuda.synchronize()
+            elif self.device.type == 'mps':
+                torch.mps.synchronize()
+            timings['critic2_forward'] = (time.perf_counter() - forward_c2_start) * 1000
+
         critic_2_loss = F.mse_loss(current_q2, target_q)
         self.critic_2_optimizer.zero_grad()
         critic_2_loss.backward()
         self.critic_2_optimizer.step()
+        if self.verbose:
+            timings['critic2_total'] = (time.perf_counter() - critic2_start) * 1000
 
         # ===========================
         # Update Actor
         # ===========================
 
+        actor_start = time.perf_counter() if self.verbose else None
         # Sample actions from current policy
         new_actions, log_probs = self._sample_action(states)
 
@@ -402,6 +502,8 @@ class SACAgent:
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
+        if self.verbose:
+            timings['actor_total'] = (time.perf_counter() - actor_start) * 1000
 
         # ===========================
         # Update Alpha (Entropy Coefficient)
@@ -424,6 +526,66 @@ class SACAgent:
 
         self._soft_update(self.critic_1, self.critic_target_1)
         self._soft_update(self.critic_2, self.critic_target_2)
+
+        # Print timing diagnostics
+        if self.verbose and self.update_counter % 10 == 0:
+            import psutil
+            import os
+
+            total_time = (time.perf_counter() - update_start) * 1000
+
+            # Get CPU diagnostics
+            process = psutil.Process(os.getpid())
+            cpu_percent = process.cpu_percent()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            num_threads = torch.get_num_threads()
+
+            print(f"\n{'='*70}")
+            print(f"SAC UPDATE {self.update_counter} TIMING:")
+            print(f"  Sample batch:         {timings.get('sample', 0):>7.2f} ms")
+            print(f"  Target forward:       {timings.get('target_forward', 0):>7.2f} ms")
+            print(f"  Target total:         {timings.get('target_total', 0):>7.2f} ms")
+            print(f"  Critic 1 forward:     {timings.get('critic1_forward', 0):>7.2f} ms  <<< WATCH THIS")
+
+            # Print layer-level timing for Critic 1 if available
+            if 'c1_layers' in timings:
+                lt = timings['c1_layers']
+                print(f"    ├─ conv1:           {lt['conv1']:>7.2f} ms")
+                print(f"    ├─ conv2:           {lt['conv2']:>7.2f} ms")
+                print(f"    ├─ conv3:           {lt['conv3']:>7.2f} ms")
+                print(f"    └─ FC layers:       {lt['fc_layers']:>7.2f} ms")
+
+            print(f"  Critic 1 total:       {timings.get('critic1_total', 0):>7.2f} ms")
+            print(f"  Critic 2 forward:     {timings.get('critic2_forward', 0):>7.2f} ms  <<< WATCH THIS")
+
+            # Print layer-level timing for Critic 2 if available
+            if 'c2_layers' in timings:
+                lt = timings['c2_layers']
+                print(f"    ├─ conv1:           {lt['conv1']:>7.2f} ms")
+                print(f"    ├─ conv2:           {lt['conv2']:>7.2f} ms")
+                print(f"    ├─ conv3:           {lt['conv3']:>7.2f} ms")
+                print(f"    └─ FC layers:       {lt['fc_layers']:>7.2f} ms")
+
+            print(f"  Critic 2 total:       {timings.get('critic2_total', 0):>7.2f} ms")
+            print(f"  Actor total:          {timings.get('actor_total', 0):>7.2f} ms")
+            print(f"  TOTAL UPDATE:         {total_time:>7.2f} ms")
+            print(f"\n  CPU DIAGNOSTICS:")
+            print(f"    PyTorch threads:    {num_threads}")
+            print(f"    CPU usage:          {cpu_percent:.1f}%")
+            print(f"    Memory usage:       {memory_mb:.1f} MB")
+            print(f"{'='*70}\n")
+
+            # Store timing for later analysis
+            self.layer_timings.append({
+                'update': self.update_counter,
+                'total': total_time,
+                'c1_forward': timings.get('critic1_forward', 0),
+                'c2_forward': timings.get('critic2_forward', 0),
+                'c1_layers': timings.get('c1_layers', {}),
+                'c2_layers': timings.get('c2_layers', {})
+            })
+
+        self.update_counter += 1
 
         # Return metrics
         return {

@@ -1,6 +1,7 @@
 __credits__ = ["Andrea PIERRÉ"]
 
 import math
+import time
 
 import numpy as np
 
@@ -73,26 +74,66 @@ class FrictionDetector:
     def update_contacts(self, car, road_tiles):
         """
         Update wheel-tile contacts based on proximity.
+        Uses spatial partitioning to only check nearby tiles.
         Called each step to determine which tiles each wheel is touching.
         """
         WHEEL_RADIUS = 0.3
         CONTACT_THRESHOLD = 8.0  # Tolerance for wheel-to-tile contact
+        SPATIAL_CHECK_RANGE = 30  # Only check tiles within ±30 indices of car position
 
         # Clear old contacts
         for wheel in car.wheels:
             wheel.tiles.clear()
 
-        # Check each wheel against each track tile
+        # Get car position to determine nearby tiles
+        car_x, car_y = car.hull.position
+
+        # Find closest tile to car (rough approximation for spatial filtering)
+        # Use cached tile centers for fast lookup
+        min_dist_sq = float('inf')
+        closest_tile_idx = 0
+
+        # Quick coarse search: check every 10th tile to find approximate region
+        for i in range(0, len(road_tiles), 10):
+            tile = road_tiles[i]
+            dx = car_x - tile.center_x
+            dy = car_y - tile.center_y
+            dist_sq = dx * dx + dy * dy
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_tile_idx = i
+
+        # Refine search around the coarse result
+        search_start = max(0, closest_tile_idx - 10)
+        search_end = min(len(road_tiles), closest_tile_idx + 11)
+        for i in range(search_start, search_end):
+            tile = road_tiles[i]
+            dx = car_x - tile.center_x
+            dy = car_y - tile.center_y
+            dist_sq = dx * dx + dy * dy
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                closest_tile_idx = i
+
+        # Define tile range to check (wrap around for circular track)
+        num_tiles = len(road_tiles)
+        tile_indices_to_check = []
+        for offset in range(-SPATIAL_CHECK_RANGE, SPATIAL_CHECK_RANGE + 1):
+            idx = (closest_tile_idx + offset) % num_tiles
+            tile_indices_to_check.append(idx)
+
+        # Check each wheel against nearby track tiles only
         for wheel_idx, wheel in enumerate(car.wheels):
             # Use actual wheel position (set in Car._update_hull())
             wheel_world_x = wheel.position[0]
             wheel_world_y = wheel.position[1]
 
-            for tile in road_tiles:
-                # Get tile center
-                tile_vertices = self.env.road_poly[tile.idx][0]
-                tile_cx = np.mean([v[0] for v in tile_vertices])
-                tile_cy = np.mean([v[1] for v in tile_vertices])
+            for tile_idx in tile_indices_to_check:
+                tile = road_tiles[tile_idx]
+
+                # Use cached tile center (computed once during track creation)
+                tile_cx = tile.center_x
+                tile_cy = tile.center_y
 
                 # Distance from wheel to tile center
                 dist = np.sqrt((wheel_world_x - tile_cx)**2 + (wheel_world_y - tile_cy)**2)
@@ -235,6 +276,7 @@ class CarRacing(gym.Env, EzPickle):
         self.reward = 0.0
         self.prev_reward = 0.0
         self.verbose = verbose
+        self.debug_step_counter = 0
         self.new_lap = False
 
         # Vector mode: waypoint lookahead count
@@ -467,6 +509,9 @@ class CarRacing(gym.Env, EzPickle):
             t.road_friction = 1.0
             t.idx = i
             t.vertices = vertices
+            # Cache tile center for fast collision detection
+            t.center_x = (road1_l[0] + road1_r[0] + road2_r[0] + road2_l[0]) / 4.0
+            t.center_y = (road1_l[1] + road1_r[1] + road2_r[1] + road2_l[1]) / 4.0
 
             self.road_poly.append(([road1_l, road1_r, road2_r, road2_l], t.color))
             self.road.append(t)
@@ -513,6 +558,7 @@ class CarRacing(gym.Env, EzPickle):
         self.t = 0.0
         self.new_lap = False
         self.road_poly = []
+        self.debug_step_counter = 0
 
         # Stationary car tracking
         self.frames_since_progress = 0
@@ -550,6 +596,9 @@ class CarRacing(gym.Env, EzPickle):
 
     def step(self, action: np.ndarray | int):
         assert self.car is not None
+
+        # Start timing for verbose mode
+        step_start_time = time.perf_counter() if self.verbose else None
 
         # Initialize action vars for debug print
         gas, brake = 0.0, 0.0
@@ -589,13 +638,18 @@ class CarRacing(gym.Env, EzPickle):
                 self.car.brake(brake)
 
         # Step custom physics engine and get debug info
+        physics_start = time.perf_counter() if self.verbose else None
         debug_info = self.car.step(1.0 / FPS)
+        physics_time = (time.perf_counter() - physics_start) * 1000 if self.verbose else None
 
         # Update wheel-tile contacts for friction computation
+        collision_start = time.perf_counter() if self.verbose else None
         self.friction_detector.update_contacts(self.car, self.road)
+        collision_time = (time.perf_counter() - collision_start) * 1000 if self.verbose else None
         self.t += 1.0 / FPS
 
         # Create state based on state_mode
+        state_start = time.perf_counter() if self.verbose else None
         if self.state_mode == "vector":
             # Fast vector state (no rendering) - 36D with track geometry
             self.state = self._create_vector_state()
@@ -605,6 +659,7 @@ class CarRacing(gym.Env, EzPickle):
         else:
             # Headless visual mode: create minimal state without rendering
             self.state = self._create_headless_state()
+        state_time = (time.perf_counter() - state_start) * 1000 if self.verbose else None
 
         step_reward = 0
         terminated = False
@@ -668,8 +723,12 @@ class CarRacing(gym.Env, EzPickle):
                 info["off_track"] = True
                 step_reward = -100
 
-        # Debug output
+        # Debug output with timing
         if self.verbose and action is not None and self.debug_step_counter % 10 == 0:
+            # Calculate total step time so far (before rendering)
+            step_time_so_far = (time.perf_counter() - step_start_time) * 1000
+
+            print(f"\n{'='*70}")
             print(f"--- STEP {self.debug_step_counter} ---")
             print(f"  ACTION:  Gas={gas:0.2f}, Brake={brake:0.2f}, Steer={steer_action:0.2f}")
             print(f"  CAR:     vx={self.car.vx: >6.2f} (long), vy={self.car.vy: >6.2f} (lat), yaw_rate={self.car.yaw_rate: >6.2f}")
@@ -683,9 +742,28 @@ class CarRacing(gym.Env, EzPickle):
             f_rr = debug_info['tire_forces'][3]
             print(f"    FL: SR={f_fl['slip_ratio']: >5.2f}, SA={f_fl['slip_angle']: >5.2f} | FR: SR={f_fr['slip_ratio']: >5.2f}, SA={f_fr['slip_angle']: >5.2f}")
             print(f"    RL: SR={f_rl['slip_ratio']: >5.2f}, SA={f_rl['slip_angle']: >5.2f} | RR: SR={f_rr['slip_ratio']: >5.2f}, SA={f_rr['slip_angle']: >5.2f}")
+            print(f"\n  TIMING:")
+            print(f"    Physics step:      {physics_time:>7.2f} ms")
+            print(f"    Collision detect:  {collision_time:>7.2f} ms")
+            print(f"    State creation:    {state_time:>7.2f} ms")
+            print(f"    Other logic:       {step_time_so_far - physics_time - collision_time - state_time:>7.2f} ms")
+            print(f"    TOTAL (so far):    {step_time_so_far:>7.2f} ms")
+            print(f"{'='*70}\n")
 
+        # Increment debug counter for next step
+        if action is not None:
+            self.debug_step_counter += 1
+
+        # Rendering (if needed)
+        render_start = time.perf_counter() if (self.verbose and self.render_mode == "human") else None
         if self.render_mode == "human":
             self.render()
+            if self.verbose and action is not None and (self.debug_step_counter - 1) % 10 == 0:
+                render_time = (time.perf_counter() - render_start) * 1000
+                total_step_time = (time.perf_counter() - step_start_time) * 1000
+                print(f"  RENDER TIME: {render_time:>7.2f} ms")
+                print(f"  TOTAL STEP:  {total_step_time:>7.2f} ms\n")
+
         return self.state, step_reward, terminated, truncated, info
 
     def render(self):

@@ -8,11 +8,31 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 
 ## Recent Changes
 
+**Performance Diagnostics & Verbose Mode**:
+- Added comprehensive timing diagnostics with `--verbose` flag for debugging performance issues
+- Environment step timing: tracks physics, collision detection, state creation, and rendering (every 10 steps)
+- Agent update timing: tracks sample, forward passes, backprop with layer-level breakdown (every 10 updates)
+- Layer-level timing for VisualCritic shows individual conv1/conv2/conv3/FC layer performance
+- CPU diagnostics: PyTorch thread count, CPU usage, memory usage
+- Added `psutil` dependency for system monitoring
+- Timing data stored in `agent.layer_timings` for post-training analysis
+
+**Collision Detection Optimization**:
+- Implemented spatial partitioning in `FrictionDetector.update_contacts()` to reduce CPU usage
+- Tile centers are now cached during track creation (computed once vs 1,200 times per step)
+- Only checks ~61 nearby tiles instead of all 300 tiles per step (~5x reduction)
+- Performance improved from ~1,000 to ~2,000 steps/sec
+- Two-stage coarse-then-fine search finds car's track position efficiently
+
 **Physics Engine Rework & Code Cleanup**:
 - The custom 2D car physics engine (`car_dynamics.py`) has been completely reworked with refined Pacejka tire modeling
 - Physics code is clean and well-documented with no dead code or debug markers
 - Environment code (`car_racing.py`) has been cleaned up with improved comments
 - Exception handling improved: replaced bare `except:` clauses with specific exception types
+
+**Visual State Visualization Fix**:
+- Fixed `visualize_visual_state.py` to use headless rendering (no telemetry overlays)
+- Now shows the actual pure camera view the model sees during training
 
 **Key Architecture Principle**: SAC uses separate actor (policy) and critic (value) networks with automatic entropy tuning via a learned alpha parameter. The algorithm maintains twin Q-networks to reduce overestimation bias and uses soft target updates for stability.
 
@@ -49,11 +69,16 @@ python train.py --episodes 1000 --learning-starts 5000 --batch-size 256 --lr-act
 # Resume from checkpoint
 python train.py --resume checkpoints/best_model.pt --episodes 1000
 
-# Train on specific device (auto/cpu/cuda/mps)
-python train.py --device mps
+# Device selection (see Device Handling section for guidance)
+python train.py --device mps          # Apple Silicon GPU
+python train.py --device cpu          # CPU only
 
-# Visual mode (NOT recommended for training - very slow)
-python train.py --state-mode visual --episodes 200
+# Visual mode with MPS (10x faster than CPU for convolutions)
+python train.py --state-mode visual --device mps --episodes 200
+
+# Verbose mode for performance diagnostics
+python train.py --verbose             # Shows timing every 10 env steps / 10 agent updates
+python train.py --verbose --state-mode visual --device mps  # Debug visual mode performance
 ```
 
 ### Watching Agents
@@ -77,16 +102,20 @@ python watch_agent.py --checkpoint checkpoints/best_model.pt --fps 60
 
 The codebase implements a **dual-mode architecture** where the same SAC algorithm can operate on two fundamentally different state representations:
 
-1. **Vector Mode (RECOMMENDED)**: 36D state = car state (11D) + track segment info (5D) + lookahead waypoints (20D)
+1. **Vector Mode (RECOMMENDED for most use cases)**: 36D state = car state (11D) + track segment info (5D) + lookahead waypoints (20D)
    - Uses MLP networks (VectorActor, VectorCritic)
-   - 3-5x faster training
+   - Fast training on CPU (~2-3ms per update)
    - No rendering required during training
    - Full track geometry information
+   - **Device**: Use CPU explicitly (`--device cpu`)
 
-2. **Visual Mode**: 96×96 RGB images with frame stacking (4 frames)
+2. **Visual Mode (practical with GPU)**: 96×96 RGB images with frame stacking (4 frames)
    - Uses CNN networks (VisualActor, VisualCritic)
-   - Requires full rendering
-   - Too slow for training, useful for visualization
+   - Requires full rendering (state creation)
+   - **Performance**: 10x faster on MPS/CUDA vs CPU
+     - MPS: ~73ms per update (practical for training)
+     - CPU: ~740ms per update (thermal throttling on laptops)
+   - **Device**: Use MPS/CUDA explicitly (`--device mps`)
 
 **Critical Pattern**: The agent's network architecture is determined by `state_mode` and saved in checkpoints. When loading a checkpoint, the `watch_agent.py` script **auto-detects** the state mode from the checkpoint and creates matching environment and networks. Never hardcode state mode when loading checkpoints.
 
@@ -229,12 +258,56 @@ The old 11D basic vector mode from project 002 has been removed as it provided i
 
 ## Device Handling
 
+### Device Selection Strategy
+
+**The optimal device depends on the state mode:**
+
+#### Vector Mode (36D input, small MLPs):
+- **CPU**: Fast ✅ **RECOMMENDED**
+- **MPS/CUDA**: Slower (GPU transfer overhead not worth it for tiny MLPs)
+
+#### Visual Mode (4×96×96 input, CNN):
+- **MPS/CUDA**: 10x faster ✅ **RECOMMENDED** (massive GPU parallelism for convolutions)
+- **CPU**: Very slow, subject to thermal throttling on laptops
+
+### Auto-Detection Behavior
+
 The code auto-detects available compute:
 1. CUDA (NVIDIA GPU) - preferred
 2. MPS (Apple Silicon) - good
-3. CPU - fallback (slow)
+3. CPU - fallback
 
-Override with `--device` flag: `python train.py --device mps`
+Override with `--device` flag: `python train.py --device cpu`
+
+### Performance Benchmarks (MacBook Air M1)
+
+**Vector Mode:**
+- CPU: ~2-3ms per agent update
+- MPS: ~5-10ms per agent update (slower due to overhead)
+
+**Visual Mode:**
+- CPU: ~740ms per agent update (conv1: 27ms, thermal throttling issues)
+- MPS: ~73ms per agent update (conv1: 0.05ms) → **10x faster**
+
+### Recommendations
+
+```bash
+# Vector mode: explicit CPU for best performance
+python train.py --state-mode vector --device cpu
+
+# Visual mode: explicit MPS for best performance
+python train.py --state-mode visual --device mps
+
+# Auto mode: will choose suboptimally for vector mode (picks MPS)
+python train.py  # Not recommended - manually specify device
+```
+
+### Thermal Throttling on MacBook Air
+
+MacBook Air has passive cooling and will thermal throttle during extended visual mode training on CPU:
+- Initial runs: fast (CPU at full speed when cool)
+- After ~5-10 minutes: 2-3x slower (CPU throttled to prevent overheating)
+- Solution: Use MPS instead, which distributes thermal load better
 
 ## Checkpoint Format
 
@@ -310,9 +383,56 @@ RuntimeError: Error(s) in loading state_dict for VisualActor:
 **Fix**: Ensure `watch_agent.py` auto-detects state_mode from checkpoint (see lines 120-146).
 
 ### Training Too Slow
-1. Verify vector mode: `--state-mode vector` (default)
-2. Check device: Should show "cuda" or "mps", not "cpu"
+1. **Check state mode + device combination**:
+   - Vector mode: Use `--device cpu` (fastest)
+   - Visual mode: Use `--device mps` or `--device cuda` (10x faster than CPU)
+2. **Use verbose mode to diagnose**: `python train.py --verbose`
 3. Reduce batch size if memory limited: `--batch-size 128`
+
+### Verbose Mode Performance Diagnostics
+
+Use `--verbose` flag to get detailed timing information for debugging performance issues:
+
+```bash
+python train.py --verbose --state-mode visual --device mps
+```
+
+**Environment Timing** (printed every 10 steps):
+- Physics step time
+- Collision detection time
+- State creation time (rendering for visual mode)
+- Total step time
+
+**Agent Update Timing** (printed every 10 updates):
+- Sample batch time
+- Target network forward pass
+- Critic 1/2 forward passes with **layer-level breakdown**:
+  - conv1, conv2, conv3 timing (visual mode)
+  - FC layer timing
+- Actor update time
+- Total update time
+- CPU diagnostics: thread count, CPU usage, memory
+
+**Example Output**:
+```
+SAC UPDATE 400 TIMING:
+  Critic 1 forward:     5.98 ms  <<< WATCH THIS
+    ├─ conv1:           0.05 ms  ← Individual layer timing
+    ├─ conv2:           0.05 ms
+    ├─ conv3:           0.04 ms
+    └─ FC layers:       0.03 ms
+  CPU DIAGNOSTICS:
+    PyTorch threads:    4
+    Memory usage:       410.9 MB
+```
+
+**What to Look For**:
+- **Slow conv layers** (>20ms on CPU): Thermal throttling or need GPU
+- **High total update time** (>500ms): Wrong device for state mode
+- **Many PyTorch threads on CPU**: Try reducing with `torch.set_num_threads(2)`
+
+**Timing Data Storage**:
+Timing history is stored in `agent.layer_timings` list for post-training analysis.
 
 ## Additional Documentation
 

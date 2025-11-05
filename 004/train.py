@@ -86,6 +86,10 @@ def parse_args():
     parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda', 'mps'],
                         help='Device to use for training: auto (default), cpu, cuda, or mps')
 
+    # Debugging
+    parser.add_argument('--verbose', action='store_true', default=False,
+                        help='Enable verbose mode from environment for debugging (default: False)')
+
     return parser.parse_args()
 
 
@@ -330,7 +334,8 @@ def train(args):
         state_mode=args.state_mode,
         reward_shaping=True,
         min_episode_steps=150,
-        short_episode_penalty=-50.0
+        short_episode_penalty=-50.0,
+        verbose=args.verbose
     )
 
     action_dim = env.action_space.shape[0]
@@ -357,6 +362,11 @@ def train(args):
         auto_entropy_tuning=args.auto_entropy_tuning,
         device=device
     )
+
+    # Enable verbose mode if requested
+    if args.verbose:
+        agent.verbose = True
+        print("  Verbose mode enabled for agent (timing will be printed every 100 updates)")
 
     # Create replay buffer
     print("Creating replay buffer...")
