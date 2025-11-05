@@ -2,15 +2,11 @@
 Clean 2D top-down car dynamics simulation using Pacejka magic formula tires.
 
 This replaces the Box2D implementation with a more interpretable physics model:
-- Bicycle kinematic model for steering
 - Pacejka magic formula for tire forces
-- Simple numerical integration (RK4)
 - No external physics library dependency
 """
 
-import math
 import numpy as np
-
 
 class PacejkaTire:
     """
@@ -19,8 +15,8 @@ class PacejkaTire:
     """
 
     def __init__(self,
-                 B_lat=12.0, C_lat=1.9, D_lat=1.0, E_lat=0.97,
-                 B_lon=10.0, C_lon=1.9, D_lon=1.0, E_lon=0.97):
+                 B_lat=12.0, C_lat=1.9, D_lat=1.1, E_lat=0.97,
+                 B_lon=10.0, C_lon=1.9, D_lon=1.2, E_lon=0.97):
         """
         Args:
             B_lat: Stiffness factor (Lateral)
@@ -41,17 +37,29 @@ class PacejkaTire:
         self.D_lon = D_lon
         self.E_lon = E_lon
 
+
+
     def lateral_force(self, slip_angle, normal_force, max_friction=1.0):
         """
         Calculate lateral (cornering) force using Pacejka formula.
         """
+        # The slip angle is the difference between the direction a wheel is pointing and the direction it's actually traveling.
+        # A slip angle of 90 degrees (or -np.pi / 2) means the wheel is sliding purely sideways.
+        # There is no physical scenario where the lateral (sideways) slip angle can be greater than 90 degrees.
+        # An angle of, for example, 100 degrees would imply the wheel is also rolling backward,
+        # which is handled by the longitudinal force model, not the lateral one.
         sa = np.clip(slip_angle, -np.pi / 2, np.pi / 2)
 
         # Use LATERAL coefficients
-        arg = self.B_lat * sa
-        F = (self.D_lat * normal_force * max_friction *
-             np.sin(self.C_lat * np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))))
+        arg = self.B_lat * sa   # B_Lat is stiffness factor (Lateral)
 
+        # This is the Pacejka Magic Formula.
+        # F is the lateral force
+        # sa is the slip angle (the x in the original formula)
+        # D_lat is the peak friction coefficient (Lateral) This is self.D_lat * normal_force * max_friction. It scales the maximum possible force (the peak of the sine wave).
+        # C_lat is the shape factor (Lateral) This is np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))
+        # E_lat is the curvature factor (Lateral) This is self.E_lat * (arg - np.arctan(arg)). It controls the curvature of the force curve near its peak. (the sine wave)
+        F = (self.D_lat * normal_force * max_friction * np.sin(self.C_lat * np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))))
         return F
 
     def longitudinal_force(self, slip_ratio, normal_force, max_friction=1.0):
@@ -61,15 +69,15 @@ class PacejkaTire:
         sr = np.clip(slip_ratio, -1.0, 1.0)
 
         # Use LONGITUDINAL coefficients
+        # this is pretty much the as as the LATERAL force (but long) except it use slip_ratio instead of slip_angle
         arg = self.B_lon * sr
-        F = (self.D_lon * normal_force * max_friction *
-             np.sin(self.C_lon * np.arctan(arg - self.E_lon * (arg - np.arctan(arg)))))
+        F = (self.D_lon * normal_force * max_friction * np.sin(self.C_lon * np.arctan(arg - self.E_lon * (arg - np.arctan(arg)))))
 
         return F
 
 class Car:
     """
-    2D top-down bicycle model car with Pacejka tires.
+    2D top-down model car with Pacejka tires.
 
     State vector:
     - Position: (x, y) in world frame
@@ -90,25 +98,75 @@ class Car:
     LR = LENGTH * 0.5  # Distance from CG to rear axle
 
     # Tire parameters
-    TIRE_RADIUS = 0.30  # Wheel radius (m) (from 195/50R16)
-    TIRE_WIDTH = 0.195  # Tire width (m)
+    TIRE_RADIUS = 0.309  # Wheel radius (m) (from 195/50R16)
+    TIRE_WIDTH = 0.205  # Tire width (m)
 
     # Pacejka parameters
-    # Pacejka parameters
+    # ------------------
+    # See this guide as well https://www.edy.es/dev/docs/pacejka-94-parameters-explained-a-comprehensive-guide/
+    #
+    # For road cars, typical peak slip angles are around 10-15 degrees, while F1 tires may peak around 6 degrees Racer.
     # We now use separate lateral (cornering) and longitudinal (accel) values
-    # Lateral is stiffer (higher B) but with slightly less peak grip (lower D)
-    PACEJKA_B_LAT = 12.0  # Lateral stiffness
-    PACEJKA_C_LAT = 1.9
-    PACEJKA_D_LAT = 1.1  # Lateral peak friction
-    PACEJKA_E_LAT = 0.97
+    #
+    # ----------------------------------------------
+    # Pacejka Magic Formula Parameters (B, C, D, E):
+    # These are empirical curve-fitting coefficients with no direct physical meaning.
+    # They shape the tire force vs slip curve to match real tire behavior.
+    #
+    # B (Stiffness): Controls initial slope - how quickly force builds with slip.
+    #   Higher B = stiffer, more responsive tire. Typical range: 8-15
+    #   B=12.0 is a good starting point for MX-5 tires.
+    #
+    # C (Shape): Controls overall curve shape. Typically 1.3-2.5
+    #   Affects the "peakiness" of the force curve.
+    #   C=1.9 is a good starting point for MX-5 tires.
+    #
+    # D (Peak): Peak force multiplier. Combined with normal force and friction,
+    #   this determines maximum grip. D=1.0 means peak friction = surface friction.
+    #   D>1.0 means tire can exceed surface friction at optimal slip.
+    #   D=1.1 is a good starting point for MX-5 tires.
+    #
+    # E (Curvature): Controls curve shape near and after peak.
+    #   Affects how sharply grip falls off past optimal slip. Typically 0.9-1.0
+    #   E=0.97 is a good starting point for MX-5 tires.
+    #
+    # Note: Peak slip angles for road cars are typically 10-15 degrees lateral.
+    # These values are tuned for MX-5 performance street tires.
 
-    PACEJKA_B_LON = 10.0  # Longitudinal stiffness
+    # Lateral is stiffer (higher B) but with slightly less peak grip (lower D)
+    PACEJKA_B_LAT = 12.0  # Lateral stiffness factor
+    PACEJKA_B_LON = 10.0  # Longitudinal stiffness factor
+
+    # C is the shape factor
+    #
+    PACEJKA_C_LAT = 1.9
     PACEJKA_C_LON = 1.9
+
+    # D is the curvature factor
+    # These values (multiplied by normal force and max_friction) determine peak grip
+    # Combined with your BASE_FRICTION=1.0, this gives you peak lateral grip around 1.1g and longitudinal around 1.2g,
+    # which is appropriate for performance street tires on an MX-5
+    PACEJKA_D_LAT = 1.1  # Lateral peak friction
     PACEJKA_D_LON = 1.2  # Longitudinal peak friction
+
+    # E is the curvature factor
+    # These values (multiplied by normal force and max_friction) determine the shape of the force curve near its peak.
+    # Combined with your BASE_FRICTION=1.0, this gives you a shape of 0.05 near the peak and 0.015 beyond the peak,
+    # Values around 0.9-1.0 are common and create realistic tire behavior
+    PACEJKA_E_LAT = 0.97
     PACEJKA_E_LON = 0.97
 
     # Drivetrain (2.0L Skyactiv-G)
     ENGINE_POWER = 135000.0  # Power (Watts) (181 hp * 745.7)
+
+    # Derived from ~205 Nm torque in 1st gear (5.09) & final drive (2.87)
+    # (205 * 5.09 * 2.87) / 2 wheels = ~1500 Nm torque per wheel
+    MAX_TORQUE_PER_WHEEL = 1500.0
+
+    # We transition from "constant torque" to "constant power"
+    # P = τ * ω  =>  ω = P / τ
+    # (135000 W / 2 wheels) / 1500 Nm = 45 rad/s
+    POWER_TRANSITION_OMEGA = 45.0  # Speed at which torque starts to drop
 
     # Derived from ~205 Nm torque in 1st gear (5.09) & final drive (2.87)
     # (205 * 5.09 * 2.87) / 2 wheels = ~1500 Nm torque per wheel
@@ -132,9 +190,6 @@ class Car:
     # Friction (surface-dependent, modified per tile)
     BASE_FRICTION = 1.0  # Asphalt (Pacejka D already handles peak friction)
     GRASS_FRICTION = 0.5  # Grass
-
-
-
 
     def __init__(self, world, init_angle, init_x, init_y):
         """
@@ -247,20 +302,13 @@ class Car:
         tire_friction = self._get_surface_friction()
         forces = self._compute_tire_forces(tire_friction)
 
-        # Integrate state with RK4
-# dead code
-#        k1 = self._state_derivative(forces)
-#        k2 = self._state_derivative(forces)
-#        k3 = self._state_derivative(forces)
-#        k4 = self._state_derivative(forces)
-        # Simple forward Euler (RK4 is overkill for this model)
-        # CAPTURE THE RETURNED DEBUG INFO
+        # Integrate state with forward Euler
         integration_results = self._integrate_state(forces, dt)
 
         # Update hull for rendering/compatibility
         self._update_hull()
 
-        # RETURN DEBUG INFO
+        # Return debug info
         integration_results['tire_forces'] = forces
         return integration_results
 
@@ -299,15 +347,22 @@ class Car:
 
             # 2. Apply Engine (if not braking and is a driven wheel)
             elif is_rear and self._gas > 0.0:
-                # Rear wheel drive: constant power model
-                if abs(wheel.omega) > 0.1:
-                    # Constant power mode: P = τ * ω
-                    torque = self.ENGINE_POWER * self._gas / abs(wheel.omega)
-                    accel = torque / self.INERTIA
-                    wheel.omega += accel * dt
+                gas_factor = self._gas
+
+                # Use a stable torque curve model:
+                # 1. Constant torque (MAX_TORQUE) up to POWER_TRANSITION_OMEGA
+                # 2. Constant power (P = P/ω) after that speed
+                if abs(wheel.omega) < self.POWER_TRANSITION_OMEGA:
+                    # 1. Constant torque region (like 1st gear)
+                    torque = self.MAX_TORQUE_PER_WHEEL * gas_factor
                 else:
-                    # At low speeds: use a strong startup angular acceleration
-                    wheel.omega += (dt * self.STARTUP_ACCEL * self._gas)
+                    # 2. Constant power region (torque falls off)
+                    # Power per driven wheel = ENGINE_POWER / 2
+                    torque = (self.ENGINE_POWER / 2) * gas_factor / abs(wheel.omega)
+
+                # Apply acceleration
+                accel = torque / self.INERTIA
+                wheel.omega += accel * dt
 
             # 3. Free Rolling (if not braking and not engine-driven)
             else:
@@ -409,27 +464,19 @@ class Car:
                 # Standard slip ratio definition
                 slip_ratio = (wheel_linear_vel - wheel_vx) / denom
 
-            # === CORRECTED NORMAL FORCE BLOCK ===
-            # Start with base weight
+            # Calculate normal force with lateral load transfer
             normal_force = weight_per_wheel
-
-            # Apply LATERAL load transfer
             if i == 0 or i == 2:  # Left wheels (FL, RL)
                 normal_force -= lateral_load_transfer / 2
             else:  # Right wheels (FR, RR)
                 normal_force += lateral_load_transfer / 2
-
             normal_force = max(50.0, normal_force)  # Prevent negative/zero load
-            # ====================================
 
             # Tire forces
             # Note: Negate lateral force because positive slip angle (velocity left of wheel heading)
             # should produce force to the right (negative) to correct the slip
             fy = -self.tire.lateral_force(slip_angle, normal_force, friction)
-            # USE STATIC weight for Fx (simulates differential)
-            # USE DYNAMIC normal_force for Fy (correctly models grip)
             fx = self.tire.longitudinal_force(slip_ratio, normal_force, friction)
-            #fx = self.tire.longitudinal_force(slip_ratio, weight_per_wheel, friction)
 
             forces[i] = {
                 'fx': fx,
@@ -441,9 +488,6 @@ class Car:
             }
 
         return forces
-#    def _state_derivative(self, forces):
-#        """Compute state derivatives (not used in simple Euler, kept for structure)."""
-#        return {}
 
     def _integrate_state(self, forces, dt):
         """
@@ -477,33 +521,41 @@ class Car:
             # τ = r × F = (x, y) × (fx, fy) = x*fy - y*fx
             torque += dist_cg * fy - y_pos * fx
 
-        # --- ADD DRAG FORCES HERE ---
-        # (After the for loop)
+        # Add drag and rolling resistance
         C_drag = 0.003
         fx_drag = -C_drag * self.vx * abs(self.vx)
         C_roll = 0.05
         fx_roll = -C_roll * self.vx
-
         fx_total += fx_drag + fx_roll
-#        fx_total += fx_drag #+ fx_roll
-
-        # --- END DRAG BLOCK ---
 
         # Compute accelerations
         ax = fx_total / self.MASS
         ay = fy_total / self.MASS
 
         # Moment of inertia (rough estimate)
-        Iz = self.MASS * (self.LENGTH**2 / 12 + self.WIDTH**2 / 12)
+        # good for generalization, but let's stick to mx5 value instead
+        # Iz = self.MASS * (self.LENGTH**2 / 12 + self.WIDTH**2 / 12)
+
+        # Realistic yaw inertia for an MX-5 (not a uniform plate)
+        Iz = 1700.0
+
         ang_accel = torque / Iz
 
-        # Update velocity in body frame
-        # (Note: this is a simplification - proper handling requires transformation)
-#        self.vx += ax * dt
-#        self.vy += ay * dt
-# CORRECTED integration for rotating reference frame
-        self.vx += (ax - self.vy * self.yaw_rate) * dt
-        self.vy += (ay + self.vx * self.yaw_rate) * dt
+        # Update velocity in body frame (corrected for rotating reference frame)
+        # - vx is forward velocity.
+        # - vy is sideways (lateral) velocity.
+        # - ax is forward acceleration (from tires, drag).
+        # - ay is sideways acceleration (from tires).
+        # If the car wasn't turning (yaw_rate = 0), the update would be simple:
+        # vx += ax * dt
+        # vy += ay * dt
+        # The Centripetal Term: self.vx * self.yaw_rate
+        self.vx += (ax + self.vy * self.yaw_rate) * dt  # Forward
+        self.vy += (ay - self.vx * self.yaw_rate) * dt  # Lateral
+                                                        # If the operator was a "+" This meant turning left would magically
+                                                        # pull the car into the turn (a positive ay),
+                                                        # which is the opposite of reality.
+                                                        # It's like having anti-centrifugal force.
 
         # Limit velocity (drag effect)
         v_mag = np.sqrt(self.vx**2 + self.vy**2)
@@ -523,7 +575,6 @@ class Car:
         self.x += (self.vx * cos_yaw - self.vy * sin_yaw) * dt
         self.y += (self.vx * sin_yaw + self.vy * cos_yaw) * dt
 
-        # ADD THIS RETURN STATEMENT
         return {
             'fx_total': fx_total, 'fy_total': fy_total, 'torque': torque,
             'ax': ax, 'ay': ay, 'ang_accel': ang_accel
@@ -551,11 +602,6 @@ class Car:
             (-self.LR, self.WIDTH / 2),  # RL
             (-self.LR, -self.WIDTH / 2),  # RR
         ]
-
-        # !! DEFINE cos_yaw and sin_yaw HERE !!
-        # This was the missing piece.
-        cos_yaw = np.cos(self.yaw)
-        sin_yaw = np.sin(self.yaw)
 
         for i, (wheel, (dx, dy)) in enumerate(zip(self.wheels, wheel_pos_local)):
             # Rotate position to world frame

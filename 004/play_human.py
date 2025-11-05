@@ -183,7 +183,7 @@ def play_human(args):
 
                 # Smoothly interpolate to the target steering
                 # This creates a "return to center" effect when keys are released
-                STEER_SPEED = 0.2 # How fast to turn the wheel (20% per frame)
+                STEER_SPEED = 0.1 # How fast to turn the wheel (10% per frame)
                 current_steering = (1.0 - STEER_SPEED) * current_steering + STEER_SPEED * target_steering
 
                 # Assemble the final action

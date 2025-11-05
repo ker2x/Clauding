@@ -666,27 +666,21 @@ class CarRacing(gym.Env, EzPickle):
                 info["off_track"] = True
                 step_reward = -100
 
-        # === NEW DEBUG PRINT BLOCK ===
-        if action is not None and self.debug_step_counter % 10 == 0:
+        # Debug output
+        if self.verbose and action is not None and self.debug_step_counter % 10 == 0:
             print(f"--- STEP {self.debug_step_counter} ---")
             print(f"  ACTION:  Gas={gas:0.2f}, Brake={brake:0.2f}, Steer={steer_action:0.2f}")
-            print(
-                f"  CAR:     vx={self.car.vx: >6.2f} (long), vy={self.car.vy: >6.2f} (lat), yaw_rate={self.car.yaw_rate: >6.2f}")
+            print(f"  CAR:     vx={self.car.vx: >6.2f} (long), vy={self.car.vy: >6.2f} (lat), yaw_rate={self.car.yaw_rate: >6.2f}")
             print(f"  WORLD:   Speed={speed: >6.2f} m/s")
-            print(
-                f"  PHYSICS: Fx={debug_info['fx_total']: >8.2f}, Fy={debug_info['fy_total']: >8.2f}, Torque={debug_info['torque']: >8.2f}")
-            print(
-                f"  REWARD:  WheelsOff={wheels_off_track}, StepRwd={step_reward: >6.2f}, TotalRwd={self.reward: >8.2f}")
+            print(f"  PHYSICS: Fx={debug_info['fx_total']: >8.2f}, Fy={debug_info['fy_total']: >8.2f}, Torque={debug_info['torque']: >8.2f}")
+            print(f"  REWARD:  WheelsOff={wheels_off_track}, StepRwd={step_reward: >6.2f}, TotalRwd={self.reward: >8.2f}")
             print(f"  TIRES (SlipRatio, SlipAngle):")
             f_fl = debug_info['tire_forces'][0]
             f_fr = debug_info['tire_forces'][1]
             f_rl = debug_info['tire_forces'][2]
             f_rr = debug_info['tire_forces'][3]
-            print(
-                f"    FL: SR={f_fl['slip_ratio']: >5.2f}, SA={f_fl['slip_angle']: >5.2f} | FR: SR={f_fr['slip_ratio']: >5.2f}, SA={f_fr['slip_angle']: >5.2f}")
-            print(
-                f"    RL: SR={f_rl['slip_ratio']: >5.2f}, SA={f_rl['slip_angle']: >5.2f} | RR: SR={f_rr['slip_ratio']: >5.2f}, SA={f_rr['slip_angle']: >5.2f}")
-        # =============================
+            print(f"    FL: SR={f_fl['slip_ratio']: >5.2f}, SA={f_fl['slip_angle']: >5.2f} | FR: SR={f_fr['slip_ratio']: >5.2f}, SA={f_fr['slip_angle']: >5.2f}")
+            print(f"    RL: SR={f_rl['slip_ratio']: >5.2f}, SA={f_rl['slip_angle']: >5.2f} | RR: SR={f_rr['slip_ratio']: >5.2f}, SA={f_rr['slip_angle']: >5.2f}")
 
         if self.render_mode == "human":
             self.render()
@@ -948,8 +942,8 @@ class CarRacing(gym.Env, EzPickle):
         ]
 
         # Rotate and translate to world frame
-        cos_a = np.cos(car_angle)
-        sin_a = np.sin(car_angle)
+        cos_a = np.cos(angle)
+        sin_a = np.sin(angle)
         corners_world = []
         for dx, dy in corners_local:
             # Rotate
@@ -989,8 +983,9 @@ class CarRacing(gym.Env, EzPickle):
         self.surf = pygame.Surface((WINDOW_W, WINDOW_H))
 
         assert self.car is not None
-        # computing transformations
-        angle = -self.car.hull.angle + (math.pi / 2.0)        # Use constant zoom (no animation)
+        # Computing transformations
+        angle = -self.car.hull.angle + (math.pi / 2.0)
+        # Use constant zoom (no animation)
         zoom = ZOOM * SCALE
         scroll_x = -(self.car.hull.position[0]) * zoom
         scroll_y = -(self.car.hull.position[1]) * zoom
@@ -1050,14 +1045,12 @@ class CarRacing(gym.Env, EzPickle):
             (rear_x, left_y)  # RL
         ]
 
-        # === ADD HOOD/WINDSHIELD POLYGON ===
-        # Define in local coords (e.g., a triangle on the front)
+        # Hood/windshield polygon (triangle on the front)
         hood_corners = [
             (front_x, left_y * 0.7),  # Mid-left
             (front_x, right_y * 0.7),  # Mid-right
             (front_x * 0.5, 0.0)  # Point halfway to center
         ]
-        # ===================================
 
         # Rotate corners to world orientation and translate to world position
         cos_a = np.cos(car_world_angle)
@@ -1071,31 +1064,27 @@ class CarRacing(gym.Env, EzPickle):
             # Translate
             body_poly.append((car_x + x, car_y + y))
 
-        # === TRANSFORM HOOD POLYGON ===
+        # Transform hood polygon to world frame
         hood_poly = []
         for dx, dy in hood_corners:
             x = dx * cos_a - dy * sin_a
             y = dx * sin_a + dy * cos_a
             hood_poly.append((car_x + x, car_y + y))
-        # ==============================
 
         # Apply camera transform (rotate by camera angle, zoom, translate)
         body_poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in body_poly]
         body_poly = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in body_poly]
 
-        # === TRANSFORM HOOD TO SCREEN ===
+        # Transform hood to screen coordinates
         hood_poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in hood_poly]
-        hood_poly = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in
-                     hood_poly]
-        # ================================
+        hood_poly = [(c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in hood_poly]
 
         # Draw car body
         color = [int(c * 255) for c in self.car.hull.color]
         gfxdraw.filled_polygon(self.surf, body_poly, color)
 
-        # === DRAW HOOD ===
+        # Draw hood
         gfxdraw.filled_polygon(self.surf, hood_poly, (200, 200, 200))  # Light grey
-        # =================
 
         # 2. DRAW WHEELS
         tire_length = self.car.TIRE_RADIUS * 2  # Length of the tire
@@ -1103,16 +1092,14 @@ class CarRacing(gym.Env, EzPickle):
         hw = tire_width / 2  # half-width
         hl = tire_length / 2  # half-length (radius)
 
-        # === BUG FIX HERE ===
         # Define wheel corners in local frame (centered at 0,0)
-        # Length (hl) should be along X-axis, Width (hw) along Y-axis
+        # Length (hl) along X-axis, Width (hw) along Y-axis
         wheel_corners_local = [
             (hl, hw),  # Front-Left
             (hl, -hw),  # Front-Right
             (-hl, -hw),  # Rear-Right
             (-hl, hw)  # Rear-Left
         ]
-        # ==================
 
         for i, wheel in enumerate(self.car.wheels):
             # Get wheel's world position (from dynamics)

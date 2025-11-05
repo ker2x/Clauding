@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** (no discretization). Project 004 is a fork of Project 003 - both projects share the same implementation. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and supports both vector-based (36D track geometry) and visual-based (96×96 images) state representations.
 
+## Recent Changes
+
+**Physics Engine Rework & Code Cleanup**:
+- The custom 2D car physics engine (`car_dynamics.py`) has been completely reworked with refined Pacejka tire modeling
+- Physics code is clean and well-documented with no dead code or debug markers
+- Environment code (`car_racing.py`) has been cleaned up with improved comments
+- Bug fix: Fixed undefined `car_angle` variable in headless visual rendering (line 951)
+
 **Key Architecture Principle**: SAC uses separate actor (policy) and critic (value) networks with automatic entropy tuning via a learned alpha parameter. The algorithm maintains twin Q-networks to reduce overestimation bias and uses soft target updates for stability.
 
 ## Virtual Environment
