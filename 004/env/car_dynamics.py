@@ -266,6 +266,9 @@ class Car:
         self.hull.angularVelocity = 0.0
         self.hull.color = (0.8, 0.0, 0.0)
 
+        # ADDED: State for virtual suspension (smoothed load transfer)
+        self.smoothed_lateral_accel = 0.0
+
         self.fuel_spent = 0.0
         self.drawlist = self.wheels + [self.hull]
         self.particles = []
@@ -408,18 +411,23 @@ class Car:
         # Load distribution (simple: equal weight per wheel)
         weight_per_wheel = (self.MASS * 9.81) / 4.0  # Force in Newtons
 
-        # --- Corrected Lateral Load Transfer ---
-        # Calculate centripetal acceleration (a = v * ω)
-        # The sign matters here: positive yaw_rate (left turn) = positive accel (rightward force)
-        lateral_accel = self.vx * self.yaw_rate
+        # --- Smoothed Lateral Load Transfer (Virtual Suspension) ---
 
-        # Simplified load transfer: dF_z = (a_y * h * m) / t
-        # h = CG height (est. 0.5m), t = track width (self.WIDTH)
-        # We'll use a simplified, tuned factor
-        # A positive lateral_accel (left turn) moves load to the RIGHT wheels (FR, RR)
+        # 1. Calculate the "target" (instantaneous) acceleration
+        target_lateral_accel = self.vx * self.yaw_rate
+
+        # 2. Define a "lerp factor" (how fast the "virtual" suspension reacts).
+        # This value can be tuned. 0.1 is a good start.
+        # 0.05 = soft/wallowy, 0.2 = stiff/responsive
+        lerp_factor = 0.1
+
+        # 3. Smooth the acceleration over time (low-pass filter)
+        self.smoothed_lateral_accel += (target_lateral_accel - self.smoothed_lateral_accel) * lerp_factor
+
+        # 4. Use the SMOOTHED value for the load transfer calculation
         load_transfer_factor = 0.5  # Tuned factor
-        lateral_load_transfer = load_transfer_factor * self.MASS * lateral_accel
-        # ----------------------------------------
+        lateral_load_transfer = load_transfer_factor * self.MASS * self.smoothed_lateral_accel
+        # ---------------------------------------------------------
 
         # Compute longitudinal and lateral slip for each wheel
         forces = {}
