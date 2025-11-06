@@ -6,9 +6,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** (no discretization). Project 004 is a fork of Project 003 - both projects share the same implementation. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and supports both vector-based (36D track geometry) and visual-based (96×96 images) state representations.
 
+### Current Reward Structure (Quick Reference)
+
+All configurable at top of `env/car_racing.py` (lines 64-70):
+
+**Sparse (main objective):**
+- `+100` per checkpoint (10 checkpoints total = 1000 points max)
+
+**Dense (speed incentive):**
+- `-0.5` per frame (implicit: faster → less penalty)
+
+**Dense (constraints):**
+- `-1.0` per wheel off-track (only when >2 wheels off, so 2 wheels off = OK)
+- `-100 + episode ends` when all 4 wheels off
+
+**Disabled:**
+- Forward velocity bonus = `0.0` (velocity implicitly rewarded via checkpoints + step penalty)
+
 ## Recent Changes
 
-**Checkpoint-Based Sparse Rewards** (LATEST):
+**Reward Constants Refactoring** (LATEST):
+- Moved all reward configuration to top of `car_racing.py` (lines 64-70) for easy tuning
+- No more digging through code to find magic numbers
+- All reward parameters now defined as constants:
+  - `NUM_CHECKPOINTS = 10` - Divide track into N checkpoints
+  - `CHECKPOINT_REWARD = 100.0` - Points per checkpoint
+  - `FORWARD_VEL_REWARD = 0.0` - Velocity bonus (currently disabled)
+  - `STEP_PENALTY = 0.5` - Time penalty per frame
+  - `OFFTRACK_PENALTY = 1.0` - Penalty per wheel off track
+  - `OFFTRACK_THRESHOLD = 2` - Wheels allowed off before penalty
+- Easy experimentation: change values at top, no code diving required
+- Code: `env/car_racing.py:64-70` (constant definitions)
+
+**Checkpoint-Based Sparse Rewards**:
 - Replaced per-tile rewards with checkpoint system to reduce reward density and exploitation
 - **Old behavior**: +3.33 points per tile visited (300 reward events per lap, very dense)
   - Agent could get rewards by visiting any unvisited tiles in any order
@@ -390,6 +420,70 @@ Unlike project 002 (discrete 9 actions), this uses a 2D continuous action space:
 - `acceleration` ∈ [-1.0, 1.0] (negative = brake, positive = gas)
 
 Actions are sampled from Gaussian distribution and bounded with tanh. No discretization or ActionDiscretizer class exists in this project.
+
+## Reward Structure Tuning
+
+All reward parameters are configured at the top of `env/car_racing.py` (lines 64-70). No code diving required!
+
+### Current Configuration (Default)
+
+```python
+NUM_CHECKPOINTS = 10        # 10 checkpoints of ~30 tiles each
+CHECKPOINT_REWARD = 100.0   # 100 points per checkpoint (1000 total)
+FORWARD_VEL_REWARD = 0.0    # Disabled (velocity implicitly rewarded)
+STEP_PENALTY = 0.5          # -0.5 per frame (encourages speed)
+OFFTRACK_PENALTY = 1.0      # -1.0 per wheel off track
+OFFTRACK_THRESHOLD = 2      # Allow 2 wheels off (aggressive lines OK)
+```
+
+### Tuning Guide
+
+**If agent struggles to reach checkpoints** (too sparse):
+```python
+NUM_CHECKPOINTS = 15-20     # Make checkpoints smaller/easier
+CHECKPOINT_REWARD = 50-67   # Adjust to keep total ~1000
+```
+
+**If agent exploits easy checkpoints** (too dense):
+```python
+NUM_CHECKPOINTS = 5-7       # Make checkpoints larger/harder
+CHECKPOINT_REWARD = 143-200 # Adjust to keep total ~1000
+```
+
+**If agent doesn't move forward** (no velocity incentive):
+```python
+FORWARD_VEL_REWARD = 0.05   # Enable velocity bonus (start small)
+# or
+FORWARD_VEL_REWARD = 0.1    # Stronger velocity bonus
+```
+
+**If agent drives too slowly** (insufficient time pressure):
+```python
+STEP_PENALTY = 1.0          # Double time penalty (was 0.5)
+```
+
+**If agent drives recklessly off-track** (too lenient):
+```python
+OFFTRACK_THRESHOLD = 0      # Penalize ANY wheel off track
+# or
+OFFTRACK_PENALTY = 2.0      # Increase penalty severity
+```
+
+**If agent is too cautious on corners** (too strict):
+```python
+OFFTRACK_THRESHOLD = 3      # Allow 3 wheels off
+# or
+OFFTRACK_PENALTY = 0.5      # Reduce penalty severity
+```
+
+### Experimentation Workflow
+
+1. **Change constants** at top of `env/car_racing.py`
+2. **Train agent** with new configuration
+3. **Compare results** using training metrics
+4. **Iterate** based on observed behavior
+
+No code changes required - just tweak the constants!
 
 ## Reward Shaping
 
