@@ -51,8 +51,8 @@ def parse_args():
                         help='Steps before training starts (default: 5000)')
     parser.add_argument('--eval-frequency', type=int, default=100,
                         help='Evaluate every N episodes (default: 100)')
-    parser.add_argument('--checkpoint-frequency', type=int, default=500,
-                        help='Save checkpoint every N episodes (default: 500)')
+    parser.add_argument('--checkpoint-frequency', type=int, default=100,
+                        help='Save checkpoint every N episodes (default: 100)')
 
     # Agent hyperparameters
     parser.add_argument('--lr-actor', type=float, default=3e-4,
