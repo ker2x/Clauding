@@ -8,7 +8,29 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 
 ## Recent Changes
 
-**Forward Velocity Reward Fix** (LATEST):
+**Checkpoint-Based Sparse Rewards** (LATEST):
+- Replaced per-tile rewards with checkpoint system to reduce reward density and exploitation
+- **Old behavior**: +3.33 points per tile visited (300 reward events per lap, very dense)
+  - Agent could get rewards by visiting any unvisited tiles in any order
+  - Too many opportunities for local optima and exploits
+- **New behavior**: +100 points per checkpoint reached (10 reward events per lap, much sparser)
+  - Track divided into 10 checkpoints of ~30 tiles each
+  - Must reach checkpoints in sequence (can't skip ahead)
+  - Each checkpoint is achievable through random exploration
+  - Natural curriculum: always working toward next checkpoint
+- **Reward structure**:
+  - Sparse: 10 × 100 = 1000 points for checkpoints (main objective)
+  - Dense: Forward velocity bonus (continuous guidance)
+  - Dense: Off-track penalty when >2 wheels off (constraint)
+  - Dense: -0.5 per-step penalty (encourages speed)
+- **Design decisions maintained**:
+  - 2-wheels-off-track allowed (no penalty for aggressive racing lines)
+  - 95% lap completion rule (makes objective achievable)
+  - Forward velocity reward (prevents spinning/drifting exploits)
+- Verbose mode prints checkpoint progress with completion percentage
+- Code: `env/car_racing.py:218-226` (checkpoint reward logic), `env/car_racing.py:353-355` (config)
+
+**Forward Velocity Reward Fix**:
 - Changed speed reward from magnitude to forward projection to prevent spinning/drifting exploits
 - **Old behavior**: `reward += 0.1 * sqrt(vx² + vy²)` rewarded movement in ANY direction
   - Agent could maximize reward by spinning in circles, drifting sideways, or driving backwards
@@ -17,8 +39,6 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
   - Uses dot product of velocity with car's heading angle
   - Backward movement gives zero reward (not penalized, just not rewarded)
   - Sideways drifting gives zero reward (only forward component counts)
-- **Design decision**: Kept 2-wheels-off-track allowed (no penalty) to permit aggressive racing lines
-- **Design decision**: Kept 95% lap completion rule to make objective achievable
 - Verbose mode now shows both Speed (magnitude) and ForwardVel (projection) for debugging
 - Code: `env/car_racing.py:745-763` (forward velocity calculation and reward)
 

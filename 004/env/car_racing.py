@@ -213,8 +213,17 @@ class FrictionDetector:
                 # Handle tile visitation (only count when first wheel touches it)
                 if not tile.road_visited:
                     tile.road_visited = True
-                    self.env.reward += 1000.0 / len(self.env.track)
                     self.env.tile_visited_count += 1
+
+                    # Checkpoint system: reward when reaching new checkpoint
+                    current_checkpoint = tile.idx // self.env.checkpoint_size
+                    if current_checkpoint > self.env.last_checkpoint_reached:
+                        self.env.last_checkpoint_reached = current_checkpoint
+                        self.env.reward += self.env.checkpoint_reward
+                        if self.env.verbose:
+                            progress_pct = (current_checkpoint + 1) / self.env.num_checkpoints * 100
+                            print(f"  ✓ Checkpoint {current_checkpoint + 1}/{self.env.num_checkpoints} "
+                                  f"reached! ({progress_pct:.0f}% complete, +{self.env.checkpoint_reward} reward)")
 
                     # Lap completion check
                     if (
@@ -262,12 +271,25 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward is -0.5 every frame and +1000/N for every track tile visited, where N is the total number of tiles
-     visited in the track. For example, if you have finished in 732 frames, your reward is 1000 - 0.5*732 = 634 points.
+    The reward structure uses a sparse checkpoint system combined with continuous guidance:
 
-    Additionally:
-    - Forward velocity bonus: +0.1 * forward_velocity per frame (encourages forward progress only, not sideways/spinning)
+    **Sparse rewards (main objective):**
+    - Checkpoint rewards: +100 points for each of 10 checkpoints reached (1000 points total for full lap)
+    - Each checkpoint is ~30 tiles, making them achievable through exploration
+    - Must visit tiles in sequence to reach next checkpoint
+
+    **Dense rewards (continuous guidance):**
+    - Per-step penalty: -0.5 every frame (encourages completing checkpoints quickly)
+    - Forward velocity bonus: +0.1 * forward_velocity per frame (encourages forward progress, not sideways/spinning)
+
+    **Dense penalties (constraints):**
     - Off-track penalty: -1.0 per wheel off-track per frame when >2 wheels off (allows aggressive racing with 2 wheels off)
+
+    Example: Reaching checkpoint 5 (50% progress) in 366 frames with average 10 m/s forward speed:
+    - Checkpoint rewards: 5 * 100 = +500
+    - Step penalty: -0.5 * 366 = -183
+    - Forward velocity bonus: +0.1 * 10 * 366 = +366
+    - Total: ~683 points
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -349,6 +371,10 @@ class CarRacing(gym.Env, EzPickle):
 
         # Vector mode: waypoint lookahead count
         self.vector_lookahead = 10
+
+        # Checkpoint system for sparse rewards
+        self.num_checkpoints = 10  # Divide track into 10 checkpoints
+        self.checkpoint_reward = 100.0  # 100 points per checkpoint (10 * 100 = 1000 total)
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -632,6 +658,10 @@ class CarRacing(gym.Env, EzPickle):
         self.frames_since_progress = 0
         self.total_steps = 0
 
+        # Checkpoint tracking (initialized after track creation)
+        self.last_checkpoint_reached = -1
+        self.checkpoint_size = 0  # Will be set after track is created
+
         if self.domain_randomize:
             randomize = True
             if isinstance(options, dict):
@@ -649,6 +679,13 @@ class CarRacing(gym.Env, EzPickle):
                     "retry to generate track (normal if there are not many"
                     "instances of this message)"
                 )
+
+        # Initialize checkpoint system after track is created
+        self.checkpoint_size = len(self.track) // self.num_checkpoints
+        if self.verbose:
+            print(f"Track has {len(self.track)} tiles, {self.num_checkpoints} checkpoints "
+                  f"of ~{self.checkpoint_size} tiles each")
+
         init_beta, init_x, init_y = self.track[0][1:4]
         # The car's "front" is its +X axis in physics.
         # The track's "forward" direction is 90 degrees (pi/2) from its
