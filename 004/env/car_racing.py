@@ -61,6 +61,14 @@ MAX_SHAPE_DIM = (
     max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
 )
 
+# Reward structure configuration
+NUM_CHECKPOINTS = 10        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
+CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
+FORWARD_VEL_REWARD = 0.0    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
+STEP_PENALTY = 0.5          # Penalty per frame (encourages speed via less total penalty)
+OFFTRACK_PENALTY = 1.0      # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
+
 
 class FrictionDetector:
     """
@@ -213,8 +221,17 @@ class FrictionDetector:
                 # Handle tile visitation (only count when first wheel touches it)
                 if not tile.road_visited:
                     tile.road_visited = True
-                    self.env.reward += 1000.0 / len(self.env.track)
                     self.env.tile_visited_count += 1
+
+                    # Checkpoint system: reward when reaching new checkpoint
+                    current_checkpoint = tile.idx // self.env.checkpoint_size
+                    if current_checkpoint > self.env.last_checkpoint_reached:
+                        self.env.last_checkpoint_reached = current_checkpoint
+                        self.env.reward += self.env.checkpoint_reward
+                        if self.env.verbose:
+                            progress_pct = (current_checkpoint + 1) / self.env.num_checkpoints * 100
+                            print(f"  ✓ Checkpoint {current_checkpoint + 1}/{self.env.num_checkpoints} "
+                                  f"reached! ({progress_pct:.0f}% complete, +{self.env.checkpoint_reward} reward)")
 
                     # Lap completion check
                     if (
@@ -262,12 +279,28 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward is -0.1 every frame and +1000/N for every track tile visited, where N is the total number of tiles
-     visited in the track. For example, if you have finished in 732 frames, your reward is 1000 - 0.1*732 = 926.8 points.
+    The reward structure uses a sparse checkpoint system combined with step penalty.
+    All reward parameters are configurable at the top of this file (lines 64-70).
 
-    Additionally:
-    - Speed bonus: +0.05 * speed per frame (encourages forward movement)
-    - Off-track penalty: -1.0 per wheel off-track per frame (discourages off-track while allowing risk-taking)
+    **Sparse rewards (main objective):**
+    - Checkpoint rewards: +CHECKPOINT_REWARD points for each of NUM_CHECKPOINTS checkpoints
+      (default: 10 checkpoints × 100 points = 1000 total)
+    - Each checkpoint is ~30 tiles (for typical 300-tile track), making them achievable through exploration
+    - Must visit tiles in sequence to reach next checkpoint
+
+    **Dense penalties (constraints and speed incentive):**
+    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, implicitly encourages reaching checkpoints quickly)
+    - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
+      (default: -1.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
+
+    **Optional dense reward:**
+    - Forward velocity: +FORWARD_VEL_REWARD per m/s of forward velocity per frame
+      (default: 0.0 = disabled, set to 0.05-0.1 to enable)
+
+    Example with defaults: Reaching checkpoint 5 (50% progress) in 366 frames:
+    - Checkpoint rewards: 5 * 100 = +500
+    - Step penalty: -0.5 * 366 = -183
+    - Total: ~317 points
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -349,6 +382,10 @@ class CarRacing(gym.Env, EzPickle):
 
         # Vector mode: waypoint lookahead count
         self.vector_lookahead = 10
+
+        # Checkpoint system for sparse rewards (configured at top of file)
+        self.num_checkpoints = NUM_CHECKPOINTS
+        self.checkpoint_reward = CHECKPOINT_REWARD
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -632,6 +669,10 @@ class CarRacing(gym.Env, EzPickle):
         self.frames_since_progress = 0
         self.total_steps = 0
 
+        # Checkpoint tracking (initialized after track creation)
+        self.last_checkpoint_reached = -1
+        self.checkpoint_size = 0  # Will be set after track is created
+
         if self.domain_randomize:
             randomize = True
             if isinstance(options, dict):
@@ -649,6 +690,13 @@ class CarRacing(gym.Env, EzPickle):
                     "retry to generate track (normal if there are not many"
                     "instances of this message)"
                 )
+
+        # Initialize checkpoint system after track is created
+        self.checkpoint_size = len(self.track) // self.num_checkpoints
+        if self.verbose:
+            print(f"Track has {len(self.track)} tiles, {self.num_checkpoints} checkpoints "
+                  f"of ~{self.checkpoint_size} tiles each")
+
         init_beta, init_x, init_y = self.track[0][1:4]
         # The car's "front" is its +X axis in physics.
         # The track's "forward" direction is 90 degrees (pi/2) from its
@@ -734,25 +782,42 @@ class CarRacing(gym.Env, EzPickle):
         truncated = False
         info = {}
         speed = 0.0
+        forward_velocity = 0.0
         wheels_off_track = 0
 
         if action is not None:  # First step without action, called from reset()
-            self.reward -= 0.5  # Reward from doing nothing
+            self.reward -= STEP_PENALTY  # Time penalty (encourages speed)
             # We actually don't want to count fuel spent, we want car to be faster.
             # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
             self.car.fuel_spent = 0.0
 
-            # Add speed bonus to encourage movement
+            # Calculate speed magnitude (for stationary detection and debug output)
             speed = np.sqrt(
                 self.car.hull.linearVelocity[0] ** 2 +
                 self.car.hull.linearVelocity[1] ** 2
             )
-            self.reward += 0.1 * speed  # Reward for moving fast
+
+            # Calculate forward velocity (project velocity onto car's forward direction)
+            # Car's forward direction is its heading angle
+            car_forward_x = np.cos(self.car.hull.angle)
+            car_forward_y = np.sin(self.car.hull.angle)
+
+            # Dot product of velocity with forward direction
+            forward_velocity = (
+                self.car.hull.linearVelocity[0] * car_forward_x +
+                self.car.hull.linearVelocity[1] * car_forward_y
+            )
+
+            # Reward forward progress only (backward movement = no reward)
+            # Configured at top of file: FORWARD_VEL_REWARD (currently 0.0 = disabled)
+            # Hypothesis: velocity is implicitly rewarded by reaching checkpoints faster
+            # Can be re-enabled if agent struggles to learn (set to 0.05 or 0.1)
+            self.reward += FORWARD_VEL_REWARD * max(0, forward_velocity)
 
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
-            if wheels_off_track > 2:
-                self.reward -= 1.0 * wheels_off_track  # -1 per wheel off track per frame
+            if wheels_off_track > OFFTRACK_THRESHOLD:
+                self.reward -= OFFTRACK_PENALTY * wheels_off_track
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
@@ -763,7 +828,7 @@ class CarRacing(gym.Env, EzPickle):
 
                 # Check if car made progress:
                 # 1. Visited new tile (step_reward > 0), OR
-                # 2. Moving with meaningful velocity (speed > 0.5 m/s)
+                # 2. Moving with meaningful velocity (speed > 0.5 m/s in any direction)
                 is_making_progress = (step_reward > 0) or (speed > 0.5)
 
                 if is_making_progress:
@@ -801,7 +866,7 @@ class CarRacing(gym.Env, EzPickle):
             print(f"--- STEP {self.debug_step_counter} ---")
             print(f"  ACTION:  Gas={gas:0.2f}, Brake={brake:0.2f}, Steer={steer_action:0.2f}")
             print(f"  CAR:     vx={self.car.vx: >6.2f} (long), vy={self.car.vy: >6.2f} (lat), yaw_rate={self.car.yaw_rate: >6.2f}")
-            print(f"  WORLD:   Speed={speed: >6.2f} m/s")
+            print(f"  WORLD:   Speed={speed: >6.2f} m/s, ForwardVel={forward_velocity: >6.2f} m/s")
             print(f"  PHYSICS: Fx={debug_info['fx_total']: >8.2f}, Fy={debug_info['fy_total']: >8.2f}, Torque={debug_info['torque']: >8.2f}")
             print(f"  REWARD:  WheelsOff={wheels_off_track}, StepRwd={step_reward: >6.2f}, TotalRwd={self.reward: >8.2f}")
             print(f"  TIRES (SlipRatio, SlipAngle):")
