@@ -156,7 +156,7 @@ def setup_logging(log_dir, args, env, agent):
     log_handle.write(f"Episodes: {args.episodes}\n")
     log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
     log_handle.write(f"Auto entropy tuning: {args.auto_entropy_tuning}\n")
-    log_handle.write(f"Early termination: enabled (patience=100)\n")
+    log_handle.write(f"Early termination: enabled (patience=50)\n")
     log_handle.write(f"Reward shaping: enabled (penalty -50 for episodes < 150 steps)\n")
     if args.resume:
         log_handle.write(f"Resumed from: {args.resume}\n")
@@ -175,7 +175,7 @@ def setup_logging(log_dir, args, env, agent):
         f.write("Environment:\n")
         f.write(f"  Name: CarRacing-v3\n")
         f.write(f"  Actions: Continuous [steering, gas, brake]\n")
-        f.write(f"  Early termination: True (patience=100)\n\n")
+        f.write(f"  Early termination: True (patience=50)\n\n")
 
         f.write("Agent Hyperparameters:\n")
         f.write(f"  Actor learning rate: {args.lr_actor}\n")
@@ -329,11 +329,11 @@ def train(args):
     env = make_carracing_env(
         stack_size=4,
         terminate_stationary=True,
-        stationary_patience=150,
+        stationary_patience=50,
         render_mode=None,
         state_mode=args.state_mode,
         reward_shaping=True,
-        min_episode_steps=150,
+        min_episode_steps=100,
         short_episode_penalty=-50.0,
         verbose=args.verbose
     )
@@ -345,7 +345,7 @@ def train(args):
     print(f"  State mode: {args.state_mode}")
     print(f"  State shape: {state_shape}")
     print(f"  Action space: Continuous (3D)")
-    print(f"  Early termination enabled (patience=100 frames)")
+    print(f"  Early termination enabled (patience=50 frames)")
     print(f"  Reward shaping enabled (penalty -50 for episodes < 150 steps)")
 
     # Create agent

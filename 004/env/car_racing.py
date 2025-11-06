@@ -62,10 +62,10 @@ MAX_SHAPE_DIM = (
 )
 
 # Reward structure configuration
-NUM_CHECKPOINTS = 10        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
+NUM_CHECKPOINTS = 15        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
 CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
-FORWARD_VEL_REWARD = 0.0    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
-STEP_PENALTY = 0.5          # Penalty per frame (encourages speed via less total penalty)
+FORWARD_VEL_REWARD = 0.1    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
+STEP_PENALTY = 0.3          # Penalty per frame (encourages speed via less total penalty)
 OFFTRACK_PENALTY = 1.0      # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
 
@@ -332,7 +332,7 @@ class CarRacing(gym.Env, EzPickle):
         domain_randomize: bool = False,
         continuous: bool = True,
         terminate_stationary: bool = True,
-        stationary_patience: int = 100,
+        stationary_patience: int = 50,
         stationary_min_steps: int = 50,
         state_mode: str = "vector",
     ):
