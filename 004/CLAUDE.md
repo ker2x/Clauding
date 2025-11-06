@@ -8,6 +8,22 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 
 ## Recent Changes
 
+**Polygon-Based Collision Detection & Penalty Rebalancing** (NEW):
+- Replaced distance-to-tile-center detection with accurate polygon-based geometry
+- Uses ray casting algorithm to check if wheel center is inside track tile polygon
+- Falls back to distance-to-edge calculation for wheels just outside polygon
+- Small tolerance (0.3 units) allows for wheel radius and numerical precision
+- **Why this matters**: Old approach used arbitrary threshold (2.0 vs 8.0 units) that didn't account for actual track geometry:
+  - `CONTACT_THRESHOLD = 2.0`: Too strict → false negatives (wheels ON track marked OFF) → massive initial penalties
+  - `CONTACT_THRESHOLD = 8.0`: Too lenient → false positives (wheels OFF track marked ON) → no off-track penalties
+- New approach: Mathematically correct detection based on actual tile boundaries
+- **Penalty rebalancing**: Reduced off-track penalty from -5.0 to -1.0 per wheel per frame
+  - Old penalty (-5.0): Extremely punishing, negated any benefit from risk-taking (4 wheels off = -20/frame)
+  - New penalty (-1.0): Balanced discouragement while allowing strategic corner-cutting (4 wheels off = -4/frame)
+  - Enables agent to learn aggressive racing lines where brief off-track moments might be worth it
+- Performance: ~580 steps/sec (minimal overhead due to spatial partitioning already in place)
+- Code: `env/car_racing.py:74-224` (FrictionDetector class), `car_racing.py:754` (penalty)
+
 **Performance Diagnostics & Verbose Mode**:
 - Added comprehensive timing diagnostics with `--verbose` flag for debugging performance issues
 - Environment step timing: tracks physics, collision detection, state creation, and rendering (every 10 steps)

@@ -329,7 +329,7 @@ def train(args):
     env = make_carracing_env(
         stack_size=4,
         terminate_stationary=True,
-        stationary_patience=100,
+        stationary_patience=150,
         render_mode=None,
         state_mode=args.state_mode,
         reward_shaping=True,

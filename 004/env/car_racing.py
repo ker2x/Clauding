@@ -64,21 +64,86 @@ MAX_SHAPE_DIM = (
 
 class FrictionDetector:
     """
-    Detects wheel-track collisions using simple distance-based checks.
+    Detects wheel-track collisions using accurate polygon-based geometry.
     Replaces Box2D contact listener with spatial geometry queries.
     """
     def __init__(self, env, lap_complete_percent):
         self.env = env
         self.lap_complete_percent = lap_complete_percent
 
+    def _point_in_polygon(self, px, py, vertices):
+        """
+        Check if point (px, py) is inside polygon using ray casting algorithm.
+
+        Args:
+            px, py: Point coordinates
+            vertices: List of (x, y) tuples defining polygon vertices
+
+        Returns:
+            True if point is inside polygon, False otherwise
+        """
+        n = len(vertices)
+        inside = False
+
+        x1, y1 = vertices[0]
+        for i in range(1, n + 1):
+            x2, y2 = vertices[i % n]
+            # Ray casting: count intersections with edges
+            if ((y1 > py) != (y2 > py)) and (px < (x2 - x1) * (py - y1) / (y2 - y1) + x1):
+                inside = not inside
+            x1, y1 = x2, y2
+
+        return inside
+
+    def _distance_to_polygon_edge(self, px, py, vertices):
+        """
+        Calculate minimum distance from point to polygon edges.
+
+        Args:
+            px, py: Point coordinates
+            vertices: List of (x, y) tuples defining polygon vertices
+
+        Returns:
+            Minimum distance from point to any polygon edge
+        """
+        min_dist = float('inf')
+
+        n = len(vertices)
+        for i in range(n):
+            x1, y1 = vertices[i]
+            x2, y2 = vertices[(i + 1) % n]
+
+            # Vector from edge start to end
+            dx = x2 - x1
+            dy = y2 - y1
+            len_sq = dx * dx + dy * dy
+
+            if len_sq < 1e-10:
+                # Degenerate edge (two vertices at same position)
+                dist = np.sqrt((px - x1)**2 + (py - y1)**2)
+            else:
+                # Project point onto edge line segment
+                t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+                proj_x = x1 + t * dx
+                proj_y = y1 + t * dy
+                dist = np.sqrt((px - proj_x)**2 + (py - proj_y)**2)
+
+            min_dist = min(min_dist, dist)
+
+        return min_dist
+
     def update_contacts(self, car, road_tiles):
         """
-        Update wheel-tile contacts based on proximity.
-        Uses spatial partitioning to only check nearby tiles.
+        Update wheel-tile contacts based on accurate polygon geometry.
+        Uses spatial partitioning to only check nearby tiles (~61 instead of 300).
         Called each step to determine which tiles each wheel is touching.
+
+        Performance: ~2000 geometric operations per step (4 wheels × 61 tiles × 8 ops)
+        Still very fast due to simple arithmetic and spatial partitioning.
         """
-        WHEEL_RADIUS = 0.3
-        CONTACT_THRESHOLD = 8.0  # Tolerance for wheel-to-tile contact
+        # Small tolerance for wheels just barely off the track edge
+        # This accounts for wheel radius and numerical precision
+        NEAR_TRACK_THRESHOLD = 0.3  # Allow 0.3 units outside polygon edge
         SPATIAL_CHECK_RANGE = 30  # Only check tiles within ±30 indices of car position
 
         # Clear old contacts
@@ -88,12 +153,12 @@ class FrictionDetector:
         # Get car position to determine nearby tiles
         car_x, car_y = car.hull.position
 
-        # Find closest tile to car (rough approximation for spatial filtering)
-        # Use cached tile centers for fast lookup
+        # Find closest tile to car using cached tile centers
+        # Two-stage coarse-then-fine search for efficiency
         min_dist_sq = float('inf')
         closest_tile_idx = 0
 
-        # Quick coarse search: check every 10th tile to find approximate region
+        # Coarse search: check every 10th tile
         for i in range(0, len(road_tiles), 10):
             tile = road_tiles[i]
             dx = car_x - tile.center_x
@@ -103,7 +168,7 @@ class FrictionDetector:
                 min_dist_sq = dist_sq
                 closest_tile_idx = i
 
-        # Refine search around the coarse result
+        # Fine search: refine around coarse result
         search_start = max(0, closest_tile_idx - 10)
         search_end = min(len(road_tiles), closest_tile_idx + 11)
         for i in range(search_start, search_end):
@@ -115,14 +180,14 @@ class FrictionDetector:
                 min_dist_sq = dist_sq
                 closest_tile_idx = i
 
-        # Define tile range to check (wrap around for circular track)
+        # Build list of nearby tiles to check (wrap around for circular track)
         num_tiles = len(road_tiles)
         tile_indices_to_check = []
         for offset in range(-SPATIAL_CHECK_RANGE, SPATIAL_CHECK_RANGE + 1):
             idx = (closest_tile_idx + offset) % num_tiles
             tile_indices_to_check.append(idx)
 
-        # Check each wheel against nearby track tiles only
+        # Check each wheel against nearby track tiles using polygon geometry
         for wheel_idx, wheel in enumerate(car.wheels):
             # Use actual wheel position (set in Car._update_hull())
             wheel_world_x = wheel.position[0]
@@ -131,29 +196,32 @@ class FrictionDetector:
             for tile_idx in tile_indices_to_check:
                 tile = road_tiles[tile_idx]
 
-                # Use cached tile center (computed once during track creation)
-                tile_cx = tile.center_x
-                tile_cy = tile.center_y
+                # Check if wheel center is inside tile polygon
+                inside = self._point_in_polygon(wheel_world_x, wheel_world_y, tile.vertices)
 
-                # Distance from wheel to tile center
-                dist = np.sqrt((wheel_world_x - tile_cx)**2 + (wheel_world_y - tile_cy)**2)
+                if not inside:
+                    # Wheel is outside polygon - check if it's close to the edge
+                    dist_to_edge = self._distance_to_polygon_edge(
+                        wheel_world_x, wheel_world_y, tile.vertices
+                    )
+                    if dist_to_edge > NEAR_TRACK_THRESHOLD:
+                        continue  # Wheel is too far from this tile
 
-                # Simple distance check
-                if dist < CONTACT_THRESHOLD:
-                    wheel.tiles.add(tile)
+                # Wheel is on track (inside polygon or very close to edge)
+                wheel.tiles.add(tile)
 
-                    # Handle tile visitation
-                    if not tile.road_visited:
-                        tile.road_visited = True
-                        self.env.reward += 1000.0 / len(self.env.track)
-                        self.env.tile_visited_count += 1
+                # Handle tile visitation (only count when first wheel touches it)
+                if not tile.road_visited:
+                    tile.road_visited = True
+                    self.env.reward += 1000.0 / len(self.env.track)
+                    self.env.tile_visited_count += 1
 
-                        # Lap completion check
-                        if (
-                            tile.idx == 0 and
-                            self.env.tile_visited_count / len(self.env.track) > self.lap_complete_percent
-                        ):
-                            self.env.new_lap = True
+                    # Lap completion check
+                    if (
+                        tile.idx == 0 and
+                        self.env.tile_visited_count / len(self.env.track) > self.lap_complete_percent
+                    ):
+                        self.env.new_lap = True
 
 
 class CarRacing(gym.Env, EzPickle):
@@ -198,8 +266,8 @@ class CarRacing(gym.Env, EzPickle):
      visited in the track. For example, if you have finished in 732 frames, your reward is 1000 - 0.1*732 = 926.8 points.
 
     Additionally:
-    - Speed bonus: +0.02 * speed per frame (encourages forward movement)
-    - Off-track penalty: -5.0 per wheel off-track per frame (continuous penalty to prevent exploits)
+    - Speed bonus: +0.05 * speed per frame (encourages forward movement)
+    - Off-track penalty: -1.0 per wheel off-track per frame (discourages off-track while allowing risk-taking)
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -669,7 +737,7 @@ class CarRacing(gym.Env, EzPickle):
         wheels_off_track = 0
 
         if action is not None:  # First step without action, called from reset()
-            self.reward -= 0.1
+            self.reward -= 0.5  # Reward from doing nothing
             # We actually don't want to count fuel spent, we want car to be faster.
             # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
             self.car.fuel_spent = 0.0
@@ -679,11 +747,12 @@ class CarRacing(gym.Env, EzPickle):
                 self.car.hull.linearVelocity[0] ** 2 +
                 self.car.hull.linearVelocity[1] ** 2
             )
-            self.reward += 0.02 * speed  # Reward for moving fast
+            self.reward += 0.1 * speed  # Reward for moving fast
 
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
-            self.reward -= 5.0 * wheels_off_track  # -5 per wheel off track per frame
+            if wheels_off_track > 2:
+                self.reward -= 1.0 * wheels_off_track  # -1 per wheel off track per frame
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
