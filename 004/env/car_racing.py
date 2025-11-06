@@ -61,6 +61,14 @@ MAX_SHAPE_DIM = (
     max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
 )
 
+# Reward structure configuration
+NUM_CHECKPOINTS = 10        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
+CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
+FORWARD_VEL_REWARD = 0.0    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
+STEP_PENALTY = 0.5          # Penalty per frame (encourages speed via less total penalty)
+OFFTRACK_PENALTY = 1.0      # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
+
 
 class FrictionDetector:
     """
@@ -271,21 +279,25 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses a sparse checkpoint system combined with step penalty:
+    The reward structure uses a sparse checkpoint system combined with step penalty.
+    All reward parameters are configurable at the top of this file (lines 64-70).
 
     **Sparse rewards (main objective):**
-    - Checkpoint rewards: +100 points for each of 10 checkpoints reached (1000 points total for full lap)
-    - Each checkpoint is ~30 tiles, making them achievable through exploration
+    - Checkpoint rewards: +CHECKPOINT_REWARD points for each of NUM_CHECKPOINTS checkpoints
+      (default: 10 checkpoints × 100 points = 1000 total)
+    - Each checkpoint is ~30 tiles (for typical 300-tile track), making them achievable through exploration
     - Must visit tiles in sequence to reach next checkpoint
 
     **Dense penalties (constraints and speed incentive):**
-    - Per-step penalty: -0.5 every frame (implicitly encourages reaching checkpoints quickly)
-    - Off-track penalty: -1.0 per wheel off-track per frame when >2 wheels off (allows aggressive racing with 2 wheels off)
+    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, implicitly encourages reaching checkpoints quickly)
+    - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
+      (default: -1.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
 
-    **Note:** Forward velocity bonus is disabled (set to 0.0) to test if velocity is implicitly rewarded
-    by checkpoint progress + step penalty. Can be re-enabled if needed.
+    **Optional dense reward:**
+    - Forward velocity: +FORWARD_VEL_REWARD per m/s of forward velocity per frame
+      (default: 0.0 = disabled, set to 0.05-0.1 to enable)
 
-    Example: Reaching checkpoint 5 (50% progress) in 366 frames:
+    Example with defaults: Reaching checkpoint 5 (50% progress) in 366 frames:
     - Checkpoint rewards: 5 * 100 = +500
     - Step penalty: -0.5 * 366 = -183
     - Total: ~317 points
@@ -371,9 +383,9 @@ class CarRacing(gym.Env, EzPickle):
         # Vector mode: waypoint lookahead count
         self.vector_lookahead = 10
 
-        # Checkpoint system for sparse rewards
-        self.num_checkpoints = 10  # Divide track into 10 checkpoints
-        self.checkpoint_reward = 100.0  # 100 points per checkpoint (10 * 100 = 1000 total)
+        # Checkpoint system for sparse rewards (configured at top of file)
+        self.num_checkpoints = NUM_CHECKPOINTS
+        self.checkpoint_reward = CHECKPOINT_REWARD
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -774,7 +786,7 @@ class CarRacing(gym.Env, EzPickle):
         wheels_off_track = 0
 
         if action is not None:  # First step without action, called from reset()
-            self.reward -= 0.5  # Reward from doing nothing
+            self.reward -= STEP_PENALTY  # Time penalty (encourages speed)
             # We actually don't want to count fuel spent, we want car to be faster.
             # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
             self.car.fuel_spent = 0.0
@@ -797,15 +809,15 @@ class CarRacing(gym.Env, EzPickle):
             )
 
             # Reward forward progress only (backward movement = no reward)
-            # NOTE: Set to 0.0 to test sparse-only rewards (checkpoint + step penalty)
+            # Configured at top of file: FORWARD_VEL_REWARD (currently 0.0 = disabled)
             # Hypothesis: velocity is implicitly rewarded by reaching checkpoints faster
-            # Can be re-enabled if agent struggles to learn (try 0.05 or 0.1)
-            self.reward += 0.0 * max(0, forward_velocity)
+            # Can be re-enabled if agent struggles to learn (set to 0.05 or 0.1)
+            self.reward += FORWARD_VEL_REWARD * max(0, forward_velocity)
 
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
-            if wheels_off_track > 2:
-                self.reward -= 1.0 * wheels_off_track  # -1 per wheel off track per frame
+            if wheels_off_track > OFFTRACK_THRESHOLD:
+                self.reward -= OFFTRACK_PENALTY * wheels_off_track
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
