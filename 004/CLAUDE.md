@@ -8,7 +8,21 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 
 ## Recent Changes
 
-**Polygon-Based Collision Detection & Penalty Rebalancing** (NEW):
+**Forward Velocity Reward Fix** (LATEST):
+- Changed speed reward from magnitude to forward projection to prevent spinning/drifting exploits
+- **Old behavior**: `reward += 0.1 * sqrt(vx² + vy²)` rewarded movement in ANY direction
+  - Agent could maximize reward by spinning in circles, drifting sideways, or driving backwards
+  - Speed of 20 m/s gave +2.0 reward regardless of direction
+- **New behavior**: `reward += 0.1 * max(0, velocity · forward_direction)` rewards only forward progress
+  - Uses dot product of velocity with car's heading angle
+  - Backward movement gives zero reward (not penalized, just not rewarded)
+  - Sideways drifting gives zero reward (only forward component counts)
+- **Design decision**: Kept 2-wheels-off-track allowed (no penalty) to permit aggressive racing lines
+- **Design decision**: Kept 95% lap completion rule to make objective achievable
+- Verbose mode now shows both Speed (magnitude) and ForwardVel (projection) for debugging
+- Code: `env/car_racing.py:745-763` (forward velocity calculation and reward)
+
+**Polygon-Based Collision Detection & Penalty Rebalancing**:
 - Replaced distance-to-tile-center detection with accurate polygon-based geometry
 - Uses ray casting algorithm to check if wheel center is inside track tile polygon
 - Falls back to distance-to-edge calculation for wheels just outside polygon
