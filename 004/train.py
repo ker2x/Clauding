@@ -34,6 +34,10 @@ import torch
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
+from env.car_racing import (
+    NUM_CHECKPOINTS, CHECKPOINT_REWARD, FORWARD_VEL_REWARD,
+    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD
+)
 
 
 def parse_args():
@@ -106,7 +110,7 @@ def get_device(device_arg):
         return torch.device(device_arg)
 
 
-def setup_logging(log_dir, args, env, agent):
+def setup_logging(log_dir, args, env, agent, config):
     """
     Setup logging infrastructure: CSV files, log file, system info.
 
@@ -115,6 +119,7 @@ def setup_logging(log_dir, args, env, agent):
         args: Training arguments
         env: CarRacing environment
         agent: SAC agent
+        config: Dict with environment configuration values
 
     Returns:
         Tuple of (training_csv_path, eval_csv_path, log_file_handle)
@@ -156,8 +161,8 @@ def setup_logging(log_dir, args, env, agent):
     log_handle.write(f"Episodes: {args.episodes}\n")
     log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
     log_handle.write(f"Auto entropy tuning: {args.auto_entropy_tuning}\n")
-    log_handle.write(f"Early termination: enabled (patience=50)\n")
-    log_handle.write(f"Reward shaping: enabled (penalty -50 for episodes < 150 steps)\n")
+    log_handle.write(f"Early termination: enabled (patience={config['stationary_patience']})\n")
+    log_handle.write(f"Reward shaping: enabled (penalty {config['short_episode_penalty']} for episodes < {config['min_episode_steps']} steps)\n")
     if args.resume:
         log_handle.write(f"Resumed from: {args.resume}\n")
     log_handle.write("=" * 70 + "\n\n")
@@ -175,7 +180,14 @@ def setup_logging(log_dir, args, env, agent):
         f.write("Environment:\n")
         f.write(f"  Name: CarRacing-v3\n")
         f.write(f"  Actions: Continuous [steering, gas, brake]\n")
-        f.write(f"  Early termination: True (patience=50)\n\n")
+        f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
+        f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
+
+        f.write("Reward Structure (from env/car_racing.py):\n")
+        f.write(f"  Checkpoints: {NUM_CHECKPOINTS} x {CHECKPOINT_REWARD} points\n")
+        f.write(f"  Forward velocity: {FORWARD_VEL_REWARD} per m/s per frame\n")
+        f.write(f"  Step penalty: {STEP_PENALTY} per frame\n")
+        f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n\n")
 
         f.write("Agent Hyperparameters:\n")
         f.write(f"  Actor learning rate: {args.lr_actor}\n")
@@ -316,6 +328,14 @@ def plot_training_progress(episode_rewards, metrics, save_path):
 
 def train(args):
     """Main training loop."""
+    # Environment configuration (single source of truth)
+    STACK_SIZE = 4
+    TERMINATE_STATIONARY = True
+    STATIONARY_PATIENCE = 50
+    REWARD_SHAPING = True
+    MIN_EPISODE_STEPS = 100
+    SHORT_EPISODE_PENALTY = -50.0
+
     # Create directories
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -327,14 +347,14 @@ def train(args):
     # Create training environment
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
-        stack_size=4,
-        terminate_stationary=True,
-        stationary_patience=50,
+        stack_size=STACK_SIZE,
+        terminate_stationary=TERMINATE_STATIONARY,
+        stationary_patience=STATIONARY_PATIENCE,
         render_mode=None,
         state_mode=args.state_mode,
-        reward_shaping=True,
-        min_episode_steps=100,
-        short_episode_penalty=-50.0,
+        reward_shaping=REWARD_SHAPING,
+        min_episode_steps=MIN_EPISODE_STEPS,
+        short_episode_penalty=SHORT_EPISODE_PENALTY,
         verbose=args.verbose
     )
 
@@ -345,8 +365,8 @@ def train(args):
     print(f"  State mode: {args.state_mode}")
     print(f"  State shape: {state_shape}")
     print(f"  Action space: Continuous (3D)")
-    print(f"  Early termination enabled (patience=50 frames)")
-    print(f"  Reward shaping enabled (penalty -50 for episodes < 150 steps)")
+    print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
+    print(f"  Reward shaping enabled (penalty {SHORT_EPISODE_PENALTY} for episodes < {MIN_EPISODE_STEPS} steps)")
 
     # Create agent
     print("\nCreating SAC agent...")
@@ -387,7 +407,12 @@ def train(args):
 
     # Initialize logging infrastructure
     print("\nInitializing logging...")
-    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, env, agent)
+    config = {
+        'stationary_patience': STATIONARY_PATIENCE,
+        'min_episode_steps': MIN_EPISODE_STEPS,
+        'short_episode_penalty': SHORT_EPISODE_PENALTY
+    }
+    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, env, agent, config)
 
     # Training metrics
     episode_rewards = []
