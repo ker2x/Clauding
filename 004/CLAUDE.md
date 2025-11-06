@@ -20,13 +20,13 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
   - Natural curriculum: always working toward next checkpoint
 - **Reward structure**:
   - Sparse: 10 × 100 = 1000 points for checkpoints (main objective)
-  - Dense: Forward velocity bonus (continuous guidance)
+  - Dense: -0.5 per-step penalty (implicitly encourages speed via faster checkpoint completion)
   - Dense: Off-track penalty when >2 wheels off (constraint)
-  - Dense: -0.5 per-step penalty (encourages speed)
+  - Note: Forward velocity bonus **disabled (0.0)** - testing if velocity is implicitly rewarded
 - **Design decisions maintained**:
   - 2-wheels-off-track allowed (no penalty for aggressive racing lines)
   - 95% lap completion rule (makes objective achievable)
-  - Forward velocity reward (prevents spinning/drifting exploits)
+  - Forward velocity code kept but set to 0.0 (can re-enable if agent struggles)
 - Verbose mode prints checkpoint progress with completion percentage
 - Code: `env/car_racing.py:218-226` (checkpoint reward logic), `env/car_racing.py:353-355` (config)
 

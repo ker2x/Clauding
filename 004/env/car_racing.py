@@ -271,25 +271,24 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses a sparse checkpoint system combined with continuous guidance:
+    The reward structure uses a sparse checkpoint system combined with step penalty:
 
     **Sparse rewards (main objective):**
     - Checkpoint rewards: +100 points for each of 10 checkpoints reached (1000 points total for full lap)
     - Each checkpoint is ~30 tiles, making them achievable through exploration
     - Must visit tiles in sequence to reach next checkpoint
 
-    **Dense rewards (continuous guidance):**
-    - Per-step penalty: -0.5 every frame (encourages completing checkpoints quickly)
-    - Forward velocity bonus: +0.1 * forward_velocity per frame (encourages forward progress, not sideways/spinning)
-
-    **Dense penalties (constraints):**
+    **Dense penalties (constraints and speed incentive):**
+    - Per-step penalty: -0.5 every frame (implicitly encourages reaching checkpoints quickly)
     - Off-track penalty: -1.0 per wheel off-track per frame when >2 wheels off (allows aggressive racing with 2 wheels off)
 
-    Example: Reaching checkpoint 5 (50% progress) in 366 frames with average 10 m/s forward speed:
+    **Note:** Forward velocity bonus is disabled (set to 0.0) to test if velocity is implicitly rewarded
+    by checkpoint progress + step penalty. Can be re-enabled if needed.
+
+    Example: Reaching checkpoint 5 (50% progress) in 366 frames:
     - Checkpoint rewards: 5 * 100 = +500
     - Step penalty: -0.5 * 366 = -183
-    - Forward velocity bonus: +0.1 * 10 * 366 = +366
-    - Total: ~683 points
+    - Total: ~317 points
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -798,7 +797,10 @@ class CarRacing(gym.Env, EzPickle):
             )
 
             # Reward forward progress only (backward movement = no reward)
-            self.reward += 0.1 * max(0, forward_velocity)
+            # NOTE: Set to 0.0 to test sparse-only rewards (checkpoint + step penalty)
+            # Hypothesis: velocity is implicitly rewarded by reaching checkpoints faster
+            # Can be re-enabled if agent struggles to learn (try 0.05 or 0.1)
+            self.reward += 0.0 * max(0, forward_velocity)
 
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
