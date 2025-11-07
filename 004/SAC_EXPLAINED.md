@@ -77,7 +77,7 @@ Instead of manually setting α, SAC learns it automatically:
 
 ```
 α_loss = -log_α · (log_prob + target_entropy)
-target_entropy = -action_dim  # For 3D actions: -3.0
+target_entropy = -action_dim  # For 2D actions: -2.0
 ```
 
 This adjusts α to maintain a target entropy level, balancing exploration vs exploitation.
@@ -91,13 +91,13 @@ This adjusts α to maintain a target entropy level, balancing exploration vs exp
 **Actor (VectorActor)**:
 ```
 Input (36D) → FC(256) → ReLU → FC(256) → ReLU → FC(256) → ReLU
-            ├─→ FC(3) → mean
-            └─→ FC(3) → log_std (clamped to [-20, 2])
+            ├─→ FC(2) → mean
+            └─→ FC(2) → log_std (clamped to [-20, 2])
 ```
 
 **Critic (VectorCritic)** (×2 networks):
 ```
-Input (36D state + 3D action = 39D) → FC(256) → ReLU
+Input (36D state + 2D action = 38D) → FC(256) → ReLU
 → FC(256) → ReLU → FC(256) → ReLU → FC(256) → ReLU → FC(1) → Q-value
 ```
 
@@ -109,14 +109,14 @@ Input (4×96×96) → Conv(32, 8×8, stride 4) → ReLU
 → Conv(64, 4×4, stride 2) → ReLU
 → Conv(64, 3×3, stride 1) → ReLU
 → Flatten → FC(512) → ReLU
-            ├─→ FC(3) → mean
-            └─→ FC(3) → log_std
+            ├─→ FC(2) → mean
+            └─→ FC(2) → log_std
 ```
 
 **Critic (VisualCritic)** (×2 networks):
 ```
 State: Input (4×96×96) → Conv layers → Flatten → 4096D
-Action: Input (3D) → concatenate with state features → FC(512) → ReLU
+Action: Input (2D) → concatenate with state features → FC(512) → ReLU
 → FC(256) → ReLU → FC(1) → Q-value
 ```
 
@@ -138,11 +138,11 @@ Action: Input (3D) → concatenate with state features → FC(512) → ReLU
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gamma` | 0.99 | Discount factor for future rewards (0.99 = value rewards 100 steps ahead) |
-| `tau` | 0.005 | Soft target network update rate (0.005 = 0.5% update per step) |
+| `gamma` | 0.99 | Discount factor for future rewards |
+| `tau` | 0.005 | Soft target network update rate |
 | `alpha_init` | 0.2 | Initial entropy coefficient (auto-tuned during training) |
 | `auto_entropy_tuning` | True | Automatically adjust alpha to maintain target entropy |
-| `target_entropy` | -3.0 | Target entropy = -action_dim (for 3D action space) |
+| `target_entropy` | -2.0 | Target entropy = -action_dim (for 2D action space) |
 
 ### Training Parameters
 
@@ -156,9 +156,8 @@ Action: Input (3D) → concatenate with state features → FC(512) → ReLU
 
 | Action | Min | Max | Description |
 |--------|-----|-----|-------------|
-| Steering | -1.0 | +1.0 | Left (-1) to Right (+1) |
-| Gas | 0.0 | 1.0 | No gas (0) to Full throttle (1) |
-| Brake | 0.0 | 1.0 | No brake (0) to Full brake (1) |
+| Steering | -1.0 | +1.0 | Left to Right |
+| Acceleration | -1.0 | +1.0 | Brake to Gas |
 
 ---
 
@@ -204,17 +203,13 @@ Action: Input (3D) → concatenate with state features → FC(512) → ReLU
 
 | Metric | Description | Interpretation |
 |--------|-------------|----------------|
-| `alpha` | Entropy coefficient | **Decreases** over time. High α = more exploration, low α = more exploitation |
-| `alpha_loss` | Entropy tuning loss | Adjusts alpha to maintain target entropy. Fluctuates during training |
+| `alpha` | Entropy coefficient | Decreases over time. High α = more exploration, low α = more exploitation |
+| `alpha_loss` | Entropy tuning loss | Adjusts alpha to maintain target entropy |
 
-**Example**: `alpha = 0.84 → 0.06`
-- Alpha starts high (~0.84) for exploration
-- Decreases to ~0.06 as policy becomes more confident
-- Automatic tuning balances exploration/exploitation
-
-**Target Entropy**: -3.0 (negative of action dimensions)
-- Agent tries to maintain entropy around this level
-- Prevents policy from becoming too deterministic too quickly
+**Target Entropy**: -2.0 (negative of 2D action space)
+- Alpha starts high (~0.8) for exploration
+- Decreases to ~0.01-0.2 as policy converges
+- Prevents premature convergence to deterministic policy
 
 ---
 

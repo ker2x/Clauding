@@ -25,94 +25,12 @@ All configurable at top of `env/car_racing.py` (lines 64-70):
 
 ## Recent Changes
 
-**Reward Constants Refactoring** (LATEST):
-- Moved all reward configuration to top of `car_racing.py` (lines 64-70) for easy tuning
-- No more digging through code to find magic numbers
-- All reward parameters now defined as constants:
-  - `NUM_CHECKPOINTS = 10` - Divide track into N checkpoints
-  - `CHECKPOINT_REWARD = 100.0` - Points per checkpoint
-  - `FORWARD_VEL_REWARD = 0.0` - Velocity bonus (currently disabled)
-  - `STEP_PENALTY = 0.5` - Time penalty per frame
-  - `OFFTRACK_PENALTY = 1.0` - Penalty per wheel off track
-  - `OFFTRACK_THRESHOLD = 2` - Wheels allowed off before penalty
-- Easy experimentation: change values at top, no code diving required
-- Code: `env/car_racing.py:64-70` (constant definitions)
-
-**Checkpoint-Based Sparse Rewards**:
-- Replaced per-tile rewards with checkpoint system to reduce reward density and exploitation
-- **Old behavior**: +3.33 points per tile visited (300 reward events per lap, very dense)
-  - Agent could get rewards by visiting any unvisited tiles in any order
-  - Too many opportunities for local optima and exploits
-- **New behavior**: +100 points per checkpoint reached (10 reward events per lap, much sparser)
-  - Track divided into 10 checkpoints of ~30 tiles each
-  - Must reach checkpoints in sequence (can't skip ahead)
-  - Each checkpoint is achievable through random exploration
-  - Natural curriculum: always working toward next checkpoint
-- **Reward structure**:
-  - Sparse: 10 × 100 = 1000 points for checkpoints (main objective)
-  - Dense: -0.5 per-step penalty (implicitly encourages speed via faster checkpoint completion)
-  - Dense: Off-track penalty when >2 wheels off (constraint)
-  - Note: Forward velocity bonus **disabled (0.0)** - testing if velocity is implicitly rewarded
-- **Design decisions maintained**:
-  - 2-wheels-off-track allowed (no penalty for aggressive racing lines)
-  - 95% lap completion rule (makes objective achievable)
-  - Forward velocity code kept but set to 0.0 (can re-enable if agent struggles)
-- Verbose mode prints checkpoint progress with completion percentage
-- Code: `env/car_racing.py:218-226` (checkpoint reward logic), `env/car_racing.py:353-355` (config)
-
-**Forward Velocity Reward Fix**:
-- Changed speed reward from magnitude to forward projection to prevent spinning/drifting exploits
-- **Old behavior**: `reward += 0.1 * sqrt(vx² + vy²)` rewarded movement in ANY direction
-  - Agent could maximize reward by spinning in circles, drifting sideways, or driving backwards
-  - Speed of 20 m/s gave +2.0 reward regardless of direction
-- **New behavior**: `reward += 0.1 * max(0, velocity · forward_direction)` rewards only forward progress
-  - Uses dot product of velocity with car's heading angle
-  - Backward movement gives zero reward (not penalized, just not rewarded)
-  - Sideways drifting gives zero reward (only forward component counts)
-- Verbose mode now shows both Speed (magnitude) and ForwardVel (projection) for debugging
-- Code: `env/car_racing.py:745-763` (forward velocity calculation and reward)
-
-**Polygon-Based Collision Detection & Penalty Rebalancing**:
-- Replaced distance-to-tile-center detection with accurate polygon-based geometry
-- Uses ray casting algorithm to check if wheel center is inside track tile polygon
-- Falls back to distance-to-edge calculation for wheels just outside polygon
-- Small tolerance (0.3 units) allows for wheel radius and numerical precision
-- **Why this matters**: Old approach used arbitrary threshold (2.0 vs 8.0 units) that didn't account for actual track geometry:
-  - `CONTACT_THRESHOLD = 2.0`: Too strict → false negatives (wheels ON track marked OFF) → massive initial penalties
-  - `CONTACT_THRESHOLD = 8.0`: Too lenient → false positives (wheels OFF track marked ON) → no off-track penalties
-- New approach: Mathematically correct detection based on actual tile boundaries
-- **Penalty rebalancing**: Reduced off-track penalty from -5.0 to -1.0 per wheel per frame
-  - Old penalty (-5.0): Extremely punishing, negated any benefit from risk-taking (4 wheels off = -20/frame)
-  - New penalty (-1.0): Balanced discouragement while allowing strategic corner-cutting (4 wheels off = -4/frame)
-  - Enables agent to learn aggressive racing lines where brief off-track moments might be worth it
-- Performance: ~580 steps/sec (minimal overhead due to spatial partitioning already in place)
-- Code: `env/car_racing.py:74-224` (FrictionDetector class), `car_racing.py:754` (penalty)
-
-**Performance Diagnostics & Verbose Mode**:
-- Added comprehensive timing diagnostics with `--verbose` flag for debugging performance issues
-- Environment step timing: tracks physics, collision detection, state creation, and rendering (every 10 steps)
-- Agent update timing: tracks sample, forward passes, backprop with layer-level breakdown (every 10 updates)
-- Layer-level timing for VisualCritic shows individual conv1/conv2/conv3/FC layer performance
-- CPU diagnostics: PyTorch thread count, CPU usage, memory usage
-- Added `psutil` dependency for system monitoring
-- Timing data stored in `agent.layer_timings` for post-training analysis
-
-**Collision Detection Optimization**:
-- Implemented spatial partitioning in `FrictionDetector.update_contacts()` to reduce CPU usage
-- Tile centers are now cached during track creation (computed once vs 1,200 times per step)
-- Only checks ~61 nearby tiles instead of all 300 tiles per step (~5x reduction)
-- Performance improved from ~1,000 to ~2,000 steps/sec
-- Two-stage coarse-then-fine search finds car's track position efficiently
-
-**Physics Engine Rework & Code Cleanup**:
-- The custom 2D car physics engine (`car_dynamics.py`) has been completely reworked with refined Pacejka tire modeling
-- Physics code is clean and well-documented with no dead code or debug markers
-- Environment code (`car_racing.py`) has been cleaned up with improved comments
-- Exception handling improved: replaced bare `except:` clauses with specific exception types
-
-**Visual State Visualization Fix**:
-- Fixed `visualize_visual_state.py` to use headless rendering (no telemetry overlays)
-- Now shows the actual pure camera view the model sees during training
+**Current Implementation Highlights**:
+- **Checkpoint-based rewards**: 10 checkpoints × 100 points = 1000 max score (sparse rewards)
+- **Polygon-based collision detection**: Accurate wheel-on-track detection using ray casting
+- **Configurable reward parameters**: All constants at top of `car_racing.py:64-70` for easy tuning
+- **Performance optimized**: Spatial partitioning for collision detection (~580 steps/sec)
+- **Verbose mode**: `--verbose` flag provides detailed timing diagnostics for debugging
 
 **Key Architecture Principle**: SAC uses separate actor (policy) and critic (value) networks with automatic entropy tuning via a learned alpha parameter. The algorithm maintains twin Q-networks to reduce overestimation bias and uses soft target updates for stability.
 
@@ -211,18 +129,9 @@ The codebase implements a **dual-mode architecture** where the same SAC algorith
 
 ### Network Architecture Pattern
 
-**Actor Networks** output action distributions:
-- Input: State (36D vector or 4×96×96 images)
-- Output: `(mean, log_std)` for Gaussian policy
-- Action sampling: `action = tanh(mean + std * noise)` where noise ~ N(0,1)
-- Log probability includes tanh correction for bounded actions
-
-**Critic Networks** estimate Q-values:
-- Input: State + Action concatenated
-- Output: Single Q-value scalar
-- Twin critics: Two independent networks, use minimum for target computation
-
-**Target Networks**: Soft-updated copies of critics for stable learning
+**Actor**: State (36D or 4×96×96) → Gaussian policy (mean, log_std) → 2D action
+**Critic**: State + Action → Q-value (twin networks for stability)
+**Target Networks**: Soft-updated copies of critics
 
 ### Critical Implementation Details
 
@@ -252,20 +161,16 @@ agent = SACAgent(..., state_mode=state_mode)
 **Why This Matters**: Mismatching state mode causes architecture errors (trying to load CNN weights into MLP or vice versa).
 
 #### Action Space Handling
-Actions are continuous `[steering, acceleration]`:
-- `steering`: -1.0 (full left) to +1.0 (full right)
-- `acceleration`: -1.0 (full brake) to +1.0 (full gas)
-- Raw policy outputs unbounded Gaussian samples
-- Tanh squashing bounds actions: `action = tanh(z)` where z ~ N(mean, std)
-- Log probability correction: `log_prob = log_normal(z) - log(1 - tanh²(z))`
-- This allows gradient flow while ensuring bounded actions
+Actions are continuous 2D: `[steering, acceleration]`
+- `steering`: -1.0 (left) to +1.0 (right)
+- `acceleration`: -1.0 (brake) to +1.0 (gas)
+- Policy outputs Gaussian, bounded with tanh: `action = tanh(mean + std * noise)`
+- Log probability includes tanh correction for bounded actions
 
 #### Entropy Tuning
-Alpha (entropy coefficient) is automatically learned:
-- Target entropy = -action_dim (for 2D actions: -2.0)
-- Alpha is parameterized as `exp(log_alpha)` to ensure positivity
-- Loss: `alpha_loss = -log_alpha * (log_prob + target_entropy).detach()`
-- Alpha typically decreases during training (0.8 → 0.01-0.2)
+Alpha (entropy coefficient) is learned automatically:
+- Target entropy = -2.0 (negative of action dimensions)
+- Alpha decreases during training (0.8 → 0.01-0.2)
 
 ## File Structure and Responsibilities
 
@@ -326,9 +231,9 @@ The old 11D basic vector mode from project 002 has been removed as it provided i
 - `mean_q1`, `mean_q2`: Average Q-values (should correlate with actual rewards)
 
 ### Entropy Metrics
-- `alpha`: Entropy coefficient (**decreases over time**: 0.8 → 0.01-0.2)
-- `alpha_loss`: Entropy tuning loss (fluctuates, adjusts alpha to target entropy)
-- Target entropy = -3.0 (negative of action dimensions)
+- `alpha`: Entropy coefficient (decreases over time: 0.8 → 0.01-0.2)
+- `alpha_loss`: Entropy tuning loss (fluctuates, adjusts alpha to target)
+- Target entropy = -2.0 (negative of 2D action space)
 
 **Healthy Training Pattern**:
 1. Alpha decreases from ~0.8 to 0.01-0.2
@@ -415,11 +320,11 @@ Checkpoints (.pt files) contain:
 
 ## Continuous Action Space
 
-Unlike project 002 (discrete 9 actions), this uses a 2D continuous action space:
-- `steering` ∈ [-1.0, 1.0] (negative = left, positive = right)
-- `acceleration` ∈ [-1.0, 1.0] (negative = brake, positive = gas)
+This project uses 2D continuous actions (no discretization):
+- `steering` ∈ [-1.0, 1.0] (left to right)
+- `acceleration` ∈ [-1.0, 1.0] (brake to gas)
 
-Actions are sampled from Gaussian distribution and bounded with tanh. No discretization or ActionDiscretizer class exists in this project.
+Actions sampled from Gaussian, bounded with tanh.
 
 ## Reward Structure Tuning
 
