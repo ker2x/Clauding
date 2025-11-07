@@ -30,11 +30,10 @@ This project implements SAC for the CarRacing-v3 environment, which features a *
 **CarRacing-v3** (Gymnasium)
 - **Task**: Control a racing car to complete laps on randomly generated tracks
 - **Observation**: 36D vector (track geometry + lookahead) or 96×96×3 RGB images
-- **Action Space**: Continuous `[steering, gas, brake]`
+- **Action Space**: Continuous `[steering, acceleration]`
   - steering: [-1.0, 1.0] (left to right)
-  - gas: [0.0, 1.0]
-  - brake: [0.0, 1.0]
-- **Reward**: +1000/N per track tile visited, -0.1 per frame, +0.02×speed bonus, -5 per wheel off-track
+  - acceleration: [-1.0, 1.0] (brake to gas)
+- **Reward**: +100 per checkpoint (10 total), -0.5 per frame, -1.0 per wheel off-track (when >2 wheels off)
 
 ## Setup
 
@@ -118,14 +117,13 @@ This is a great way to understand how difficult the task is and why 500+ reward 
 
 ### 1. Continuous Action Space
 
-Unlike project 002 which discretized actions into 9 discrete choices, this project uses the native continuous action space:
+Unlike project 002 which discretized actions, this project uses continuous actions:
 
-**Action**: `[steering, gas, brake]`
-- steering ∈ [-1.0, 1.0] (continuous)
-- gas ∈ [0.0, 1.0] (continuous)
-- brake ∈ [0.0, 1.0] (continuous)
+**Action**: `[steering, acceleration]`
+- steering ∈ [-1.0, 1.0] (left to right)
+- acceleration ∈ [-1.0, 1.0] (brake to gas)
 
-SAC learns a stochastic policy that outputs a Gaussian distribution over actions, allowing for fine-grained control.
+SAC learns a stochastic Gaussian policy that allows fine-grained control.
 
 ### 2. State Representation
 
@@ -179,52 +177,13 @@ J(α) = E[-α(log π(a|s) + H_target)]
 
 ### 4. Network Architecture
 
-#### Vector Actor (RECOMMENDED - Default!)
-```
-Input: (36,) state vector
-  ↓
-FC1: 256 neurons → ReLU
-  ↓
-FC2: 256 neurons → ReLU
-  ↓
-FC3: 256 neurons → ReLU
-  ↓
-Mean: 3 neurons (action means)
-Log_Std: 3 neurons (action log stds)
-  ↓
-Gaussian policy: π(a|s) = N(mean, exp(log_std))
-```
+#### Vector Mode (RECOMMENDED - Default!)
+**Actor**: 36D input → FC(256)×3 → 2D action (mean, log_std)
+**Critic**: 36D state + 2D action → FC(256)×4 → Q-value
 
-#### Vector Critic (RECOMMENDED - Default!)
-```
-Input: (36,) state + (3,) action
-  ↓
-FC1: 256 neurons → ReLU
-  ↓
-FC2: 256 neurons → ReLU
-  ↓
-FC3: 256 neurons → ReLU
-  ↓
-FC4: 1 neuron (Q-value)
-```
-
-#### Visual Actor (Too Slow - For Watching Only)
-```
-Input: (4, 96, 96) stacked frames
-  ↓
-Conv1: 32 filters, 8×8, stride 4 → ReLU
-  ↓
-Conv2: 64 filters, 4×4, stride 2 → ReLU
-  ↓
-Conv3: 64 filters, 3×3, stride 1 → ReLU → Flatten
-  ↓
-FC1: 512 neurons → ReLU
-  ↓
-Mean: 3 neurons (action means)
-Log_Std: 3 neurons (action log stds)
-```
-
-**Note**: Visual critic follows similar CNN architecture.
+#### Visual Mode (For Watching Only)
+**Actor**: 4×96×96 frames → Conv layers → FC(512) → 2D action
+**Critic**: Similar CNN + action input → Q-value
 
 ## Training Parameters
 
@@ -283,25 +242,11 @@ CarRacing is more challenging than Atari games. With vector mode (RECOMMENDED):
 
 ## Key Differences from Project 002 (DDQN)
 
-### Algorithm
-- **002 (DDQN)**: Discrete action space (9 actions), value-based learning
-- **003/004 (SAC)**: Continuous action space (infinite actions), actor-critic learning
-
-### Action Space
-- **002**: Discretized into 9 actions (3 steering × 3 gas/brake)
-- **003/004**: Native continuous actions `[steering ∈ [-1,1], gas ∈ [0,1], brake ∈ [0,1]]`
-
-### State Modes
-- **002**: "snapshot" mode (36D vector), "vector" mode (11D, too limited), "visual" mode
-- **003/004**: "vector" mode (36D, renamed from snapshot), "visual" mode (11D mode removed)
-
-### Exploration
-- **002**: ε-greedy (epsilon decays linearly)
-- **003/004**: Maximum entropy (automatic entropy tuning via α parameter)
-
-### Network Updates
-- **002**: Single Q-network with target network
-- **003/004**: Twin Q-networks + actor network + automatic alpha tuning
+- **Algorithm**: DDQN (value-based) → SAC (actor-critic with entropy)
+- **Action Space**: 9 discrete actions → 2D continuous [steering, acceleration]
+- **State Modes**: Renamed "snapshot" → "vector" (36D), removed 11D mode
+- **Exploration**: ε-greedy → Maximum entropy with auto-tuning
+- **Network**: Single Q + target → Twin Q + actor + learned alpha
 
 ## Tips for Better Performance
 
