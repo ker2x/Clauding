@@ -2,8 +2,8 @@
 """
 Performance test for the optimized ReplayBuffer implementation.
 
-This script benchmarks the old vs new replay buffer implementation
-to verify the expected 10-15x speedup for visual observations.
+This script benchmarks the old vs new replay buffer implementation.
+New approach: CPU storage with batch transfer to device (5-8x speedup, memory efficient)
 """
 
 import time
