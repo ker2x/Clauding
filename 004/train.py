@@ -29,8 +29,19 @@ import time
 import csv
 from datetime import datetime
 import numpy as np
-import matplotlib.pyplot as plt
 import torch
+
+# Try to import matplotlib with non-GUI backend
+MATPLOTLIB_AVAILABLE = False
+try:
+    import matplotlib
+    # Set non-GUI backend to avoid tkinter dependency
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except (ImportError, RuntimeError) as e:
+    print(f"Warning: matplotlib not available ({e})")
+    print("Training will continue without plotting functionality.")
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
@@ -278,6 +289,10 @@ def plot_training_progress(episode_rewards, metrics, save_path):
         metrics: Dictionary of lists containing training metrics
         save_path: Path to save plot
     """
+    if not MATPLOTLIB_AVAILABLE:
+        print("Skipping plot generation (matplotlib not available)")
+        return
+
     fig, axes = plt.subplots(4, 1, figsize=(10, 14))
 
     # Plot rewards
@@ -432,6 +447,7 @@ def train(args):
     print(f"Episodes: {args.episodes}")
     print(f"Learning starts: {args.learning_starts} steps")
     print(f"Device: {agent.device}")
+    print(f"Plotting: {'enabled' if MATPLOTLIB_AVAILABLE else 'disabled (matplotlib/tkinter not available)'}")
     print("=" * 60 + "\n")
 
     start_time = time.time()
