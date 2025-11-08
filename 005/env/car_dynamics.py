@@ -422,11 +422,10 @@ class Car:
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
 
-                # Prevent wheel from reversing direction from braking
-                if np.sign(new_omega) != np.sign(wheel.omega) and wheel.omega != 0:
-                    wheel.omega = 0.0
-                else:
-                    wheel.omega = new_omega
+                # CRITICAL: Car has NO REVERSE GEAR - wheels cannot spin backward
+                # Brakes can only slow wheels to zero, not reverse them
+                # Clamp wheel speed to non-negative (forward only)
+                wheel.omega = max(0.0, new_omega)
 
             # 2. Apply Engine (rear-wheel drive)
             elif is_rear and self._gas > 0:
@@ -441,7 +440,10 @@ class Car:
                 net_torque = engine_torque - tire_force_torque
 
                 accel = net_torque / self.INERTIA
-                wheel.omega += accel * dt
+                new_omega = wheel.omega + accel * dt
+
+                # Ensure wheels only spin forward (no reverse gear)
+                wheel.omega = max(0.0, new_omega)
 
             # 3. Free Rolling (coasting)
             else:
@@ -456,16 +458,9 @@ class Car:
 
                 wheel.omega += omega_change
 
-                # Prevent wheel from reversing direction during coasting
-                # (wheels don't spin backwards when coasting)
-                if abs(wheel.omega) < abs(target_omega):
-                    # Wheel is slower than ground - OK to accelerate
-                    pass
-                else:
-                    # Wheel is faster than ground - ensure we don't overshoot
-                    if np.sign(wheel.omega) != np.sign(target_omega) and abs(target_omega) > 0.1:
-                        # Prevent sign flip
-                        wheel.omega = target_omega * 0.1  # Small value, same sign as target
+                # Car has NO REVERSE GEAR - wheels cannot spin backward
+                # Even when coasting, clamp to non-negative rotation
+                wheel.omega = max(0.0, wheel.omega)
 
             # Sync to wheel_omega array for consistency
             self.wheel_omega[i] = wheel.omega
@@ -608,16 +603,16 @@ class Car:
             fy = -self.tire.lateral_force(slip_angle, normal_force, friction)
             fx = self.tire.longitudinal_force(slip_ratio, normal_force, friction)
 
-            # BACKWARD DRIVING PENALTY
-            # Real tires are NOT designed to work backward at speed
-            # When driving backward (negative wheel_vx), tire forces should be severely reduced
-            # This prevents AI from exploiting unrealistic backward driving physics
-            if wheel_vx < -0.5:  # Significant backward velocity
-                # Reduce tire forces to 30% when driving backward
-                # Allows slow backward motion (parking, recovery) but prevents high-speed backward exploits
-                backward_penalty = 0.3
-                fx *= backward_penalty
-                fy *= backward_penalty
+            # BACKWARD MOTION PENALTY (for passive rolling backward)
+            # Note: Active backward driving is impossible (wheels clamped to >= 0)
+            # This penalty handles passive backward rolling (e.g., down a hill)
+            # Real tires moving backward have reduced lateral grip (cornering is unstable)
+            # Longitudinal grip (braking) is less affected
+            if wheel_vx < -0.5:  # Significant backward rolling velocity
+                # Reduce lateral force significantly (unstable cornering when rolling backward)
+                # Keep longitudinal force mostly intact (can still brake to stop)
+                lateral_penalty = 0.3  # 70% reduction in lateral grip
+                fy *= lateral_penalty
 
             forces[i] = {
                 'fx': fx,

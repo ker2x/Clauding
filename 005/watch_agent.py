@@ -93,7 +93,22 @@ def format_action(action):
     return f"{steer_desc} + {pedal_desc}"
 
 
-def render_frame(frame, episode, step, reward, total_reward, action, alpha):
+def get_car_speed(env):
+    """Extract car speed from the environment and convert to km/h."""
+    speed_kmh = 0.0
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None and hasattr(car, 'vx') and hasattr(car, 'vy'):
+            # Calculate speed magnitude from velocity components (m/s)
+            speed_ms = np.sqrt(car.vx**2 + car.vy**2)
+            # Convert m/s to km/h
+            speed_kmh = speed_ms * 3.6
+
+    return speed_kmh
+
+
+def render_frame(frame, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
     """
     Render frame with overlay information.
 
@@ -105,6 +120,7 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha):
         total_reward: Cumulative episode reward
         action: Continuous action [steering, gas, brake]
         alpha: Entropy coefficient
+        speed_kmh: Car speed in km/h
 
     Returns:
         Frame with overlay text
@@ -131,7 +147,7 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha):
 
     cv2.putText(frame, f"Reward: {reward:+.2f}", (350, 40), font, font_scale, color, thickness)
     cv2.putText(frame, f"Total: {total_reward:+.2f}", (350, 60), font, font_scale, color, thickness)
-    cv2.putText(frame, f"Alpha: {alpha:.4f}", (350, 80), font, font_scale, color, thickness)
+    cv2.putText(frame, f"Speed: {speed_kmh:.1f} km/h", (350, 80), font, font_scale, (0, 255, 255), thickness)
 
     return frame
 
@@ -242,10 +258,13 @@ def watch_agent(args):
                     # Get RGB frame for display
                     rgb_frame = env.render()
 
+                    # Get car speed
+                    speed_kmh = get_car_speed(env)
+
                     # Add overlay
                     display_frame = render_frame(
                         rgb_frame, episode + 1, step, reward, total_reward,
-                        action, alpha_value
+                        action, alpha_value, speed_kmh
                     )
 
                     # Display

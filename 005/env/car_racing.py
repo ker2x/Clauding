@@ -232,14 +232,25 @@ class FrictionDetector:
                     if expected_next_checkpoint >= self.env.num_checkpoints:
                         expected_next_checkpoint = 0
 
-                    # Only reward if reaching the NEXT checkpoint in sequence (prevents backward farming)
-                    if current_checkpoint == expected_next_checkpoint:
+                    # Check that car is moving forward (not backward)
+                    # Get car's forward velocity (vx in body frame)
+                    car_forward_velocity = self.env.car.vx if hasattr(self.env.car, 'vx') else 0.0
+                    is_moving_forward = car_forward_velocity > 0.1  # Must be moving forward at > 0.1 m/s
+
+                    # Only reward if:
+                    # 1. Reaching the NEXT checkpoint in sequence (prevents backward farming)
+                    # 2. Moving forward (prevents backward driving exploits)
+                    if current_checkpoint == expected_next_checkpoint and is_moving_forward:
                         self.env.last_checkpoint_reached = current_checkpoint
                         self.env.reward += self.env.checkpoint_reward
                         if self.env.verbose:
                             progress_pct = (current_checkpoint + 1) / self.env.num_checkpoints * 100
                             print(f"  ✓ Checkpoint {current_checkpoint + 1}/{self.env.num_checkpoints} "
                                   f"reached! ({progress_pct:.0f}% complete, +{self.env.checkpoint_reward} reward)")
+                    elif not is_moving_forward and self.env.verbose:
+                        # Debug: car reached checkpoint while moving backward
+                        print(f"  ⚠ Checkpoint {current_checkpoint + 1} reached while moving BACKWARD "
+                              f"(vx={car_forward_velocity:.2f} m/s) - NO REWARD")
 
                     # Lap completion check
                     if (
