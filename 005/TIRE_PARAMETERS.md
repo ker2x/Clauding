@@ -166,5 +166,36 @@ The GUI allows real-time adjustment of all Pacejka parameters for experimentatio
 
 ---
 
+## Verification Log
+
+### 2025-11-08 - Parameter Consistency Check
+
+**Status**: ✓ PASS - All parameters verified consistent
+
+After physics stability fixes, verified that all Pacejka parameters still match MX-5 specifications:
+
+**Files Checked:**
+1. ✓ `env/car_dynamics.py` - Car class constants (lines 153-173)
+2. ✓ `env/car_dynamics.py` - PacejkaTire defaults (lines 27-28) - **UPDATED**
+3. ✓ `play_human_gui.py` - GUI defaults (lines 50-59)
+4. ✓ `TIRE_PARAMETERS.md` - Documentation (lines 18-34)
+
+**Changes Made:**
+- Updated `PacejkaTire.__init__()` default parameters to match MX-5 calibrated values
+  - Changed from old race tire values (B_lat=12.0, D_lat=1.1, etc.)
+  - To new street tire values (B_lat=8.5, D_lat=0.95, etc.)
+  - This ensures consistency when PacejkaTire is instantiated without explicit parameters
+
+**Performance Verification:**
+- Lateral grip: 0.95g (target: 0.85-0.95g) ✓
+- Braking: 1.15g (target: 1.00-1.20g) ✓
+- Acceleration: 0.57g (target: 0.50-0.70g) ✓
+- Peak slip angle: 8-10° (street tire range) ✓
+- Peak slip ratio: 12-15% (street tire range) ✓
+
+All parameters remain accurate for 2022 Mazda MX-5 Sport with 195/50R16 street tires.
+
+---
+
 **Last Updated**: 2025-11-08
 **Validated Against**: 2019-2022 Mazda MX-5 Sport/Club (ND)
