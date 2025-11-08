@@ -30,6 +30,7 @@ import csv
 from datetime import datetime
 import numpy as np
 import torch
+import multiprocessing
 
 # Try to import matplotlib with non-GUI backend
 MATPLOTLIB_AVAILABLE = False
@@ -119,6 +120,38 @@ def get_device(device_arg):
             return torch.device('cpu')
     else:
         return torch.device(device_arg)
+
+
+def configure_cpu_threading(device):
+    """
+    Configure PyTorch CPU threading for optimal performance.
+
+    Critical for CPU training performance! Without this, PyTorch defaults to using
+    only 1-2 threads, resulting in ~100-120% CPU usage instead of utilizing all cores.
+
+    Args:
+        device: torch device (cuda/mps/cpu)
+    """
+    if device.type == 'cpu':
+        # Get number of physical CPU cores (not hyperthreads)
+        num_cores = multiprocessing.cpu_count()
+
+        # For CPU training, use all available cores
+        # Set intra-op parallelism (within a single operation like matrix multiply)
+        torch.set_num_threads(num_cores)
+
+        # Set inter-op parallelism (across independent operations)
+        # Using num_cores // 2 to balance with intra-op threads
+        torch.set_num_interop_threads(max(1, num_cores // 2))
+
+        print(f"\nCPU Threading Configuration:")
+        print(f"  Physical cores detected: {num_cores}")
+        print(f"  PyTorch intra-op threads: {torch.get_num_threads()}")
+        print(f"  PyTorch inter-op threads: {torch.get_num_interop_threads()}")
+        print(f"  Expected CPU usage: up to {num_cores * 100}%")
+        print(f"  NOTE: Set OMP_NUM_THREADS={num_cores} environment variable for best performance\n")
+    else:
+        print(f"\nDevice is {device.type}, skipping CPU threading configuration\n")
 
 
 def setup_logging(log_dir, args, env, agent, config):
@@ -358,6 +391,9 @@ def train(args):
     # Determine device
     device = get_device(args.device)
     print(f"Using device: {device}")
+
+    # Configure CPU threading for optimal performance
+    configure_cpu_threading(device)
 
     # Create training environment
     print("Creating CarRacing-v3 environment...")
