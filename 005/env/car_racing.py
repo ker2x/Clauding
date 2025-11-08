@@ -223,9 +223,17 @@ class FrictionDetector:
                     tile.road_visited = True
                     self.env.tile_visited_count += 1
 
-                    # Checkpoint system: reward when reaching new checkpoint
+                    # Checkpoint system: reward when reaching NEXT checkpoint in sequence
+                    # This prevents backward driving exploits where AI wraps around to get rewards
                     current_checkpoint = tile.idx // self.env.checkpoint_size
-                    if current_checkpoint > self.env.last_checkpoint_reached:
+                    expected_next_checkpoint = self.env.last_checkpoint_reached + 1
+
+                    # Allow wrapping: after last checkpoint (14), next is 0 (lap completion)
+                    if expected_next_checkpoint >= self.env.num_checkpoints:
+                        expected_next_checkpoint = 0
+
+                    # Only reward if reaching the NEXT checkpoint in sequence (prevents backward farming)
+                    if current_checkpoint == expected_next_checkpoint:
                         self.env.last_checkpoint_reached = current_checkpoint
                         self.env.reward += self.env.checkpoint_reward
                         if self.env.verbose:
