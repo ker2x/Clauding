@@ -521,6 +521,7 @@ def play_human_gui(args):
     episode_rewards = []
     target_frame_time = 1.0 / args.fps
     screen = None
+    game_frame_width = None  # Store the game frame width for GUI offset calculation
 
     try:
         for episode in range(args.episodes):
@@ -563,9 +564,8 @@ def play_human_gui(args):
                             sys.exit()
 
                     # Handle GUI events (pass offset for GUI panel location)
-                    if not args.no_render and screen is not None:
-                        frame_w = screen.get_size()[0] - gui.width
-                        if gui.handle_event(event, offset_x=frame_w, offset_y=0):
+                    if not args.no_render and screen is not None and game_frame_width is not None:
+                        if gui.handle_event(event, offset_x=game_frame_width, offset_y=0):
                             # Parameters changed, update car
                             update_car_parameters(env, gui.params)
 
@@ -618,6 +618,7 @@ def play_human_gui(args):
                         total_height = max(game_area_height, right_panel_height)
                         screen = pygame.display.set_mode((total_width, total_height))
                         pygame.display.set_caption("CarRacing-v3 - Magic Formula GUI")
+                        game_frame_width = frame_w  # Store for GUI event offset calculation
 
                     # Clear screen
                     screen.fill((0, 0, 0))
