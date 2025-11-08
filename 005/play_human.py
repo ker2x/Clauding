@@ -76,7 +76,22 @@ def format_action(action):
     return f"{steer_desc} + {pedal_desc}"
 
 
-def render_info(screen, font, episode, step, reward, total_reward, action):
+def get_car_speed(env):
+    """Extract car speed from the environment and convert to km/h."""
+    speed_kmh = 0.0
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None and hasattr(car, 'vx') and hasattr(car, 'vy'):
+            # Calculate speed magnitude from velocity components (m/s)
+            speed_ms = np.sqrt(car.vx**2 + car.vy**2)
+            # Convert m/s to km/h
+            speed_kmh = speed_ms * 3.6
+
+    return speed_kmh
+
+
+def render_info(screen, font, episode, step, reward, total_reward, action, speed_kmh=0.0):
     """Render text overlay onto the pygame screen."""
     info_area_height = 130
     w, h = screen.get_size()
@@ -102,6 +117,7 @@ def render_info(screen, font, episode, step, reward, total_reward, action):
 
     draw_text_right(f"Reward: {reward:+.2f}", 30)
     draw_text_right(f"Total: {total_reward:+.2f}", 50)
+    draw_text_right(f"Speed: {speed_kmh:.1f} km/h", 70, (255, 255, 100))
 
 
 def play_human(args):
@@ -221,6 +237,9 @@ def play_human(args):
                 total_reward += reward
                 step += 1
 
+                # --- Get car speed ---
+                speed_kmh = get_car_speed(env)
+
                 # --- Render (if enabled) ---
                 if not args.no_render:
                     rgb_frame = env.render()
@@ -239,7 +258,7 @@ def play_human(args):
 
                     # Draw game frame and info
                     screen.blit(surf, (0, info_area_height))
-                    render_info(screen, font, episode + 1, step, reward, total_reward, action)
+                    render_info(screen, font, episode + 1, step, reward, total_reward, action, speed_kmh)
 
                     pygame.display.flip()
 

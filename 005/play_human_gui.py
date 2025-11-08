@@ -392,7 +392,7 @@ def format_action(action):
     return f"{steer_desc} + {pedal_desc}"
 
 
-def render_info(screen, font, episode, step, reward, total_reward, action, info_y_offset=0):
+def render_info(screen, font, episode, step, reward, total_reward, action, speed_kmh=0.0, info_y_offset=0):
     """Render text overlay onto the pygame screen."""
     info_area_height = 100
     w = screen.get_size()[0]
@@ -417,6 +417,7 @@ def render_info(screen, font, episode, step, reward, total_reward, action, info_
 
     draw_text_right(f"Reward: {reward:+.2f}", y_base + 10)
     draw_text_right(f"Total: {total_reward:+.2f}", y_base + 30)
+    draw_text_right(f"Speed: {speed_kmh:.1f} km/h", y_base + 50, (255, 255, 100))
 
 
 def update_car_parameters(env, params):
@@ -434,6 +435,21 @@ def update_car_parameters(env, params):
             car.tire.E_lon = params['E_lon']
             return True
     return False
+
+
+def get_car_speed(env):
+    """Extract car speed from the environment and convert to km/h."""
+    speed_kmh = 0.0
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None and hasattr(car, 'vx') and hasattr(car, 'vy'):
+            # Calculate speed magnitude from velocity components (m/s)
+            speed_ms = np.sqrt(car.vx**2 + car.vy**2)
+            # Convert m/s to km/h
+            speed_kmh = speed_ms * 3.6
+
+    return speed_kmh
 
 
 def get_wheel_slip_data(env):
@@ -581,9 +597,10 @@ def play_human_gui(args):
                 total_reward += reward
                 step += 1
 
-                # --- Get wheel slip data ---
+                # --- Get wheel slip data and car speed ---
                 slip_data = get_wheel_slip_data(env)
                 gui.update_slip_data(slip_data)
+                speed_kmh = get_car_speed(env)
 
                 # --- Render ---
                 if not args.no_render:
@@ -611,7 +628,7 @@ def play_human_gui(args):
                     screen.blit(surf, (0, info_area_height))
 
                     # Draw info overlay
-                    render_info(screen, font, episode + 1, step, reward, total_reward, action, info_y_offset=0)
+                    render_info(screen, font, episode + 1, step, reward, total_reward, action, speed_kmh, info_y_offset=0)
 
                     # Draw GUI panel (right of game, top)
                     gui_surface = pygame.Surface((gui.width, gui.height))
