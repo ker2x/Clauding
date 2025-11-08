@@ -172,6 +172,40 @@ class Car:
     PACEJKA_E_LAT = 0.97  # Lateral curvature - gradual falloff
     PACEJKA_E_LON = 0.97  # Longitudinal curvature - gradual falloff
 
+    # ============================================================
+    # EXPECTED PERFORMANCE WITH THESE TIRE PARAMETERS
+    # ============================================================
+    # Vehicle mass: 1062 kg
+    # Weight per wheel: 2604.6 N
+    #
+    # LATERAL (Cornering):
+    #   Peak force per wheel: 2474.4 N (D_lat=0.95 × 2604.6N)
+    #   Total lateral force: 9897.5 N (all 4 wheels)
+    #   Max lateral accel: 9.32 m/s² (0.95g)
+    #   Target: 0.85-0.95g ✓
+    #   Real MX-5: ~0.90g skidpad (Car and Driver)
+    #
+    # LONGITUDINAL - Acceleration (RWD, 2 wheels):
+    #   Peak force per wheel: 2995.3 N (D_lon=1.15 × 2604.6N)
+    #   Total driving force: 5990.6 N (rear wheels only)
+    #   Max acceleration: 5.64 m/s² (0.57g)
+    #   Target: 0.50-0.70g ✓
+    #   Real MX-5: Power-limited, not traction-limited
+    #
+    # LONGITUDINAL - Braking (all 4 wheels):
+    #   Total braking force: 11981.2 N (all 4 wheels)
+    #   Max deceleration: 11.28 m/s² (1.15g)
+    #   Target: 1.00-1.20g ✓
+    #   Real MX-5: 60-0 mph in ~115 ft @ 1.10g (Motor Trend)
+    #
+    # Peak slip characteristics:
+    #   Lateral: Peak at ~8-10° slip angle (street tire typical)
+    #   Longitudinal: Peak at ~12-15% slip ratio (street tire typical)
+    #
+    # These values match real MX-5 Sport with stock Bridgestone
+    # Potenza RE050A or similar performance street tires.
+    # ============================================================
+
     # Drivetrain (2.0L Skyactiv-G)
     ENGINE_POWER = 135000.0  # Power (Watts) (181 hp * 745.7)
 
