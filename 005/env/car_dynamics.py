@@ -24,8 +24,8 @@ class PacejkaTire:
     """
 
     def __init__(self,
-                 B_lat=12.0, C_lat=1.9, D_lat=1.1, E_lat=0.97,
-                 B_lon=10.0, C_lon=1.9, D_lon=1.2, E_lon=0.97):
+                 B_lat=8.5, C_lat=1.9, D_lat=0.95, E_lat=0.97,
+                 B_lon=8.0, C_lon=1.9, D_lon=1.15, E_lon=0.97):
         """
         Args:
             B_lat: Stiffness factor (Lateral)
