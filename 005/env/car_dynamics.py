@@ -283,6 +283,9 @@ class Car:
         # This prevents unrealistic wheel spin/lock by applying tire force torque
         self.prev_tire_forces = np.zeros(4)  # Longitudinal force per wheel [FL, FR, RL, RR]
 
+        # Store last computed tire forces for GUI/debugging (avoids recomputation)
+        self.last_tire_forces = None
+
         self.fuel_spent = 0.0
         self.drawlist = self.wheels + [self.hull]
         self.particles = []
@@ -322,6 +325,9 @@ class Car:
         # Store tire forces for next timestep's wheel dynamics
         for i in range(4):
             self.prev_tire_forces[i] = forces[i]['fx']
+
+        # Store forces for GUI/debugging (prevents double computation)
+        self.last_tire_forces = forces
 
         # Integrate state with forward Euler
         integration_results = self._integrate_state(forces, dt)

@@ -438,9 +438,9 @@ def get_wheel_slip_data(env):
     if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
         car = env.unwrapped.car
         if car is not None:
-            # Compute tire forces to get slip data
-            friction = car._get_surface_friction() if hasattr(car, '_get_surface_friction') else 1.0
-            forces = car._compute_tire_forces(friction) if hasattr(car, '_compute_tire_forces') else None
+            # Use stored tire forces from last step (avoids double computation)
+            # This prevents oscillating display values caused by feedback loop
+            forces = car.last_tire_forces if hasattr(car, 'last_tire_forces') else None
 
             if forces:
                 for i in range(4):
