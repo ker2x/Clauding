@@ -279,6 +279,10 @@ class Car:
         # ADDED: State for virtual suspension (smoothed load transfer)
         self.smoothed_lateral_accel = 0.0
 
+        # Store previous tire forces for wheel dynamics feedback
+        # This prevents unrealistic wheel spin/lock by applying tire force torque
+        self.prev_tire_forces = np.zeros(4)  # Longitudinal force per wheel [FL, FR, RL, RR]
+
         self.fuel_spent = 0.0
         self.drawlist = self.wheels + [self.hull]
         self.particles = []
@@ -308,12 +312,16 @@ class Car:
         angle_diff = np.clip(angle_diff, -self.STEER_RATE * dt, self.STEER_RATE * dt)
         self.steering_angle += angle_diff
 
-        # Update wheel angular velocities
+        # Update wheel angular velocities (uses previous tire forces)
         self._update_wheel_dynamics(dt)
 
         # Compute tire forces
         tire_friction = self._get_surface_friction()
         forces = self._compute_tire_forces(tire_friction)
+
+        # Store tire forces for next timestep's wheel dynamics
+        for i in range(4):
+            self.prev_tire_forces[i] = forces[i]['fx']
 
         # Integrate state with forward Euler
         integration_results = self._integrate_state(forces, dt)
@@ -326,7 +334,14 @@ class Car:
         return integration_results
 
     def _update_wheel_dynamics(self, dt):
-        """Update wheel angular velocities based on engine and brake."""
+        """
+        Update wheel angular velocities based on engine, brake, and tire forces.
+
+        Uses tire force feedback to prevent unrealistic wheel spin/lock:
+        I × α = T_applied - F_x × r
+
+        Where F_x is the longitudinal tire force from the previous timestep.
+        """
         for i in range(4):
             wheel = self.wheels[i]
             is_rear = (i >= 2)
@@ -338,42 +353,61 @@ class Car:
                 y_pos = self.WIDTH / 2 if i == 2 else -self.WIDTH / 2
             wheel_vx = self.vx - self.yaw_rate * y_pos
 
+            # Get tire force feedback from previous timestep
+            # This creates opposing torque that prevents unrealistic slip
+            tire_force_torque = self.prev_tire_forces[i] * self.TIRE_RADIUS
+
             # Simple logic: Apply brakes, engine, or free-roll
             # Note: Environment ensures gas and brake are mutually exclusive
             # (only one can be non-zero at a time)
 
             # 1. Apply Brakes
-            if self._brake >= 0.9:
-                # Hard brake: lock wheels
-                wheel.omega = 0.0
-            elif self._brake > 0:
-                # Progressive braking
-                brake_alpha = self.BRAKE_ANG_DECEL * self._brake
-                sign = -np.sign(wheel.omega) if wheel.omega != 0 else 0
+            if self._brake > 0:
+                # Brake torque (negative)
+                brake_torque = -self.BRAKE_ANG_DECEL * self.INERTIA * self._brake
 
-                delta_omega = brake_alpha * dt
+                # Net torque includes tire force feedback
+                # During braking, tire force opposes wheel (helps slow it down)
+                net_torque = brake_torque - tire_force_torque
 
-                # Clamp to avoid overshoot
-                if delta_omega > abs(wheel.omega):
+                accel = net_torque / self.INERTIA
+                new_omega = wheel.omega + accel * dt
+
+                # Prevent wheel from reversing direction from braking
+                if np.sign(new_omega) != np.sign(wheel.omega) and wheel.omega != 0:
                     wheel.omega = 0.0
                 else:
-                    wheel.omega += sign * delta_omega
+                    wheel.omega = new_omega
 
             # 2. Apply Engine (rear-wheel drive)
             elif is_rear and self._gas > 0:
-                # Torque curve: constant torque → constant power
+                # Engine torque (positive)
                 if abs(wheel.omega) < self.POWER_TRANSITION_OMEGA:
-                    torque = self.MAX_TORQUE_PER_WHEEL * self._gas
+                    engine_torque = self.MAX_TORQUE_PER_WHEEL * self._gas
                 else:
-                    torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
+                    engine_torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
 
-                accel = torque / self.INERTIA
+                # Net torque includes tire force feedback
+                # During acceleration, tire force opposes wheel spin
+                net_torque = engine_torque - tire_force_torque
+
+                accel = net_torque / self.INERTIA
                 wheel.omega += accel * dt
 
             # 3. Free Rolling (coasting)
             else:
-                # Match wheel speed to ground speed (zero slip)
-                wheel.omega = wheel_vx / self.TIRE_RADIUS
+                # Apply tire force feedback to gradually match ground speed
+                # This simulates rolling resistance and tire compliance
+                net_torque = -tire_force_torque
+                accel = net_torque / self.INERTIA
+
+                # Smoothly approach ground speed
+                target_omega = wheel_vx / self.TIRE_RADIUS
+                wheel.omega += accel * dt
+
+                # Also apply damping toward target speed (simulates tire compliance)
+                damping = 0.5  # Damping coefficient
+                wheel.omega += (target_omega - wheel.omega) * damping * dt
 
             # Sync to wheel_omega array for consistency
             self.wheel_omega[i] = wheel.omega
