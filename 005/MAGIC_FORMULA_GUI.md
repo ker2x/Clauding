@@ -174,36 +174,35 @@ pip install pygame matplotlib numpy
 └─────────────────────┴───────────────────────────┘
 ```
 
-### In-Game GUI Layout (Optimized for Standard Screens):
+### In-Game GUI Layout (Horizontal, Optimized for Wide Screens):
 ```
-┌─────────────────────────┬────────────────────┐
-│  Game Info & Controls   │  Param Sliders     │
-├─────────────────────────┤  B_lat ======○     │
-│                         │  C_lat ====○       │
-│  Car Racing View        │  D_lat ======○     │
-│  (Gameplay Window)      │  E_lat ======○     │
-│                         │  B_lon ======○     │
-│                         │  C_lon ====○       │
-│                         │  D_lon ======○     │
-│                         │  E_lon ====○       │
-│                         ├────────────────────┤
-│                         │ Wheel Slip         │
-│                         │ FL SA:|██| SR:██   │
-│                         │ FR SA:|██| SR:██   │
-│                         │ RL SA:|██| SR:██   │
-│                         │ RR SA:|██| SR:██   │
-├─────────────────────────┴────────────────────┤
-│  Tire Force Graphs (Lateral | Longitudinal)  │
-│  (Spans full width below game area)          │
-└───────────────────────────────────────────────┘
+┌────────────────────┬─────────────┬──────────────┐
+│  Game Info         │   Param     │  Lateral     │
+├────────────────────┤  Sliders    │  Force Graph │
+│                    │  B_lat ===○ │   ╱╲         │
+│  Car Racing View   │  C_lat ==○  │  ╱  ╲        │
+│  (Gameplay)        │  D_lat ===○ ├──────────────┤
+│                    │  E_lat ===○ │ Longitudinal │
+│                    │  B_lon ===○ │ Force Graph  │
+│                    │  C_lon ==○  │   ╱╲         │
+│                    │  D_lon ===○ │  ╱  ╲        │
+│                    │  E_lon ===○ │              │
+│                    ├─────────────┤              │
+│                    │ Wheel Slip  │              │
+│                    │ FL SA:|█|SR │              │
+│                    │ FR SA:|█|SR │              │
+│                    │ RL SA:|█|SR │              │
+│                    │ RR SA:|█|SR │              │
+└────────────────────┴─────────────┴──────────────┘
 ```
 
-**Compact Design:**
-- Game view and controls on the left
-- Parameter sliders on the right (compact spacing)
+**Horizontal Compact Design:**
+- Game view on the left
+- Parameter sliders in middle column (compact spacing)
 - Wheel slip display below sliders
-- Tire force graphs at bottom, spanning full width
-- Total height optimized for 1080p screens (~850px)
+- Tire force graphs on the right (stacked vertically)
+- Total width ~1400px, height ~600px
+- Optimized for wide 1080p/1440p screens
 
 **Wheel Slip Display:**
 - **SA (Slip Angle)**: Shows the angle between tire direction and travel direction (-25° to +25°)

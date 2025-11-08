@@ -98,9 +98,9 @@ class PacejkaGUI:
             }
             self.sliders.append(slider)
 
-        # Create matplotlib figure for tire curves
-        self.fig, (self.ax_lat, self.ax_lon) = plt.subplots(1, 2, figsize=(10, 2.5))
-        self.fig.tight_layout(pad=1.5)
+        # Create matplotlib figure for tire curves (stacked vertically)
+        self.fig, (self.ax_lat, self.ax_lon) = plt.subplots(2, 1, figsize=(4.5, 6))
+        self.fig.tight_layout(pad=1.2)
         self.canvas = FigureCanvasAgg(self.fig)
 
         # Wheel slip data (updated each frame)
@@ -583,12 +583,12 @@ def play_human_gui(args):
 
                     # Create screen on first frame
                     if screen is None:
-                        # Layout: Game + GUI on top row, Graphs below
-                        total_width = frame_w + gui.width
+                        # Layout: Game | Sliders+Slip | Graphs (all in one row)
+                        graph_width = 450
+                        total_width = frame_w + gui.width + graph_width
                         game_area_height = frame_h + info_area_height
                         right_panel_height = gui.height + 160  # sliders + slip panel
-                        graph_height = 250
-                        total_height = max(game_area_height, right_panel_height) + graph_height
+                        total_height = max(game_area_height, right_panel_height)
                         screen = pygame.display.set_mode((total_width, total_height))
                         pygame.display.set_caption("CarRacing-v3 - Magic Formula GUI")
 
@@ -603,20 +603,19 @@ def play_human_gui(args):
                     # Draw info overlay
                     render_info(screen, font, episode + 1, step, reward, total_reward, action, info_y_offset=0)
 
-                    # Draw GUI panel (right side, top)
+                    # Draw GUI panel (right of game, top)
                     gui_surface = pygame.Surface((gui.width, gui.height))
                     gui.draw(gui_surface)
                     screen.blit(gui_surface, (frame_w, 0))
 
-                    # Draw slip panel (right side, below parameter sliders)
+                    # Draw slip panel (right of game, below parameter sliders)
                     slip_surface = pygame.Surface((gui.width, 160))
                     gui.draw_slip_panel(slip_surface, y_offset=0)
                     screen.blit(slip_surface, (frame_w, gui.height))
 
-                    # Draw graphs (below game view, spanning full width)
+                    # Draw graphs (right of sliders+slip panel, vertically stacked)
                     graph_surface = gui.get_graph_surface()
-                    graph_y = max(frame_h + info_area_height, gui.height + 160)
-                    screen.blit(graph_surface, (0, graph_y))
+                    screen.blit(graph_surface, (frame_w + gui.width, 0))
 
                     pygame.display.flip()
 
