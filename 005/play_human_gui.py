@@ -106,10 +106,10 @@ class PacejkaGUI:
 
         # Wheel slip data (updated each frame)
         self.wheel_slip_data = {
-            0: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # FL
-            1: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # FR
-            2: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # RL
-            3: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # RR
+            0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FL
+            1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FR
+            2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RL
+            3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RR
         }
 
         self.update_graphs()
@@ -275,14 +275,14 @@ class PacejkaGUI:
     def draw_slip_panel(self, surface, y_offset=0):
         """Draw real-time wheel slip visualization."""
         panel_width = self.width
-        panel_height = 160
+        panel_height = 210  # Increased to accommodate normal force display
 
         # Background
         pygame.draw.rect(surface, (25, 25, 30), (0, y_offset, panel_width, panel_height))
         pygame.draw.rect(surface, (60, 60, 70), (0, y_offset, panel_width, panel_height), 2)
 
         # Title
-        title = self.font.render("Wheel Slip", True, (255, 200, 100))
+        title = self.font.render("Wheel Slip & Load", True, (255, 200, 100))
         surface.blit(title, (10, y_offset + 5))
 
         # Wheel labels and positions
@@ -290,7 +290,7 @@ class PacejkaGUI:
         wheel_colors = [(100, 150, 255), (100, 255, 150), (255, 150, 100), (255, 100, 150)]
 
         y_start = y_offset + 28
-        row_height = 33
+        row_height = 45  # Increased to fit normal force display
 
         for i, (name, color) in enumerate(zip(wheel_names, wheel_colors)):
             y = y_start + i * row_height
@@ -302,6 +302,7 @@ class PacejkaGUI:
             # Get slip data
             slip_angle = self.wheel_slip_data[i]['slip_angle'] * 180 / np.pi  # Convert to degrees
             slip_ratio = self.wheel_slip_data[i]['slip_ratio']
+            normal_force = self.wheel_slip_data[i]['normal_force']
 
             # Slip angle bar (range: -25 to +25 degrees)
             angle_text = self.font_small.render(f"SA:{slip_angle:+.1f}°", True, (200, 200, 200))
@@ -354,6 +355,43 @@ class PacejkaGUI:
             # Center line
             pygame.draw.line(surface, (100, 100, 100), (ratio_center_x, y), (ratio_center_x, y + bar_height), 1)
             pygame.draw.rect(surface, (80, 80, 85), (ratio_bar_x, y, ratio_bar_width, bar_height), 1)
+
+            # Normal force display (on second line)
+            y_load = y + 15
+            load_text = self.font_small.render(f"Load: {normal_force:.0f}N", True, (255, 255, 150))
+            surface.blit(load_text, (40, y_load))
+
+            # Normal force bar (relative to nominal load)
+            nominal_load = 2600.0  # N (approx weight per wheel for 1060kg car)
+            load_bar_x = 115
+            load_bar_width = 220
+            load_bar_height = 8
+
+            # Draw bar background
+            pygame.draw.rect(surface, (40, 40, 45), (load_bar_x, y_load, load_bar_width, load_bar_height))
+
+            # Draw bar fill (proportional to load, max scale at 1.5x nominal)
+            max_display_load = nominal_load * 1.5
+            fill_ratio = min(normal_force / max_display_load, 1.0)
+            fill_width = int(fill_ratio * load_bar_width)
+
+            # Color gradient: green at nominal, yellow above, red near max
+            if normal_force < nominal_load * 0.8:
+                bar_color = (100, 100, 255)  # Blue (underloaded)
+            elif normal_force < nominal_load * 1.1:
+                bar_color = (100, 255, 100)  # Green (nominal)
+            elif normal_force < nominal_load * 1.3:
+                bar_color = (255, 255, 100)  # Yellow (overloaded)
+            else:
+                bar_color = (255, 100, 100)  # Red (heavily overloaded)
+
+            pygame.draw.rect(surface, bar_color, (load_bar_x, y_load, fill_width, load_bar_height))
+
+            # Nominal load marker (vertical line at nominal position)
+            nominal_x = load_bar_x + int((nominal_load / max_display_load) * load_bar_width)
+            pygame.draw.line(surface, (150, 150, 150), (nominal_x, y_load), (nominal_x, y_load + load_bar_height), 2)
+
+            pygame.draw.rect(surface, (80, 80, 85), (load_bar_x, y_load, load_bar_width, load_bar_height), 1)
 
 
 def format_action(action):
@@ -455,10 +493,10 @@ def get_car_speed(env):
 def get_wheel_slip_data(env):
     """Extract wheel slip data from the environment."""
     slip_data = {
-        0: {'slip_angle': 0.0, 'slip_ratio': 0.0},
-        1: {'slip_angle': 0.0, 'slip_ratio': 0.0},
-        2: {'slip_angle': 0.0, 'slip_ratio': 0.0},
-        3: {'slip_angle': 0.0, 'slip_ratio': 0.0},
+        0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
     }
 
     if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
@@ -473,6 +511,7 @@ def get_wheel_slip_data(env):
                     if i in forces:
                         slip_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
                         slip_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
+                        slip_data[i]['normal_force'] = forces[i].get('normal_force', 0.0)
 
     return slip_data
 
@@ -614,7 +653,7 @@ def play_human_gui(args):
                         graph_width = 450
                         total_width = frame_w + gui.width + graph_width
                         game_area_height = frame_h + info_area_height
-                        right_panel_height = gui.height + 160  # sliders + slip panel
+                        right_panel_height = gui.height + 210  # sliders + slip panel (210 for wheel load display)
                         total_height = max(game_area_height, right_panel_height)
                         screen = pygame.display.set_mode((total_width, total_height))
                         pygame.display.set_caption("CarRacing-v3 - Magic Formula GUI")
@@ -637,7 +676,7 @@ def play_human_gui(args):
                     screen.blit(gui_surface, (frame_w, 0))
 
                     # Draw slip panel (right of game, below parameter sliders)
-                    slip_surface = pygame.Surface((gui.width, 160))
+                    slip_surface = pygame.Surface((gui.width, 210))
                     gui.draw_slip_panel(slip_surface, y_offset=0)
                     screen.blit(slip_surface, (frame_w, gui.height))
 
