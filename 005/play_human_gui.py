@@ -163,17 +163,17 @@ class PacejkaGUI:
         return False
 
     def update_graphs(self):
-        """Update tire force curve graphs."""
+        """Update tire force curve graphs with consistent Y-axis scaling."""
         # Clear axes
         self.ax_lat.clear()
         self.ax_lon.clear()
 
-        # Lateral force curve (vs slip angle in degrees)
-        slip_angles = np.linspace(-20, 20, 200) * np.pi / 180  # -20 to 20 degrees
-        lateral_forces = []
-
         normal_force = 2600  # N (approx weight per wheel)
         max_friction = 1.0
+
+        # Compute LATERAL force curve (vs slip angle in degrees)
+        slip_angles = np.linspace(-20, 20, 200) * np.pi / 180  # -20 to 20 degrees
+        lateral_forces = []
 
         for sa in slip_angles:
             sa_clip = np.clip(sa, -np.pi / 2, np.pi / 2)
@@ -183,15 +183,7 @@ class PacejkaGUI:
                      arg - self.params['E_lat'] * (arg - np.arctan(arg)))))
             lateral_forces.append(F)
 
-        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2)
-        self.ax_lat.set_xlabel('Slip Angle (degrees)')
-        self.ax_lat.set_ylabel('Lateral Force (N)')
-        self.ax_lat.set_title('Lateral Grip Curve')
-        self.ax_lat.grid(True, alpha=0.3)
-        self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
-
-        # Longitudinal force curve (vs slip ratio)
+        # Compute LONGITUDINAL force curve (vs slip ratio)
         slip_ratios = np.linspace(-1, 1, 200)
         longitudinal_forces = []
 
@@ -203,13 +195,30 @@ class PacejkaGUI:
                      arg - self.params['E_lon'] * (arg - np.arctan(arg)))))
             longitudinal_forces.append(F)
 
+        # Calculate common Y-axis scale (symmetric around 0)
+        max_force = max(max(abs(f) for f in lateral_forces),
+                       max(abs(f) for f in longitudinal_forces))
+        y_limit = max_force * 1.1  # Add 10% margin
+
+        # Plot LATERAL curve
+        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2)
+        self.ax_lat.set_xlabel('Slip Angle (degrees)')
+        self.ax_lat.set_ylabel('Force (N)')
+        self.ax_lat.set_title('Lateral Grip Curve')
+        self.ax_lat.grid(True, alpha=0.3)
+        self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lat.set_ylim(-y_limit, y_limit)  # Same scale as longitudinal
+
+        # Plot LONGITUDINAL curve
         self.ax_lon.plot(slip_ratios, longitudinal_forces, 'r-', linewidth=2)
         self.ax_lon.set_xlabel('Slip Ratio')
-        self.ax_lon.set_ylabel('Longitudinal Force (N)')
+        self.ax_lon.set_ylabel('Force (N)')
         self.ax_lon.set_title('Longitudinal Grip Curve')
         self.ax_lon.grid(True, alpha=0.3)
         self.ax_lon.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
         self.ax_lon.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lon.set_ylim(-y_limit, y_limit)  # Same scale as lateral
 
         self.fig.tight_layout()
         self.canvas.draw()
