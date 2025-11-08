@@ -46,15 +46,16 @@ class PacejkaGUI:
         self.font_small = pygame.font.Font(None, 14)
 
         # Default Pacejka parameters (from car_dynamics.py)
+        # Tuned for MX-5 on street tires (195/50R16)
         self.params = {
-            'B_lat': 10.0,
-            'C_lat': 1.9,
-            'D_lat': 1.1,
-            'E_lat': 0.95,
-            'B_lon': 9.0,
-            'C_lon': 1.9,
-            'D_lon': 1.4,
-            'E_lon': 0.95,
+            'B_lat': 8.5,   # Lateral stiffness
+            'C_lat': 1.9,   # Lateral shape
+            'D_lat': 0.95,  # Lateral peak (~0.90g cornering)
+            'E_lat': 0.97,  # Lateral curvature
+            'B_lon': 8.0,   # Longitudinal stiffness
+            'C_lon': 1.9,   # Longitudinal shape
+            'D_lon': 1.15,  # Longitudinal peak (~1.10g braking, ~0.60g accel)
+            'E_lon': 0.97,  # Longitudinal curvature
         }
 
         # Parameter ranges for sliders
@@ -163,17 +164,17 @@ class PacejkaGUI:
         return False
 
     def update_graphs(self):
-        """Update tire force curve graphs."""
+        """Update tire force curve graphs with consistent Y-axis scaling."""
         # Clear axes
         self.ax_lat.clear()
         self.ax_lon.clear()
 
-        # Lateral force curve (vs slip angle in degrees)
-        slip_angles = np.linspace(-20, 20, 200) * np.pi / 180  # -20 to 20 degrees
-        lateral_forces = []
-
         normal_force = 2600  # N (approx weight per wheel)
         max_friction = 1.0
+
+        # Compute LATERAL force curve (vs slip angle in degrees)
+        slip_angles = np.linspace(-20, 20, 200) * np.pi / 180  # -20 to 20 degrees
+        lateral_forces = []
 
         for sa in slip_angles:
             sa_clip = np.clip(sa, -np.pi / 2, np.pi / 2)
@@ -183,15 +184,7 @@ class PacejkaGUI:
                      arg - self.params['E_lat'] * (arg - np.arctan(arg)))))
             lateral_forces.append(F)
 
-        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2)
-        self.ax_lat.set_xlabel('Slip Angle (degrees)')
-        self.ax_lat.set_ylabel('Lateral Force (N)')
-        self.ax_lat.set_title('Lateral Grip Curve')
-        self.ax_lat.grid(True, alpha=0.3)
-        self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
-
-        # Longitudinal force curve (vs slip ratio)
+        # Compute LONGITUDINAL force curve (vs slip ratio)
         slip_ratios = np.linspace(-1, 1, 200)
         longitudinal_forces = []
 
@@ -203,13 +196,30 @@ class PacejkaGUI:
                      arg - self.params['E_lon'] * (arg - np.arctan(arg)))))
             longitudinal_forces.append(F)
 
+        # Calculate common Y-axis scale (symmetric around 0)
+        max_force = max(max(abs(f) for f in lateral_forces),
+                       max(abs(f) for f in longitudinal_forces))
+        y_limit = max_force * 1.1  # Add 10% margin
+
+        # Plot LATERAL curve
+        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2)
+        self.ax_lat.set_xlabel('Slip Angle (degrees)')
+        self.ax_lat.set_ylabel('Force (N)')
+        self.ax_lat.set_title('Lateral Grip Curve')
+        self.ax_lat.grid(True, alpha=0.3)
+        self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lat.set_ylim(-y_limit, y_limit)  # Same scale as longitudinal
+
+        # Plot LONGITUDINAL curve
         self.ax_lon.plot(slip_ratios, longitudinal_forces, 'r-', linewidth=2)
         self.ax_lon.set_xlabel('Slip Ratio')
-        self.ax_lon.set_ylabel('Longitudinal Force (N)')
+        self.ax_lon.set_ylabel('Force (N)')
         self.ax_lon.set_title('Longitudinal Grip Curve')
         self.ax_lon.grid(True, alpha=0.3)
         self.ax_lon.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
         self.ax_lon.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
+        self.ax_lon.set_ylim(-y_limit, y_limit)  # Same scale as lateral
 
         self.fig.tight_layout()
         self.canvas.draw()
@@ -438,9 +448,9 @@ def get_wheel_slip_data(env):
     if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
         car = env.unwrapped.car
         if car is not None:
-            # Compute tire forces to get slip data
-            friction = car._get_surface_friction() if hasattr(car, '_get_surface_friction') else 1.0
-            forces = car._compute_tire_forces(friction) if hasattr(car, '_compute_tire_forces') else None
+            # Use stored tire forces from last step (avoids double computation)
+            # This prevents oscillating display values caused by feedback loop
+            forces = car.last_tire_forces if hasattr(car, 'last_tire_forces') else None
 
             if forces:
                 for i in range(4):
