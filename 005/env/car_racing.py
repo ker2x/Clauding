@@ -400,7 +400,10 @@ class CarRacing(gym.Env, EzPickle):
         self.new_lap = False
 
         # Vector mode: waypoint lookahead count
-        self.vector_lookahead = 10
+        # Increased from 10 to 20 to allow braking at high speed
+        # At 108 km/h (30 m/s), 20 waypoints = 70m = 2.33 seconds lookahead
+        # This allows enough time to brake for corners (braking from 108→36 km/h needs ~41m)
+        self.vector_lookahead = 20
 
         # Checkpoint system for sparse rewards (configured at top of file)
         self.num_checkpoints = NUM_CHECKPOINTS
@@ -419,12 +422,12 @@ class CarRacing(gym.Env, EzPickle):
 
         # Observation space depends on state_mode
         if self.state_mode == "vector":
-            # Vector state: car state (11) + track segment info (5) + lookahead waypoints (20)
+            # Vector state: car state (11) + track segment info (5) + lookahead waypoints (40)
             # + speed (1) + longitudinal accel (1) + lateral accel (1)
             # + slip angles (4) + slip ratios (4)
-            # = 47 values total
+            # = 67 values total (increased from 47 to support 20 waypoint lookahead)
             self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(47,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(67,), dtype=np.float32
             )
         else:
             # Visual state: 96x96 RGB image
@@ -1026,14 +1029,17 @@ class CarRacing(gym.Env, EzPickle):
         """
         Create vector state representation (fast, informative).
 
-        Returns 47-dimensional state vector:
+        Returns 67-dimensional state vector (increased from 47 for better lookahead):
         - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
         - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along_segment, segment_length
-        - Lookahead waypoints (20): 10 waypoints × (x, y) in car-relative coordinates
+        - Lookahead waypoints (40): 20 waypoints × (x, y) in car-relative coordinates (increased from 10)
         - Speed (1): magnitude of velocity
         - Accelerations (2): longitudinal (body frame), lateral (body frame)
         - Slip angles (4): for each wheel [FL, FR, RL, RR]
         - Slip ratios (4): for each wheel [FL, FR, RL, RR]
+
+        Note: Lookahead increased from 10 to 20 waypoints to allow high-speed braking.
+        At 108 km/h, 20 waypoints = 70m = 2.33s lookahead (enough to brake for corners).
         """
         assert self.car is not None
 
@@ -1172,7 +1178,7 @@ class CarRacing(gym.Env, EzPickle):
             # Normalize by a reasonable distance scale
             waypoints.extend([rel_x / PLAYFIELD, rel_y / PLAYFIELD])
 
-        # Combine all features (47 total)
+        # Combine all features (67 total, increased from 47)
         state = np.array([
             # Basic car state (11)
             car_x, car_y, vx, vy, angle, angular_vel,
@@ -1180,7 +1186,7 @@ class CarRacing(gym.Env, EzPickle):
             track_progress,
             # Track segment info (5)
             dist_to_center_norm, angle_diff, curvature, dist_along / TRACK_DETAIL_STEP, seg_len / TRACK_DETAIL_STEP,
-            # Waypoints (20)
+            # Waypoints (40 - increased from 20 for better lookahead)
             *waypoints,
             # Speed (1)
             speed,
