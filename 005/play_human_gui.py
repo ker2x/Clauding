@@ -46,15 +46,16 @@ class PacejkaGUI:
         self.font_small = pygame.font.Font(None, 14)
 
         # Default Pacejka parameters (from car_dynamics.py)
+        # Tuned for MX-5 on street tires (195/50R16)
         self.params = {
-            'B_lat': 10.0,
-            'C_lat': 1.9,
-            'D_lat': 1.1,
-            'E_lat': 0.95,
-            'B_lon': 9.0,
-            'C_lon': 1.9,
-            'D_lon': 1.4,
-            'E_lon': 0.95,
+            'B_lat': 8.5,   # Lateral stiffness
+            'C_lat': 1.9,   # Lateral shape
+            'D_lat': 0.95,  # Lateral peak (~0.90g cornering)
+            'E_lat': 0.97,  # Lateral curvature
+            'B_lon': 8.0,   # Longitudinal stiffness
+            'C_lon': 1.9,   # Longitudinal shape
+            'D_lon': 1.15,  # Longitudinal peak (~1.10g braking, ~0.60g accel)
+            'E_lon': 0.97,  # Longitudinal curvature
         }
 
         # Parameter ranges for sliders
