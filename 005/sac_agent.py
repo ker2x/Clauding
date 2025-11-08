@@ -29,6 +29,9 @@ class VectorActor(nn.Module):
     """
     Actor (policy) network for vector state mode (36D input).
     Outputs mean and log_std for a Gaussian policy.
+
+    Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
+    and improve gradient flow compared to standard ReLU.
     """
     def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(VectorActor, self).__init__()
@@ -40,9 +43,9 @@ class VectorActor(nn.Module):
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, state):
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
+        x = F.leaky_relu(self.fc1(state), negative_slope=0.01)
+        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
 
         mean = self.mean(x)
         log_std = self.log_std(x)
@@ -55,6 +58,9 @@ class VectorCritic(nn.Module):
     """
     Critic (Q-function) network for vector state mode (36D input).
     Takes state and action as input, outputs Q-value.
+
+    Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
+    and improve gradient flow compared to standard ReLU.
     """
     def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(VectorCritic, self).__init__()
@@ -65,9 +71,9 @@ class VectorCritic(nn.Module):
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
+        x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
         q_value = self.fc4(x)
         return q_value
 
