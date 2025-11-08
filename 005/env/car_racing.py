@@ -401,9 +401,11 @@ class CarRacing(gym.Env, EzPickle):
         # Observation space depends on state_mode
         if self.state_mode == "vector":
             # Vector state: car state (11) + track segment info (5) + lookahead waypoints (20)
-            # 36 values total
+            # + speed (1) + longitudinal accel (1) + lateral accel (1)
+            # + slip angles (4) + slip ratios (4)
+            # = 47 values total
             self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(36,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(47,), dtype=np.float32
             )
         else:
             # Visual state: 96x96 RGB image
@@ -668,6 +670,10 @@ class CarRacing(gym.Env, EzPickle):
         # Stationary car tracking
         self.frames_since_progress = 0
         self.total_steps = 0
+
+        # Previous velocity for acceleration computation
+        self.prev_vx = 0.0
+        self.prev_vy = 0.0
 
         # Checkpoint tracking (initialized after track creation)
         self.last_checkpoint_reached = -1
@@ -1001,10 +1007,14 @@ class CarRacing(gym.Env, EzPickle):
         """
         Create vector state representation (fast, informative).
 
-        Returns 36-dimensional state vector:
+        Returns 47-dimensional state vector:
         - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
         - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along_segment, segment_length
         - Lookahead waypoints (20): 10 waypoints × (x, y) in car-relative coordinates
+        - Speed (1): magnitude of velocity
+        - Accelerations (2): longitudinal (body frame), lateral (body frame)
+        - Slip angles (4): for each wheel [FL, FR, RL, RR]
+        - Slip ratios (4): for each wheel [FL, FR, RL, RR]
         """
         assert self.car is not None
 
@@ -1017,6 +1027,19 @@ class CarRacing(gym.Env, EzPickle):
         angular_vel = self.car.hull.angularVelocity
         wheel_contacts = [1.0 if len(wheel.tiles) > 0 else 0.0 for wheel in self.car.wheels]
         track_progress = self.tile_visited_count / len(self.track) if len(self.track) > 0 else 0.0
+
+        # Calculate speed (magnitude of velocity)
+        speed = np.sqrt(vx ** 2 + vy ** 2)
+
+        # Calculate accelerations in body frame (change in velocity)
+        # Note: For the first step, prev_vx/vy are 0, so acceleration will be 0
+        dt = 1.0 / FPS
+        ax = (self.car.vx - self.prev_vx) / dt if dt > 0 else 0.0  # Longitudinal
+        ay = (self.car.vy - self.prev_vy) / dt if dt > 0 else 0.0  # Lateral
+
+        # Update previous velocities for next step
+        self.prev_vx = self.car.vx
+        self.prev_vy = self.car.vy
 
         # 2. Get track segment info
         car_world_pos = self.car.hull.position
@@ -1054,7 +1077,47 @@ class CarRacing(gym.Env, EzPickle):
         # Normalize distance to center by track width
         dist_to_center_norm = dist_to_center / TRACK_WIDTH
 
-        # 3. Get next N waypoints in car-relative coordinates
+        # 3. Calculate slip angles and slip ratios for each wheel
+        slip_angles = []
+        slip_ratios = []
+
+        for i in range(4):
+            wheel = self.car.wheels[i]
+
+            # Wheel position relative to CG
+            if i < 2:  # Front wheels
+                dist_cg = self.car.LF
+                y_pos = self.car.WIDTH / 2 if i == 0 else -self.car.WIDTH / 2
+                steer_ang = self.car.steering_angle
+            else:  # Rear wheels
+                dist_cg = -self.car.LR
+                y_pos = self.car.WIDTH / 2 if i == 2 else -self.car.WIDTH / 2
+                steer_ang = 0.0
+
+            # Velocity at wheel contact point (body frame)
+            wheel_vx = self.car.vx - self.car.yaw_rate * y_pos
+            wheel_vy = self.car.vy + self.car.yaw_rate * dist_cg
+
+            # Slip angle (angle between tire heading and velocity)
+            v_mag = np.sqrt(wheel_vx ** 2 + wheel_vy ** 2)
+            if v_mag > 0.5:
+                slip_angle = np.arctan2(wheel_vy, wheel_vx + 1e-6) - steer_ang
+            else:
+                slip_angle = 0.0
+
+            # Slip ratio (wheel vs ground)
+            wheel_linear_vel = wheel.omega * self.car.TIRE_RADIUS
+            denom = max(abs(wheel_vx), abs(wheel_linear_vel))
+
+            if denom < 0.1:  # If both speeds are near zero, there is no slip
+                slip_ratio = 0.0
+            else:
+                slip_ratio = (wheel_linear_vel - wheel_vx) / denom
+
+            slip_angles.append(slip_angle)
+            slip_ratios.append(slip_ratio)
+
+        # 4. Get next N waypoints in car-relative coordinates
         waypoints = []
         car_angle_rad = self.car.hull.angle
         cos_a = np.cos(car_angle_rad)
@@ -1075,13 +1138,24 @@ class CarRacing(gym.Env, EzPickle):
             # Normalize by a reasonable distance scale
             waypoints.extend([rel_x / PLAYFIELD, rel_y / PLAYFIELD])
 
-        # Combine all features
+        # Combine all features (47 total)
         state = np.array([
+            # Basic car state (11)
             car_x, car_y, vx, vy, angle, angular_vel,
             wheel_contacts[0], wheel_contacts[1], wheel_contacts[2], wheel_contacts[3],
             track_progress,
+            # Track segment info (5)
             dist_to_center_norm, angle_diff, curvature, dist_along / TRACK_DETAIL_STEP, seg_len / TRACK_DETAIL_STEP,
-            *waypoints
+            # Waypoints (20)
+            *waypoints,
+            # Speed (1)
+            speed,
+            # Accelerations (2)
+            ax, ay,
+            # Slip angles (4)
+            slip_angles[0], slip_angles[1], slip_angles[2], slip_angles[3],
+            # Slip ratios (4)
+            slip_ratios[0], slip_ratios[1], slip_ratios[2], slip_ratios[3]
         ], dtype=np.float32)
 
         return state

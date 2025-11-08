@@ -36,9 +36,21 @@ MATPLOTLIB_AVAILABLE = False
 try:
     import matplotlib
     # Set non-GUI backend to avoid tkinter dependency
-    matplotlib.use('Agg')
+    # This must be done BEFORE importing pyplot
+    try:
+        matplotlib.use('Agg', force=False)  # Don't force if already set
+    except:
+        # If backend is already set, check if it's suitable
+        current_backend = matplotlib.get_backend()
+        print(f"Matplotlib backend already set to: {current_backend}")
+        if current_backend.lower() in ['agg', 'pdf', 'ps', 'svg']:
+            print("  (non-GUI backend detected - OK for headless training)")
+        else:
+            print("  (GUI backend detected - this may cause issues in headless environments)")
+
     import matplotlib.pyplot as plt
     MATPLOTLIB_AVAILABLE = True
+    print(f"Matplotlib loaded successfully (backend: {matplotlib.get_backend()})")
 except (ImportError, RuntimeError) as e:
     print(f"Warning: matplotlib not available ({e})")
     print("Training will continue without plotting functionality.")
@@ -293,52 +305,74 @@ def plot_training_progress(episode_rewards, metrics, save_path):
         print("Skipping plot generation (matplotlib not available)")
         return
 
-    fig, axes = plt.subplots(4, 1, figsize=(10, 14))
+    try:
+        fig, axes = plt.subplots(4, 1, figsize=(10, 14))
 
-    # Plot rewards
-    axes[0].plot(episode_rewards, alpha=0.6, label='Episode Reward')
-    # Moving average (last 100 episodes)
-    if len(episode_rewards) >= 100:
-        moving_avg = np.convolve(episode_rewards, np.ones(100)/100, mode='valid')
-        axes[0].plot(range(99, len(episode_rewards)), moving_avg, 'r-', linewidth=2, label='Moving Avg (100 ep)')
-    axes[0].set_xlabel('Episode')
-    axes[0].set_ylabel('Reward')
-    axes[0].set_title('Training Rewards')
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
+        # Plot rewards
+        axes[0].plot(episode_rewards, alpha=0.6, label='Episode Reward')
+        # Moving average (last 100 episodes)
+        if len(episode_rewards) >= 100:
+            moving_avg = np.convolve(episode_rewards, np.ones(100)/100, mode='valid')
+            axes[0].plot(range(99, len(episode_rewards)), moving_avg, 'r-', linewidth=2, label='Moving Avg (100 ep)')
+        axes[0].set_xlabel('Episode')
+        axes[0].set_ylabel('Reward')
+        axes[0].set_title('Training Rewards')
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
 
-    # Plot critic losses
-    if len(metrics['critic_1_loss']) > 0:
-        axes[1].plot(metrics['critic_1_loss'], alpha=0.6, label='Critic 1 Loss')
-        axes[1].plot(metrics['critic_2_loss'], alpha=0.6, label='Critic 2 Loss')
-        axes[1].set_xlabel('Episode')
-        axes[1].set_ylabel('Loss')
-        axes[1].set_title('Critic Losses')
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
+        # Plot critic losses
+        if len(metrics['critic_1_loss']) > 0:
+            axes[1].plot(metrics['critic_1_loss'], alpha=0.6, label='Critic 1 Loss')
+            axes[1].plot(metrics['critic_2_loss'], alpha=0.6, label='Critic 2 Loss')
+            axes[1].set_xlabel('Episode')
+            axes[1].set_ylabel('Loss')
+            axes[1].set_title('Critic Losses')
+            axes[1].legend()
+            axes[1].grid(True, alpha=0.3)
 
-    # Plot actor loss
-    if len(metrics['actor_loss']) > 0:
-        axes[2].plot(metrics['actor_loss'], alpha=0.6, label='Actor Loss', color='green')
-        axes[2].set_xlabel('Episode')
-        axes[2].set_ylabel('Loss')
-        axes[2].set_title('Actor Loss')
-        axes[2].legend()
-        axes[2].grid(True, alpha=0.3)
+        # Plot actor loss
+        if len(metrics['actor_loss']) > 0:
+            axes[2].plot(metrics['actor_loss'], alpha=0.6, label='Actor Loss', color='green')
+            axes[2].set_xlabel('Episode')
+            axes[2].set_ylabel('Loss')
+            axes[2].set_title('Actor Loss')
+            axes[2].legend()
+            axes[2].grid(True, alpha=0.3)
 
-    # Plot alpha (entropy coefficient)
-    if len(metrics['alpha']) > 0:
-        axes[3].plot(metrics['alpha'], alpha=0.8, label='Alpha (Entropy Coef)', color='purple')
-        axes[3].set_xlabel('Episode')
-        axes[3].set_ylabel('Alpha')
-        axes[3].set_title('Entropy Coefficient (Alpha)')
-        axes[3].legend()
-        axes[3].grid(True, alpha=0.3)
+        # Plot alpha (entropy coefficient)
+        if len(metrics['alpha']) > 0:
+            axes[3].plot(metrics['alpha'], alpha=0.8, label='Alpha (Entropy Coef)', color='purple')
+            axes[3].set_xlabel('Episode')
+            axes[3].set_ylabel('Alpha')
+            axes[3].set_title('Entropy Coefficient (Alpha)')
+            axes[3].legend()
+            axes[3].grid(True, alpha=0.3)
 
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Training plot saved to {save_path}")
+        plt.tight_layout()
+
+        # Save with explicit flushing
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)  # Close specific figure
+        plt.close('all')  # Close all figures to prevent memory leaks
+
+        # Force matplotlib to clear its internal cache
+        if hasattr(plt, '_cachedRenderer'):
+            plt._cachedRenderer = None
+
+        # Verify the file was actually written
+        if os.path.exists(save_path):
+            file_size = os.path.getsize(save_path)
+            file_mtime = os.path.getmtime(save_path)
+            from datetime import datetime
+            mod_time = datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Training plot saved to {save_path} ({file_size} bytes, modified: {mod_time})")
+        else:
+            print(f"WARNING: Plot file was not created at {save_path}")
+    except Exception as e:
+        print(f"ERROR: Failed to generate training plot: {e}")
+        print(f"  Type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
 
 
 def train(args):
