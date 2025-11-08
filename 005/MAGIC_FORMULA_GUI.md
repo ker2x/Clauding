@@ -43,6 +43,7 @@ python play_human_gui.py [--episodes N] [--fps FPS]
 - **Live Parameter Adjustment**: Change tire parameters while driving
 - **Real-time Visualization**: See force curves update as you adjust
 - **Immediate Effect**: Parameters update the car physics instantly
+- **Wheel Slip Display**: Real-time slip angle and slip ratio for all 4 wheels (FL, FR, RL, RR)
 
 ### Controls:
 
@@ -175,22 +176,36 @@ pip install pygame matplotlib numpy
 
 ### In-Game GUI Layout:
 ```
-┌─────────────────────────────┬───────────────┐
-│   Game Info & Controls      │   Sliders     │
-├─────────────────────────────┤               │
-│                             │   B_lat ===○  │
-│   Car Racing View           │   C_lat ==○   │
-│   (Gameplay Window)         │   D_lat ===○  │
-│                             │   E_lat ===○  │
-│                             │               │
-│                             │   B_lon ===○  │
-│                             │   C_lon ==○   │
-│                             │   D_lon ===○  │
-│                             │   E_lon ==○   │
-├─────────────────────────────┴───────────────┤
-│   Tire Force Graphs (Lateral | Longitudinal)│
-└─────────────────────────────────────────────┘
+┌─────────────────────────────┬───────────────────────┐
+│   Game Info & Controls      │   Parameter Sliders   │
+├─────────────────────────────┤                       │
+│                             │   B_lat ========○     │
+│   Car Racing View           │   C_lat ======○       │
+│   (Gameplay Window)         │   D_lat ========○     │
+│                             │   E_lat ========○     │
+│                             │                       │
+│                             │   B_lon ========○     │
+│                             │   C_lon ======○       │
+│                             │   D_lon ========○     │
+│                             │   E_lon ========○     │
+│                             ├───────────────────────┤
+│                             │ Wheel Slip (Real-time)│
+│                             │ FL SA:|████   | SR:██ │
+│                             │ FR SA:|  ████ | SR:██ │
+│                             │ RL SA:|███    | SR:██ │
+│                             │ RR SA:|   ███ | SR:██ │
+├─────────────────────────────┴───────────────────────┤
+│   Tire Force Graphs (Lateral | Longitudinal)        │
+└──────────────────────────────────────────────────────┘
 ```
+
+**Wheel Slip Display:**
+- **SA (Slip Angle)**: Shows the angle between tire direction and travel direction (-25° to +25°)
+  - Blue bars = positive slip (left turn)
+  - Orange bars = negative slip (right turn)
+- **SR (Slip Ratio)**: Shows wheel spin vs ground speed (-1 to +1)
+  - Green bars = acceleration (positive slip)
+  - Red bars = braking (negative slip)
 
 ---
 
@@ -215,6 +230,43 @@ pip install pygame matplotlib numpy
    - Adjust sliders during gameplay
    - Feel the immediate handling changes
    - Find the setup that matches your driving style
+
+---
+
+## Understanding Wheel Slip:
+
+The real-time wheel slip display shows exactly what's happening at each tire contact patch:
+
+### Slip Angle (SA):
+- **What it is**: The angle between where the tire is pointed and where it's actually going
+- **Range**: -25° to +25° (typical peak grip occurs around 10-15° for road tires)
+- **When you see it**:
+  - Cornering: Front wheels show slip angle as you steer
+  - Understeer: Front wheels have higher slip angles than rear
+  - Oversteer: Rear wheels have higher slip angles than front
+- **Color coding**:
+  - Blue = Left slip (tire sliding to the left of its heading)
+  - Orange = Right slip (tire sliding to the right)
+
+### Slip Ratio (SR):
+- **What it is**: The difference between wheel speed and ground speed
+- **Range**: -1 (locked wheel) to +1 (full wheelspin)
+- **Optimal**: Peak grip typically occurs around 0.1-0.2 slip ratio
+- **When you see it**:
+  - Acceleration: Rear wheels show positive slip (green)
+  - Braking: All wheels show negative slip (red)
+  - Wheelspin: Large positive values on rear wheels
+  - Wheel lock: Values near -1.0 during hard braking
+- **Color coding**:
+  - Green = Positive slip (wheel spinning faster than ground)
+  - Red = Negative slip (wheel spinning slower, braking)
+
+### Tips for using slip data:
+1. **Smooth driving**: Keep slip values in the optimal range (SA: 5-12°, SR: 0.1-0.2)
+2. **Detect understeer**: Front SA much higher than rear during cornering
+3. **Detect oversteer**: Rear SA suddenly spikes during turn
+4. **Optimize braking**: Watch for wheels approaching -1.0 SR (lock-up)
+5. **Traction control**: Monitor rear SR during acceleration, avoid exceeding 0.3
 
 ---
 

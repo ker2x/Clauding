@@ -5,6 +5,7 @@ This script provides an interactive GUI for tuning Pacejka Magic Formula paramet
 while playing the game. It includes:
 - Real-time parameter adjustment sliders
 - Live tire force curve visualization
+- Real-time wheel slip display (slip angle and slip ratio for all 4 wheels)
 - Standard keyboard controls for gameplay
 
 Usage:
@@ -20,6 +21,7 @@ Controls:
 GUI Controls:
     - Sliders adjust Pacejka parameters in real-time
     - Graphs show lateral and longitudinal force curves
+    - Wheel slip bars show real-time SA (slip angle) and SR (slip ratio) for FL, FR, RL, RR
 """
 
 import argparse
@@ -100,6 +102,14 @@ class PacejkaGUI:
         self.fig, (self.ax_lat, self.ax_lon) = plt.subplots(1, 2, figsize=(8, 3))
         self.fig.tight_layout(pad=2.0)
         self.canvas = FigureCanvasAgg(self.fig)
+
+        # Wheel slip data (updated each frame)
+        self.wheel_slip_data = {
+            0: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # FL
+            1: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # FR
+            2: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # RL
+            3: {'slip_angle': 0.0, 'slip_ratio': 0.0},  # RR
+        }
 
         self.update_graphs()
 
@@ -247,6 +257,94 @@ class PacejkaGUI:
             pygame.draw.rect(surface, color, thumb_rect)
             pygame.draw.rect(surface, (200, 200, 200), thumb_rect, 2)
 
+    def update_slip_data(self, slip_data):
+        """Update wheel slip data from the environment."""
+        if slip_data:
+            self.wheel_slip_data = slip_data
+
+    def draw_slip_panel(self, surface, y_offset=0):
+        """Draw real-time wheel slip visualization."""
+        panel_width = self.width
+        panel_height = 200
+
+        # Background
+        pygame.draw.rect(surface, (25, 25, 30), (0, y_offset, panel_width, panel_height))
+        pygame.draw.rect(surface, (60, 60, 70), (0, y_offset, panel_width, panel_height), 2)
+
+        # Title
+        title = self.font.render("Wheel Slip (Real-time)", True, (255, 200, 100))
+        surface.blit(title, (10, y_offset + 5))
+
+        # Wheel labels and positions
+        wheel_names = ['FL', 'FR', 'RL', 'RR']
+        wheel_colors = [(100, 150, 255), (100, 255, 150), (255, 150, 100), (255, 100, 150)]
+
+        y_start = y_offset + 35
+        row_height = 40
+
+        for i, (name, color) in enumerate(zip(wheel_names, wheel_colors)):
+            y = y_start + i * row_height
+
+            # Wheel label
+            label = self.font_small.render(name, True, color)
+            surface.blit(label, (10, y))
+
+            # Get slip data
+            slip_angle = self.wheel_slip_data[i]['slip_angle'] * 180 / np.pi  # Convert to degrees
+            slip_ratio = self.wheel_slip_data[i]['slip_ratio']
+
+            # Slip angle bar (range: -25 to +25 degrees)
+            angle_text = self.font_small.render(f"SA: {slip_angle:+.1f}°", True, (200, 200, 200))
+            surface.blit(angle_text, (45, y))
+
+            # Slip angle bar
+            bar_x = 130
+            bar_width = 100
+            bar_height = 12
+            max_angle = 25.0
+
+            # Draw bar background
+            pygame.draw.rect(surface, (40, 40, 45), (bar_x, y, bar_width, bar_height))
+
+            # Draw bar fill (centered at middle)
+            center_x = bar_x + bar_width // 2
+            fill_width = int((slip_angle / max_angle) * (bar_width // 2))
+            fill_width = max(-bar_width // 2, min(bar_width // 2, fill_width))
+
+            if fill_width > 0:
+                pygame.draw.rect(surface, (100, 150, 255), (center_x, y, fill_width, bar_height))
+            elif fill_width < 0:
+                pygame.draw.rect(surface, (255, 150, 100), (center_x + fill_width, y, -fill_width, bar_height))
+
+            # Center line
+            pygame.draw.line(surface, (100, 100, 100), (center_x, y), (center_x, y + bar_height), 1)
+            pygame.draw.rect(surface, (80, 80, 85), (bar_x, y, bar_width, bar_height), 1)
+
+            # Slip ratio bar (range: -1 to +1)
+            ratio_text = self.font_small.render(f"SR: {slip_ratio:+.2f}", True, (200, 200, 200))
+            surface.blit(ratio_text, (bar_x + bar_width + 10, y))
+
+            # Slip ratio bar
+            ratio_bar_x = bar_x + bar_width + 75
+            ratio_bar_width = 80
+
+            # Draw bar background
+            pygame.draw.rect(surface, (40, 40, 45), (ratio_bar_x, y, ratio_bar_width, bar_height))
+
+            # Draw bar fill (centered at middle)
+            ratio_center_x = ratio_bar_x + ratio_bar_width // 2
+            ratio_fill_width = int(slip_ratio * (ratio_bar_width // 2))
+            ratio_fill_width = max(-ratio_bar_width // 2, min(ratio_bar_width // 2, ratio_fill_width))
+
+            if ratio_fill_width > 0:
+                pygame.draw.rect(surface, (100, 255, 100), (ratio_center_x, y, ratio_fill_width, bar_height))
+            elif ratio_fill_width < 0:
+                pygame.draw.rect(surface, (255, 100, 100), (ratio_center_x + ratio_fill_width, y, -ratio_fill_width, bar_height))
+
+            # Center line
+            pygame.draw.line(surface, (100, 100, 100), (ratio_center_x, y), (ratio_center_x, y + bar_height), 1)
+            pygame.draw.rect(surface, (80, 80, 85), (ratio_bar_x, y, ratio_bar_width, bar_height), 1)
+
 
 def format_action(action):
     """Format continuous action for display."""
@@ -326,6 +424,31 @@ def update_car_parameters(env, params):
             car.tire.E_lon = params['E_lon']
             return True
     return False
+
+
+def get_wheel_slip_data(env):
+    """Extract wheel slip data from the environment."""
+    slip_data = {
+        0: {'slip_angle': 0.0, 'slip_ratio': 0.0},
+        1: {'slip_angle': 0.0, 'slip_ratio': 0.0},
+        2: {'slip_angle': 0.0, 'slip_ratio': 0.0},
+        3: {'slip_angle': 0.0, 'slip_ratio': 0.0},
+    }
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None:
+            # Compute tire forces to get slip data
+            friction = car._get_surface_friction() if hasattr(car, '_get_surface_friction') else 1.0
+            forces = car._compute_tire_forces(friction) if hasattr(car, '_compute_tire_forces') else None
+
+            if forces:
+                for i in range(4):
+                    if i in forces:
+                        slip_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
+                        slip_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
+
+    return slip_data
 
 
 def play_human_gui(args):
@@ -448,6 +571,10 @@ def play_human_gui(args):
                 total_reward += reward
                 step += 1
 
+                # --- Get wheel slip data ---
+                slip_data = get_wheel_slip_data(env)
+                gui.update_slip_data(slip_data)
+
                 # --- Render ---
                 if not args.no_render:
                     rgb_frame = env.render()
@@ -457,7 +584,7 @@ def play_human_gui(args):
                     # Create screen on first frame
                     if screen is None:
                         total_width = frame_w + gui.width
-                        total_height = max(frame_h + info_area_height, gui.height + 250)
+                        total_height = max(frame_h + info_area_height, gui.height + 450)
                         screen = pygame.display.set_mode((total_width, total_height))
                         pygame.display.set_caption("CarRacing-v3 - Magic Formula GUI")
 
@@ -477,9 +604,14 @@ def play_human_gui(args):
                     gui.draw(gui_surface)
                     screen.blit(gui_surface, (frame_w, 0))
 
-                    # Draw graphs (below GUI panel)
+                    # Draw slip panel (right side, below parameter sliders)
+                    slip_surface = pygame.Surface((gui.width, 200))
+                    gui.draw_slip_panel(slip_surface, y_offset=0)
+                    screen.blit(slip_surface, (frame_w, gui.height))
+
+                    # Draw graphs (below slip panel)
                     graph_surface = gui.get_graph_surface()
-                    screen.blit(graph_surface, (frame_w - 400, gui.height))
+                    screen.blit(graph_surface, (frame_w - 400, gui.height + 200))
 
                     pygame.display.flip()
 
