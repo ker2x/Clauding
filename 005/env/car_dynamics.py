@@ -143,8 +143,8 @@ class Car:
     # These values are tuned for MX-5 performance street tires.
 
     # Lateral is stiffer (higher B) but with slightly less peak grip (lower D)
-    PACEJKA_B_LAT = 12.0  # Lateral stiffness factor
-    PACEJKA_B_LON = 10.0  # Longitudinal stiffness factor
+    PACEJKA_B_LAT = 10.0  # Lateral stiffness factor
+    PACEJKA_B_LON = 9.0  # Longitudinal stiffness factor
 
     # C is the shape factor
     #
@@ -162,8 +162,9 @@ class Car:
     # These values (multiplied by normal force and max_friction) determine the shape of the force curve near its peak.
     # Combined with your BASE_FRICTION=1.0, this gives you a shape of 0.05 near the peak and 0.015 beyond the peak,
     # Values around 0.9-1.0 are common and create realistic tire behavior
-    PACEJKA_E_LAT = 0.97
-    PACEJKA_E_LON = 0.97
+    # lower value = smoother loss of grip near peak
+    PACEJKA_E_LAT = 0.95
+    PACEJKA_E_LON = 0.95
 
     # Drivetrain (2.0L Skyactiv-G)
     ENGINE_POWER = 135000.0  # Power (Watts) (181 hp * 745.7)
