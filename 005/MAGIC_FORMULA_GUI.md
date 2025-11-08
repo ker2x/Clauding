@@ -20,7 +20,7 @@ python magic_formula_visualizer.py
 ### Controls:
 - **Mouse**: Drag sliders to adjust parameters
 - **R**: Reset to default values
-- **Q/ESC**: Quit
+- **ESC**: Quit
 
 ### Perfect for:
 - Learning how Magic Formula parameters affect tire behavior
@@ -46,12 +46,12 @@ python play_human_gui.py [--episodes N] [--fps FPS]
 
 ### Controls:
 
-#### Driving:
-- **Steering**: A/D or Arrow Keys
-- **Gas**: W/Z or Up Arrow
+#### Driving (AZERTY Keyboard):
+- **Steering**: Q/D or Arrow Keys
+- **Gas**: Z or Up Arrow
 - **Brake**: S or Down Arrow
 - **Reset Episode**: R
-- **Quit**: Q/ESC
+- **Quit**: ESC
 
 #### Parameter Adjustment:
 - **Mouse**: Drag sliders on the right panel

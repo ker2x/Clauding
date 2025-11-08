@@ -11,11 +11,11 @@ Usage:
     python play_human_gui.py
 
 Controls:
-    - Steering:   A/D, Left/Right
-    - Gas:        W, Z, Up Arrow
+    - Steering:   Q/D, Left/Right (AZERTY: Q/D)
+    - Gas:        Z, Up Arrow
     - Brake:      S, Down Arrow
     - Reset:      R
-    - Quit:       ESC or Q
+    - Quit:       ESC only
 
 GUI Controls:
     - Sliders adjust Pacejka parameters in real-time
@@ -305,7 +305,7 @@ def render_info(screen, font, episode, step, reward, total_reward, action, info_
 
     action_str = format_action(action)
     draw_text(f"Action: {action_str}", y_base + 30, (0, 255, 0))
-    draw_text(f"Controls: Arrows/WASD | R: reset | Q/ESC: quit", y_base + 50, (100, 100, 255))
+    draw_text(f"Controls: ZQSD/Arrows | R: reset | ESC: quit", y_base + 50, (100, 100, 255))
 
     draw_text_right(f"Reward: {reward:+.2f}", y_base + 10)
     draw_text_right(f"Total: {total_reward:+.2f}", y_base + 30)
@@ -358,12 +358,12 @@ def play_human_gui(args):
     print(f"Episodes: {args.episodes}")
     print(f"State shape: {state_shape}")
     print("=" * 80)
-    print("\nKEYBOARD CONTROLS:")
-    print("  - Steering:   A / D or Left / Right Arrow")
-    print("  - Gas:        W / Z or Up Arrow")
+    print("\nKEYBOARD CONTROLS (AZERTY):")
+    print("  - Steering:   Q / D or Left / Right Arrow")
+    print("  - Gas:        Z or Up Arrow")
     print("  - Brake:      S or Down Arrow")
     print("  - Reset:      R")
-    print("  - Quit:       Q or ESC")
+    print("  - Quit:       ESC only")
     print("\nGUI CONTROLS:")
     print("  - Use mouse to drag sliders and adjust Pacejka parameters")
     print("  - Graphs show real-time tire force curves")
@@ -407,7 +407,7 @@ def play_human_gui(args):
                         if event.key == pygame.K_r:
                             print("Resetting episode...")
                             done = True
-                        if event.key == pygame.K_q or event.key == pygame.K_ESCAPE:
+                        if event.key == pygame.K_ESCAPE:
                             print("\nQuitting...")
                             env.close()
                             pygame.quit()
@@ -423,13 +423,13 @@ def play_human_gui(args):
                 # --- Keyboard Input ---
                 keys = pygame.key.get_pressed()
 
-                gas = 1.0 if keys[pygame.K_w] or keys[pygame.K_z] or keys[pygame.K_UP] else 0.0
+                gas = 1.0 if keys[pygame.K_z] or keys[pygame.K_UP] else 0.0
                 brake = 1.0 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0.0
 
                 acceleration = -brake if brake > 0 else gas
 
                 target_steering = 0.0
-                if keys[pygame.K_a] or keys[pygame.K_q] or keys[pygame.K_LEFT]:
+                if keys[pygame.K_q] or keys[pygame.K_LEFT]:
                     target_steering = -1.0
                 if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                     target_steering = 1.0

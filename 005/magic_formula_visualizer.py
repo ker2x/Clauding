@@ -10,7 +10,7 @@ Usage:
 Controls:
     - Use mouse to drag sliders
     - Watch tire force curves update in real-time
-    - Press Q or ESC to quit
+    - Press ESC to quit, R to reset
 """
 
 import pygame
@@ -133,7 +133,7 @@ class MagicFormulaVisualizer:
                 self.running = False
 
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_q or event.key == pygame.K_ESCAPE:
+                if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_r:
                     # Reset to defaults
@@ -255,7 +255,7 @@ class MagicFormulaVisualizer:
         self.screen.blit(title, (10, 10))
 
         # Instructions
-        inst = self.font_small.render("Drag sliders to adjust | R: Reset | Q: Quit", True, (150, 150, 150))
+        inst = self.font_small.render("Drag sliders to adjust | R: Reset | ESC: Quit", True, (150, 150, 150))
         self.screen.blit(inst, (10, 40))
 
         # Section headers
@@ -346,7 +346,7 @@ if __name__ == "__main__":
     print("\nControls:")
     print("  - Drag sliders with mouse to adjust parameters")
     print("  - Press R to reset to default values")
-    print("  - Press Q or ESC to quit")
+    print("  - Press ESC to quit")
     print("\nParameter Guide:")
     print("  B (Stiffness): Controls initial slope and responsiveness")
     print("  C (Shape): Controls curve shape and peakiness")
