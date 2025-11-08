@@ -355,7 +355,9 @@ class Car:
 
             # Get tire force feedback from previous timestep
             # This creates opposing torque that prevents unrealistic slip
-            tire_force_torque = self.prev_tire_forces[i] * self.TIRE_RADIUS
+            # With load transfer fixed, we can use full feedback without oscillations
+            feedback_coupling = 1.0  # Full coupling for maximum slip control
+            tire_force_torque = self.prev_tire_forces[i] * self.TIRE_RADIUS * feedback_coupling
 
             # Simple logic: Apply brakes, engine, or free-roll
             # Note: Environment ensures gas and brake are mutually exclusive
@@ -439,30 +441,47 @@ class Car:
 
     def _compute_tire_forces(self, friction):
         """
-        Compute tire forces using Pacejka model.
+        Compute tire forces using Pacejka model with load transfer.
 
         Returns dict with forces for each wheel.
         """
-        # Load distribution (simple: equal weight per wheel)
+        # Base load distribution (equal weight per wheel)
         weight_per_wheel = (self.MASS * 9.81) / 4.0  # Force in Newtons
 
-        # --- Smoothed Lateral Load Transfer (Virtual Suspension) ---
+        # --- Load Transfer Calculation ---
+        # Simulate weight shift during acceleration, braking, and cornering
 
-        # 1. Calculate the "target" (instantaneous) acceleration
+        # LATERAL Load Transfer (cornering)
+        # When turning, centrifugal effect shifts weight to outside wheels
         target_lateral_accel = self.vx * self.yaw_rate
 
-        # 2. Define a "lerp factor" (how fast the "virtual" suspension reacts).
-        # This value can be tuned. 0.1 is a good start.
-        # 0.05 = soft/wallowy, 0.2 = stiff/responsive
-        lerp_factor = 0.1
-
-        # 3. Smooth the acceleration over time (low-pass filter)
+        # Smooth the lateral acceleration (prevents abrupt load changes)
+        lerp_factor = 0.15  # Suspension response rate
         self.smoothed_lateral_accel += (target_lateral_accel - self.smoothed_lateral_accel) * lerp_factor
 
-        # 4. Use the SMOOTHED value for the load transfer calculation
-        load_transfer_factor = 0.5  # Tuned factor
-        lateral_load_transfer = load_transfer_factor * self.MASS * self.smoothed_lateral_accel
-        # ---------------------------------------------------------
+        # Calculate lateral load transfer
+        # CG height / track width ratio affects transfer magnitude
+        # Lower factor = less transfer (stiffer anti-roll bars)
+        lateral_factor = 0.3  # Reduced from 0.5 to reduce oscillations
+        lateral_load_transfer = lateral_factor * self.MASS * self.smoothed_lateral_accel
+
+        # LONGITUDINAL Load Transfer (acceleration/braking)
+        # Calculate longitudinal acceleration from previous timestep tire forces
+        # Sum of all longitudinal tire forces divided by mass
+        total_fx = sum(self.prev_tire_forces)
+        longitudinal_accel = total_fx / self.MASS
+
+        # Calculate longitudinal load transfer
+        # CG height / wheelbase ratio affects transfer magnitude
+        # Positive accel = weight shifts back (more load on rear)
+        # Negative accel (braking) = weight shifts forward (more load on front)
+        cg_height = 0.45  # Estimated CG height for MX-5 (meters)
+        longitudinal_factor = cg_height / self.LENGTH
+        longitudinal_load_transfer = longitudinal_factor * self.MASS * 9.81 * longitudinal_accel / 9.81
+        # Clamp to prevent excessive transfer
+        longitudinal_load_transfer = np.clip(longitudinal_load_transfer,
+                                             -weight_per_wheel * 1.5,
+                                             weight_per_wheel * 1.5)
 
         # Compute longitudinal and lateral slip for each wheel
         forces = {}
@@ -507,13 +526,25 @@ class Car:
                 # Standard slip ratio definition
                 slip_ratio = (wheel_linear_vel - wheel_vx) / denom
 
-            # Calculate normal force with lateral load transfer
+            # Calculate normal force with lateral AND longitudinal load transfer
             normal_force = weight_per_wheel
+
+            # Apply LATERAL load transfer (left/right weight shift during cornering)
             if i == 0 or i == 2:  # Left wheels (FL, RL)
                 normal_force -= lateral_load_transfer / 2
             else:  # Right wheels (FR, RR)
                 normal_force += lateral_load_transfer / 2
-            normal_force = max(50.0, normal_force)  # Prevent negative/zero load
+
+            # Apply LONGITUDINAL load transfer (front/back weight shift during accel/brake)
+            if i < 2:  # Front wheels (FL, FR)
+                # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = LESS load on front
+                normal_force -= longitudinal_load_transfer / 2
+            else:  # Rear wheels (RL, RR)
+                # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = MORE load on rear
+                normal_force += longitudinal_load_transfer / 2
+
+            # Prevent negative/zero load (wheels lifting off ground)
+            normal_force = max(50.0, normal_force)
 
             # Tire forces
             # Note: Negate lateral force because positive slip angle (velocity left of wheel heading)
