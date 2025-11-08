@@ -272,7 +272,7 @@ class PacejkaGUI:
         if slip_data:
             self.wheel_slip_data = slip_data
 
-    def draw_slip_panel(self, surface, y_offset=0):
+    def draw_slip_panel(self, surface, y_offset=0, speed_kmh=0.0):
         """Draw real-time wheel slip visualization."""
         panel_width = self.width
         panel_height = 210  # Increased to accommodate normal force display
@@ -284,6 +284,10 @@ class PacejkaGUI:
         # Title
         title = self.font.render("Wheel Slip & Load", True, (255, 200, 100))
         surface.blit(title, (10, y_offset + 5))
+
+        # Speed display (right-aligned)
+        speed_text = self.font.render(f"{speed_kmh:.1f} km/h", True, (255, 255, 100))
+        surface.blit(speed_text, (panel_width - speed_text.get_width() - 10, y_offset + 5))
 
         # Wheel labels and positions
         wheel_names = ['FL', 'FR', 'RL', 'RR']
@@ -677,7 +681,7 @@ def play_human_gui(args):
 
                     # Draw slip panel (right of game, below parameter sliders)
                     slip_surface = pygame.Surface((gui.width, 210))
-                    gui.draw_slip_panel(slip_surface, y_offset=0)
+                    gui.draw_slip_panel(slip_surface, y_offset=0, speed_kmh=speed_kmh)
                     screen.blit(slip_surface, (frame_w, gui.height))
 
                     # Draw graphs (right of sliders+slip panel, vertically stacked)
