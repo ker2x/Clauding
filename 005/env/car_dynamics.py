@@ -608,6 +608,17 @@ class Car:
             fy = -self.tire.lateral_force(slip_angle, normal_force, friction)
             fx = self.tire.longitudinal_force(slip_ratio, normal_force, friction)
 
+            # BACKWARD DRIVING PENALTY
+            # Real tires are NOT designed to work backward at speed
+            # When driving backward (negative wheel_vx), tire forces should be severely reduced
+            # This prevents AI from exploiting unrealistic backward driving physics
+            if wheel_vx < -0.5:  # Significant backward velocity
+                # Reduce tire forces to 30% when driving backward
+                # Allows slow backward motion (parking, recovery) but prevents high-speed backward exploits
+                backward_penalty = 0.3
+                fx *= backward_penalty
+                fy *= backward_penalty
+
             forces[i] = {
                 'fx': fx,
                 'fy': fy,

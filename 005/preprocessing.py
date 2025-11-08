@@ -173,6 +173,7 @@ def make_carracing_env(
     reward_shaping=True,
     min_episode_steps=150,
     short_episode_penalty=-50.0,
+    max_episode_steps=1500,
     verbose=False
 ) -> gym.Env:
     """
@@ -190,6 +191,7 @@ def make_carracing_env(
         reward_shaping: Apply reward shaping to discourage short episodes (default: True)
         min_episode_steps: Minimum episode length before penalty (default: 150)
         short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
+        max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
 
     Returns:
@@ -221,6 +223,11 @@ def make_carracing_env(
     elif state_mode == "vector":
         # Vector mode: 36D state vector, no preprocessing needed (already normalized in env)
         pass
+
+    # Add time limit to prevent infinite episodes
+    # This is crucial with stable physics - episodes can run forever without crashing
+    if max_episode_steps is not None and max_episode_steps > 0:
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
 
     return env
 
