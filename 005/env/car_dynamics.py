@@ -401,8 +401,9 @@ class Car:
 
             # Get tire force feedback from previous timestep
             # This creates opposing torque that prevents unrealistic slip
-            # With load transfer fixed, we can use full feedback without oscillations
-            feedback_coupling = 1.0  # Full coupling for maximum slip control
+            # Reduced coupling to prevent oscillations in RL environment
+            # (track collisions + feedback can cause instability at full coupling)
+            feedback_coupling = 0.5  # Balanced coupling for stability
             tire_force_torque = self.prev_tire_forces[i] * self.TIRE_RADIUS * feedback_coupling
 
             # Simple logic: Apply brakes, engine, or free-roll
@@ -444,18 +445,27 @@ class Car:
 
             # 3. Free Rolling (coasting)
             else:
-                # Apply tire force feedback to gradually match ground speed
-                # This simulates rolling resistance and tire compliance
-                net_torque = -tire_force_torque
-                accel = net_torque / self.INERTIA
-
-                # Smoothly approach ground speed
+                # Smoothly approach ground speed using damping
+                # This simulates tire compliance and rolling resistance
                 target_omega = wheel_vx / self.TIRE_RADIUS
-                wheel.omega += accel * dt
 
-                # Also apply damping toward target speed (simulates tire compliance)
-                damping = 0.5  # Damping coefficient
-                wheel.omega += (target_omega - wheel.omega) * damping * dt
+                # Apply damping toward target speed
+                # This is more stable than force-based feedback for coasting
+                damping = 0.3  # Damping coefficient (reduced for stability)
+                omega_change = (target_omega - wheel.omega) * damping
+
+                wheel.omega += omega_change
+
+                # Prevent wheel from reversing direction during coasting
+                # (wheels don't spin backwards when coasting)
+                if abs(wheel.omega) < abs(target_omega):
+                    # Wheel is slower than ground - OK to accelerate
+                    pass
+                else:
+                    # Wheel is faster than ground - ensure we don't overshoot
+                    if np.sign(wheel.omega) != np.sign(target_omega) and abs(target_omega) > 0.1:
+                        # Prevent sign flip
+                        wheel.omega = target_omega * 0.1  # Small value, same sign as target
 
             # Sync to wheel_omega array for consistency
             self.wheel_omega[i] = wheel.omega
