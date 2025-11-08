@@ -417,6 +417,7 @@ def train(args):
     REWARD_SHAPING = True
     MIN_EPISODE_STEPS = 100
     SHORT_EPISODE_PENALTY = -50.0
+    MAX_EPISODE_STEPS = 1500  # Prevent infinite episodes (stable physics can drive forever)
 
     # Create directories
     os.makedirs(args.checkpoint_dir, exist_ok=True)
@@ -440,6 +441,7 @@ def train(args):
         reward_shaping=REWARD_SHAPING,
         min_episode_steps=MIN_EPISODE_STEPS,
         short_episode_penalty=SHORT_EPISODE_PENALTY,
+        max_episode_steps=MAX_EPISODE_STEPS,
         verbose=args.verbose
     )
 
@@ -450,6 +452,7 @@ def train(args):
     print(f"  State mode: {args.state_mode}")
     print(f"  State shape: {state_shape}")
     print(f"  Action space: Continuous (3D)")
+    print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
     print(f"  Reward shaping enabled (penalty {SHORT_EPISODE_PENALTY} for episodes < {MIN_EPISODE_STEPS} steps)")
 
@@ -495,7 +498,8 @@ def train(args):
     config = {
         'stationary_patience': STATIONARY_PATIENCE,
         'min_episode_steps': MIN_EPISODE_STEPS,
-        'short_episode_penalty': SHORT_EPISODE_PENALTY
+        'short_episode_penalty': SHORT_EPISODE_PENALTY,
+        'max_episode_steps': MAX_EPISODE_STEPS
     }
     training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, env, agent, config)
 
