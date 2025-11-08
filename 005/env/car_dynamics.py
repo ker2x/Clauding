@@ -156,7 +156,7 @@ class Car:
     # Combined with your BASE_FRICTION=1.0, this gives you peak lateral grip around 1.1g and longitudinal around 1.2g,
     # which is appropriate for performance street tires on an MX-5
     PACEJKA_D_LAT = 1.1  # Lateral peak friction
-    PACEJKA_D_LON = 1.2  # Longitudinal peak friction
+    PACEJKA_D_LON = 1.4  # Longitudinal peak friction
 
     # E is the curvature factor
     # These values (multiplied by normal force and max_friction) determine the shape of the force curve near its peak.
