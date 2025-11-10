@@ -36,7 +36,7 @@ from datetime import datetime
 import numpy as np
 import torch
 import multiprocessing
-from gymnasium.vector import AsyncVectorEnv
+from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
 
 # Try to import matplotlib with non-GUI backend
 MATPLOTLIB_AVAILABLE = False
@@ -66,6 +66,10 @@ def parse_args():
     # VectorEnv parameters
     parser.add_argument('--num-envs', type=int, default=4,
                         help='Number of parallel environments (default: 4)')
+    parser.add_argument('--vec-env-type', type=str, default='async', choices=['async', 'sync'],
+                        help='VectorEnv type: async (default, true parallel) or sync (sequential, less overhead)')
+    parser.add_argument('--steps-per-update', type=int, default=1,
+                        help='Collect N steps before each training update (default: 1, higher reduces overhead)')
 
     # Training parameters
     parser.add_argument('--episodes', type=int, default=2000,
@@ -313,12 +317,13 @@ def train(args):
     # Configure CPU threading
     configure_cpu_threading(device)
 
-    # Create VectorEnv with AsyncVectorEnv for true parallelism
+    # Create VectorEnv with specified type
     print(f"\nCreating VectorEnv with {args.num_envs} parallel environments...")
-    print("  Using AsyncVectorEnv for true parallel execution")
+    print(f"  Using {'AsyncVectorEnv (true parallel)' if args.vec_env_type == 'async' else 'SyncVectorEnv (sequential, less overhead)'}")
     print("  Each environment will receive the same seed per episode")
 
-    vec_env = AsyncVectorEnv([
+    VecEnvClass = AsyncVectorEnv if args.vec_env_type == 'async' else SyncVectorEnv
+    vec_env = VecEnvClass([
         make_env_fn(verbose=args.verbose)
         for _ in range(args.num_envs)
     ])
@@ -328,7 +333,9 @@ def train(args):
 
     print(f"VectorEnv created:")
     print(f"  Number of environments: {args.num_envs}")
-    print(f"  Parallelism: TRUE (separate processes)")
+    print(f"  Type: {args.vec_env_type}")
+    print(f"  Parallelism: {'TRUE (separate processes)' if args.vec_env_type == 'async' else 'FALSE (sequential)'}")
+    print(f"  Steps per update: {args.steps_per_update}")
     print(f"  Data collection rate: {args.num_envs}× parallel experiences")
     print(f"  Observation space per env: {state_shape}")
     print(f"  Action space: Continuous (2D)")
@@ -458,7 +465,10 @@ def train(args):
             total_steps += 1
 
             # Train agent (only after learning_starts steps)
-            if total_steps >= args.learning_starts and len(replay_buffer) >= args.batch_size:
+            # Train every N steps to reduce overhead
+            if (total_steps >= args.learning_starts and
+                len(replay_buffer) >= args.batch_size and
+                total_steps % args.steps_per_update == 0):
                 metrics = agent.update(replay_buffer, args.batch_size)
                 episode_metrics['actor_loss'].append(metrics['actor_loss'])
                 episode_metrics['critic_1_loss'].append(metrics['critic_1_loss'])
