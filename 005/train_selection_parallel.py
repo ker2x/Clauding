@@ -389,10 +389,13 @@ def main():
 
                         # Collect evaluation results
                         eval_rewards = {}
-                        for _ in range(args.num_agents):
-                            msg_type, aid, eval_reward = result_queue.get(timeout=30.0)
-                            eval_rewards[aid] = eval_reward
-                            print(f"  Agent {aid}: {eval_reward:.2f} avg reward")
+                        while len(eval_rewards) < args.num_agents:
+                            msg_type, aid, *data = result_queue.get(timeout=30.0)
+                            if msg_type == 'EVAL_RESULT':
+                                eval_reward = data[0]
+                                eval_rewards[aid] = eval_reward
+                                print(f"  Agent {aid}: {eval_reward:.2f} avg reward")
+                            # Ignore other messages during evaluation
 
                         # Select winner
                         winner_id = max(eval_rewards.keys(), key=lambda k: eval_rewards[k])
@@ -403,7 +406,12 @@ def main():
 
                         # Get winner's weights
                         command_queues[winner_id].put('GET_WEIGHTS')
-                        msg_type, aid, winner_state_dict = result_queue.get(timeout=10.0)
+                        while True:
+                            msg_type, aid, *data = result_queue.get(timeout=10.0)
+                            if msg_type == 'WEIGHTS' and aid == winner_id:
+                                winner_state_dict = data[0]
+                                break
+                            # Ignore other messages while waiting for weights
 
                         # Broadcast winner's weights to all agents
                         for aid in range(args.num_agents):
