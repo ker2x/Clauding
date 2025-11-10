@@ -160,8 +160,6 @@ def configure_cpu_threading(device):
         print(f"  Physical cores detected: {num_cores}")
         print(f"  PyTorch intra-op threads: {torch.get_num_threads()}")
         print(f"  PyTorch inter-op threads: {torch.get_num_interop_threads()}")
-        print(f"  Expected CPU usage: up to {num_cores * 100}%")
-        print(f"  NOTE: Set OMP_NUM_THREADS={num_cores} environment variable for best performance\n")
     else:
         print(f"\nDevice is {device.type}, skipping CPU threading configuration\n")
 
