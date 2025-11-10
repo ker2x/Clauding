@@ -64,12 +64,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train SAC agent on CarRacing-v3 using VectorEnv with synchronized seeds')
 
     # VectorEnv parameters
-    parser.add_argument('--num-envs', type=int, default=4,
-                        help='Number of parallel environments (default: 4)')
+    parser.add_argument('--num-envs', type=int, default=8,
+                        help='Number of parallel environments (default: 8)')
     parser.add_argument('--vec-env-type', type=str, default='async', choices=['async', 'sync'],
                         help='VectorEnv type: async (default, true parallel) or sync (sequential, less overhead)')
-    parser.add_argument('--steps-per-update', type=int, default=1,
-                        help='Collect N steps before each training update (default: 1, higher reduces overhead)')
+    parser.add_argument('--steps-per-update', type=int, default=20,
+                        help='Collect N steps before each training update (default: 20, higher reduces overhead)')
 
     # Training parameters
     parser.add_argument('--episodes', type=int, default=2000,
