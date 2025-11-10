@@ -355,12 +355,20 @@ class CarRacing(gym.Env, EzPickle):
         stationary_patience: int = 50,
         stationary_min_steps: int = 50,
         state_mode: str = "vector",
+        max_episode_steps: int | None = 1500,
+        reward_shaping: bool = True,
+        min_episode_steps: int = 150,
+        short_episode_penalty: float = -50.0,
     ):
         """
         Args:
             state_mode: "vector" (compact track geometry vector with lookahead - RECOMMENDED),
                         or "visual" (96x96 RGB images - slow, not recommended for training).
                         Default is "vector" for best performance and training results.
+            max_episode_steps: Maximum steps per episode (default: 1500). None for unlimited.
+            reward_shaping: Apply penalty for short episodes (default: True)
+            min_episode_steps: Minimum episode length before penalty (default: 150)
+            short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
         """
         EzPickle.__init__(
             self,
@@ -373,6 +381,10 @@ class CarRacing(gym.Env, EzPickle):
             stationary_patience,
             stationary_min_steps,
             state_mode,
+            max_episode_steps,
+            reward_shaping,
+            min_episode_steps,
+            short_episode_penalty,
         )
         self.continuous = continuous
         self.domain_randomize = domain_randomize
@@ -381,6 +393,10 @@ class CarRacing(gym.Env, EzPickle):
         self.stationary_patience = stationary_patience
         self.stationary_min_steps = stationary_min_steps
         self.state_mode = state_mode
+        self.max_episode_steps = max_episode_steps
+        self.reward_shaping = reward_shaping
+        self.min_episode_steps = min_episode_steps
+        self.short_episode_penalty = short_episode_penalty
         self._init_colors()
 
         self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
@@ -694,6 +710,9 @@ class CarRacing(gym.Env, EzPickle):
         self.frames_since_progress = 0
         self.total_steps = 0
 
+        # Episode step counter for timeout and reward shaping
+        self.episode_steps = 0
+
         # Previous velocity for acceleration computation
         self.prev_vx = 0.0
         self.prev_vy = 0.0
@@ -888,6 +907,19 @@ class CarRacing(gym.Env, EzPickle):
                 info["lap_finished"] = False
                 info["off_track"] = True
                 step_reward = -100
+
+            # Built-in timeout logic (replaces TimeLimit wrapper for vector mode)
+            self.episode_steps += 1
+            if self.max_episode_steps is not None and self.episode_steps >= self.max_episode_steps:
+                truncated = True
+                info['TimeLimit.truncated'] = True
+
+            # Built-in reward shaping (replaces RewardShaper wrapper for vector mode)
+            if self.reward_shaping and (terminated or truncated):
+                if self.episode_steps < self.min_episode_steps:
+                    step_reward += self.short_episode_penalty
+                    info['reward_shaping'] = self.short_episode_penalty
+                    info['original_step_reward'] = step_reward - self.short_episode_penalty
 
         # Debug output with timing
         if self.verbose and action is not None and self.debug_step_counter % 10 == 0:
