@@ -185,9 +185,10 @@ def make_carracing_env(
         stationary_patience: Frames without progress before termination (default: 100)
         stationary_min_steps: Minimum steps before early termination allowed (default: 50)
         render_mode: Rendering mode ('rgb_array', 'human', or None)
-        state_mode: 'vector' (36D track geometry - RECOMMENDED) or 'visual' (96x96 images - slow)
-                    - vector: fastest, 36-value vector with track lookahead (most informative)
-                    - visual: slowest, full rendering with frame stacking
+        state_mode: 'vector' (67D track geometry - RECOMMENDED) or 'visual' (96x96 images - slow)
+                    - vector: fastest, 67-value vector with track lookahead (most informative)
+                              No preprocessing wrappers needed - all logic built-in
+                    - visual: slowest, full rendering with frame stacking and wrappers
         reward_shaping: Apply reward shaping to discourage short episodes (default: True)
         min_episode_steps: Minimum episode length before penalty (default: 150)
         short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
@@ -195,41 +196,62 @@ def make_carracing_env(
         verbose: Enable verbose mode from environment for debugging (default: False)
 
     Returns:
-        Wrapped environment ready for SAC training with continuous actions
+        Environment ready for SAC training with continuous actions.
+        Vector mode: CarRacing directly (no wrappers)
+        Visual mode: Wrapped CarRacing with preprocessing
     """
-    # Create base environment using local CarRacing class (native 96x96 resolution)
-    # Stationary car termination is now a core feature of the environment
-    env = CarRacing(
-        render_mode=render_mode,
-        verbose=verbose,
-        continuous=True,  # Always use continuous actions for SAC
-        terminate_stationary=terminate_stationary,
-        stationary_patience=stationary_patience,
-        stationary_min_steps=stationary_min_steps,
-        state_mode=state_mode
-    )
+    if state_mode == "vector":
+        # Vector mode: All logic built into CarRacing itself - no wrappers needed!
+        # This includes timeout, reward shaping, and state normalization
+        env = CarRacing(
+            render_mode=render_mode,
+            verbose=verbose,
+            continuous=True,
+            terminate_stationary=terminate_stationary,
+            stationary_patience=stationary_patience,
+            stationary_min_steps=stationary_min_steps,
+            state_mode=state_mode,
+            max_episode_steps=max_episode_steps,
+            reward_shaping=reward_shaping,
+            min_episode_steps=min_episode_steps,
+            short_episode_penalty=short_episode_penalty,
+        )
+        return env
 
-    # Reward shaping to discourage degenerate strategies
-    if reward_shaping:
-        env = RewardShaper(env, min_steps=min_episode_steps, short_episode_penalty=short_episode_penalty)
+    elif state_mode == "visual":
+        # Visual mode: Use wrappers for backwards compatibility
+        # Create base environment without built-in timeout/reward shaping
+        # (let wrappers handle it for visual mode)
+        env = CarRacing(
+            render_mode=render_mode,
+            verbose=verbose,
+            continuous=True,
+            terminate_stationary=terminate_stationary,
+            stationary_patience=stationary_patience,
+            stationary_min_steps=stationary_min_steps,
+            state_mode=state_mode,
+            max_episode_steps=None,  # Disable built-in timeout for visual mode
+            reward_shaping=False,    # Disable built-in shaping for visual mode
+        )
 
-    # Apply preprocessing based on state mode
-    if state_mode == "visual":
+        # Reward shaping to discourage degenerate strategies
+        if reward_shaping:
+            env = RewardShaper(env, min_steps=min_episode_steps, short_episode_penalty=short_episode_penalty)
+
         # Frame preprocessing (native 96x96, no resize needed)
         env = GrayscaleWrapper(env)
         env = NormalizeObservation(env)
         # Frame stacking (must be last to stack preprocessed frames)
         env = FrameStack(env, stack_size=stack_size)
-    elif state_mode == "vector":
-        # Vector mode: 36D state vector, no preprocessing needed (already normalized in env)
-        pass
 
-    # Add time limit to prevent infinite episodes
-    # This is crucial with stable physics - episodes can run forever without crashing
-    if max_episode_steps is not None and max_episode_steps > 0:
-        env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
+        # Add time limit to prevent infinite episodes
+        if max_episode_steps is not None and max_episode_steps > 0:
+            env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
 
-    return env
+        return env
+
+    else:
+        raise ValueError(f"Invalid state_mode: {state_mode}. Must be 'vector' or 'visual'.")
 
 
 if __name__ == "__main__":
