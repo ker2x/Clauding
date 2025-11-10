@@ -165,10 +165,15 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     waypoints_flat = state_vector[16:56]
     waypoints_raw = waypoints_flat.reshape(20, 2)
 
-    # Swap X and Y for correct visualization orientation
-    # Environment stores as (lateral, longitudinal) but we want (longitudinal, lateral) for plotting
-    # So swap columns: waypoints[:, [1, 0]] means take column 1 first, then column 0
-    waypoints = waypoints_raw[:, [1, 0]]
+    # Transform waypoints for correct visualization orientation
+    # Environment stores as (longitudinal, lateral) in car frame where:
+    #   - First coord (rel_x) = forward/backward (longitudinal)
+    #   - Second coord (rel_y) = left (positive) / right (negative) (lateral)
+    # For plotting, we want:
+    #   - X-axis (horizontal) = right (positive) / left (negative)
+    #   - Y-axis (vertical) = forward (positive)
+    # So: plot_x = -rel_y (negate to flip left/right), plot_y = rel_x
+    waypoints = np.column_stack([-waypoints_raw[:, 1], waypoints_raw[:, 0]])
 
     speed = state_vector[56]
     ax = state_vector[57]
