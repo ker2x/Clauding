@@ -1344,15 +1344,18 @@ class CarRacing(gym.Env, EzPickle):
         Create vector state representation (fast, informative).
 
         Returns 67-dimensional state vector (increased from 47 for better lookahead):
-        - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
-        - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along_segment, segment_length
+        - Car state (11): x, y, vx (body), vy (body), angle, angular_vel, wheel_contacts[4], track_progress
+        - Track segment info (5): dist_to_center, angle_diff, curvature, t (position on segment [0-1]), segment_length
         - Lookahead waypoints (40): 20 waypoints × (x, y) in car-relative coordinates (increased from 10)
         - Speed (1): magnitude of velocity
         - Accelerations (2): longitudinal (body frame), lateral (body frame)
         - Slip angles (4): for each wheel [FL, FR, RL, RR]
         - Slip ratios (4): for each wheel [FL, FR, RL, RR]
 
-        Note: Lookahead increased from 10 to 20 waypoints to allow high-speed braking.
+        Note: ALL velocities and accelerations use BODY FRAME (longitudinal/lateral relative to car)
+        for consistent coordinate system. This is more intuitive for racing control.
+
+        Lookahead increased from 10 to 20 waypoints to allow high-speed braking.
         At 108 km/h, 20 waypoints = 70m = 2.33s lookahead (enough to brake for corners).
         """
         assert self.car is not None
@@ -1360,14 +1363,15 @@ class CarRacing(gym.Env, EzPickle):
         # 1. Get basic car state
         car_x = self.car.hull.position[0] / PLAYFIELD
         car_y = self.car.hull.position[1] / PLAYFIELD
-        vx = self.car.hull.linearVelocity[0]
-        vy = self.car.hull.linearVelocity[1]
+        # Use body frame velocities (longitudinal/lateral) for consistency with accelerations
+        vx = self.car.vx  # Longitudinal velocity (forward/backward in car frame)
+        vy = self.car.vy  # Lateral velocity (left/right in car frame)
         angle = self.car.hull.angle / (2 * np.pi)
         angular_vel = self.car.hull.angularVelocity
         wheel_contacts = [1.0 if len(wheel.tiles) > 0 else 0.0 for wheel in self.car.wheels]
         track_progress = self.tile_visited_count / len(self.track) if len(self.track) > 0 else 0.0
 
-        # Calculate speed (magnitude of velocity)
+        # Calculate speed (magnitude of velocity in body frame)
         speed = np.sqrt(vx ** 2 + vy ** 2)
 
         # Calculate accelerations in body frame (change in velocity)
@@ -1415,18 +1419,23 @@ class CarRacing(gym.Env, EzPickle):
         next_beta = self.track[next_idx][1]
         curvature = (next_beta - prev_beta) / (2 * TRACK_DETAIL_STEP)
 
-        # Distance along segment (normalized)
+        # Distance along segment (normalized to [0, 1])
         _, _, x1, y1 = self.track[seg_idx]
         _, _, x2, y2 = self.track[prev_idx]
         seg_len = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
         if seg_len > 0:
+            # t is the projection parameter [0, 1] along the segment
             t = ((car_world_pos[0] - x1) * (x2 - x1) + (car_world_pos[1] - y1) * (y2 - y1)) / (seg_len**2)
-            dist_along = t * seg_len
+            # Clamp t to [0, 1] to keep it bounded
+            t = np.clip(t, 0.0, 1.0)
         else:
-            dist_along = 0.0
+            t = 0.0
 
-        # Normalize distance to center by track width
-        dist_to_center_norm = dist_to_center / TRACK_WIDTH
+        # Normalize distance to center by track width (0 = center, 1 = edge, >1 = off track)
+        dist_to_center_norm = np.clip(dist_to_center / TRACK_WIDTH, 0.0, 2.0)  # Clip at 2x track width
+
+        # Normalize segment length by typical track detail step
+        seg_len_norm = seg_len / TRACK_DETAIL_STEP
 
         # 3. Get slip angles and slip ratios from stored tire forces
         # IMPORTANT: Use stored forces from car.last_tire_forces to avoid
@@ -1534,18 +1543,19 @@ class CarRacing(gym.Env, EzPickle):
 
         # Combine all features (67 total, increased from 47)
         # ALL FEATURES NOW NORMALIZED to similar scales for stable training
+        # ALL VELOCITIES AND ACCELERATIONS IN BODY FRAME (consistent coordinate system)
         state = np.array([
-            # Basic car state (11) - NORMALIZED
+            # Basic car state (11) - NORMALIZED, body frame velocities
             car_x, car_y, vx_norm, vy_norm, angle, angular_vel_norm,
             wheel_contacts[0], wheel_contacts[1], wheel_contacts[2], wheel_contacts[3],
             track_progress,
-            # Track segment info (5) - NORMALIZED
-            dist_to_center_norm, angle_diff, curvature_norm, dist_along / TRACK_DETAIL_STEP, seg_len / TRACK_DETAIL_STEP,
+            # Track segment info (5) - NORMALIZED & BOUNDED
+            dist_to_center_norm, angle_diff, curvature_norm, t, seg_len_norm,
             # Waypoints (40) - NORMALIZED
             *waypoints,
             # Speed (1) - NORMALIZED
             speed_norm,
-            # Accelerations (2) - NORMALIZED
+            # Accelerations (2) - NORMALIZED, body frame
             ax_norm, ay_norm,
             # Slip angles (4) - NORMALIZED
             slip_angles_norm[0], slip_angles_norm[1], slip_angles_norm[2], slip_angles_norm[3],
