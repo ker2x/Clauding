@@ -84,7 +84,17 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
 
     # Extract waypoints (20 waypoints × 2 coordinates = 40 values)
     waypoints_flat = state_vector[16:56]
-    waypoints = waypoints_flat.reshape(20, 2)
+    waypoints_raw = waypoints_flat.reshape(20, 2)
+
+    # Transform waypoints for correct visualization orientation
+    # Environment stores as (longitudinal, lateral) in car frame where:
+    #   - First coord (rel_x) = forward/backward (longitudinal)
+    #   - Second coord (rel_y) = left (positive) / right (negative) (lateral)
+    # For plotting, we want:
+    #   - X-axis (horizontal) = right (positive) / left (negative)
+    #   - Y-axis (vertical) = forward (positive)
+    # So: plot_x = -rel_y (negate to flip left/right), plot_y = rel_x
+    waypoints = np.column_stack([-waypoints_raw[:, 1], waypoints_raw[:, 0]])
 
     speed = state_vector[56]
     ax = state_vector[57]
@@ -103,8 +113,8 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     ax_main.set_ylim(-0.1, 0.5)
     ax_main.set_facecolor('#1a1a1a')
     ax_main.grid(True, alpha=0.2, color='white')
-    ax_main.set_xlabel('X (car-relative, normalized)', color='white')
-    ax_main.set_ylabel('Y (car-relative, normalized)', color='white')
+    ax_main.set_xlabel('Lateral (left ← | → right)', color='white')
+    ax_main.set_ylabel('Longitudinal (forward ↑)', color='white')
     ax_main.tick_params(colors='white')
     ax_main.set_title('Model\'s View: Track Lookahead (20 Waypoints)',
                       color='white', fontweight='bold', fontsize=12)
