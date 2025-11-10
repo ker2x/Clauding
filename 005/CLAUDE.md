@@ -335,46 +335,41 @@ All reward parameters are configured at the top of `env/car_racing.py` (lines 64
 ### Current Configuration (Default)
 
 ```python
-NUM_CHECKPOINTS = 15          # 15 checkpoints of ~20 tiles each (for 300-tile track)
-CHECKPOINT_REWARD = 100.0     # 100 points per checkpoint (1500 total)
-LAP_COMPLETION_REWARD = 1000.0  # 1000 bonus for completing a full lap
-FORWARD_VEL_REWARD = 0.1      # +0.1 per m/s per frame (actively encourages speed)
-STEP_PENALTY = 2.0            # -2.0 per frame (strongly favors fast laps)
-OFFTRACK_PENALTY = 1.0        # -1.0 per wheel off track
+NUM_WAYPOINTS = 20            # 20 waypoints dividing track (~15 tiles each for 300-tile track)
+WAYPOINT_REWARD = 50.0        # 50 points per waypoint (1000 total)
+LAP_COMPLETION_REWARD = 500.0 # 500 bonus for completing a full lap
+STEP_PENALTY = 1.0            # -1.0 per frame (time pressure for fast laps)
+OFFTRACK_PENALTY = 2.0        # -2.0 per wheel off track
 OFFTRACK_THRESHOLD = 2        # Allow 2 wheels off (aggressive lines OK)
+WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to "reach" waypoint
 ```
 
 ### Tuning Guide
 
-**If agent struggles to reach checkpoints** (too sparse):
+**If agent struggles to reach waypoints** (too sparse):
 ```python
-NUM_CHECKPOINTS = 20-25     # Make checkpoints smaller/easier
-CHECKPOINT_REWARD = 60-75   # Adjust to keep total ~1500
-```
-
-**If agent exploits easy checkpoints** (too dense):
-```python
-NUM_CHECKPOINTS = 10-12     # Make checkpoints larger/harder
-CHECKPOINT_REWARD = 125-150 # Adjust to keep total ~1500
-```
-
-**If agent drives too slowly** (needs more velocity incentive):
-```python
-FORWARD_VEL_REWARD = 0.15   # Increase velocity bonus (from 0.1)
+NUM_WAYPOINTS = 25-30         # More waypoints = smaller steps
+WAYPOINT_REWARD = 35-40       # Adjust to keep total ~1000
 # or
-FORWARD_VEL_REWARD = 0.2    # Even stronger velocity bonus
+WAYPOINT_DISTANCE_THRESHOLD = 7.0  # Easier to reach waypoints
 ```
 
-**If agent drives too conservatively** (insufficient time pressure):
+**If agent needs stronger intermediate guidance** (still too sparse):
 ```python
-STEP_PENALTY = 3.0          # Increase time penalty (from 2.0)
+NUM_WAYPOINTS = 40-50         # Very dense waypoints
+WAYPOINT_REWARD = 20-25       # Adjust to keep total ~1000
 ```
 
-**If agent drives too aggressively** (excessive time pressure):
+**If agent drives too slowly** (needs more time pressure):
 ```python
-STEP_PENALTY = 1.0          # Reduce time penalty (from 2.0)
-# or
-FORWARD_VEL_REWARD = 0.05   # Reduce velocity bonus
+STEP_PENALTY = 2.0            # Increase time penalty (from 1.0)
+LAP_COMPLETION_REWARD = 1000.0  # Higher lap bonus encourages speed
+```
+
+**If agent drives too aggressively off-track** (crashes too often):
+```python
+STEP_PENALTY = 0.5          # Reduce time pressure (from 1.0)
+OFFTRACK_PENALTY = 5.0      # Increase off-track penalty (from 2.0)
 ```
 
 **If agent drives recklessly off-track** (too lenient):

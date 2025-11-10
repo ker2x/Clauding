@@ -62,13 +62,13 @@ MAX_SHAPE_DIM = (
 )
 
 # Reward structure configuration
-NUM_CHECKPOINTS = 15        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
-CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
+NUM_WAYPOINTS = 20          # Number of waypoints to divide track into (~15 tiles each for 300-tile track)
+WAYPOINT_REWARD = 50.0      # Reward for reaching each waypoint in sequence (total = NUM_WAYPOINTS * WAYPOINT_REWARD = 1000)
 LAP_COMPLETION_REWARD = 500.0  # Large reward for completing a full lap (encourages finishing)
-FORWARD_VEL_REWARD = 0.1    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
-STEP_PENALTY = 1.0          # Penalty per frame (encourages speed via less total penalty) - increased to strongly favor fast laps
+STEP_PENALTY = 1.0          # Penalty per frame (encourages speed via less total penalty)
 OFFTRACK_PENALTY = 2.0      # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
+WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to consider waypoint "reached"
 
 
 class FrictionDetector:
@@ -224,35 +224,6 @@ class FrictionDetector:
                     tile.road_visited = True
                     self.env.tile_visited_count += 1
 
-                    # Checkpoint system: reward when reaching NEXT checkpoint in sequence
-                    # This prevents backward driving exploits where AI wraps around to get rewards
-                    current_checkpoint = tile.idx // self.env.checkpoint_size
-                    expected_next_checkpoint = self.env.last_checkpoint_reached + 1
-
-                    # Allow wrapping: after last checkpoint (14), next is 0 (lap completion)
-                    if expected_next_checkpoint >= self.env.num_checkpoints:
-                        expected_next_checkpoint = 0
-
-                    # Check that car is moving forward (not backward)
-                    # Get car's forward velocity (vx in body frame)
-                    car_forward_velocity = self.env.car.vx if hasattr(self.env.car, 'vx') else 0.0
-                    is_moving_forward = car_forward_velocity > 0.1  # Must be moving forward at > 0.1 m/s
-
-                    # Only reward if:
-                    # 1. Reaching the NEXT checkpoint in sequence (prevents backward farming)
-                    # 2. Moving forward (prevents backward driving exploits)
-                    if current_checkpoint == expected_next_checkpoint and is_moving_forward:
-                        self.env.last_checkpoint_reached = current_checkpoint
-                        self.env.reward += self.env.checkpoint_reward
-                        if self.env.verbose:
-                            progress_pct = (current_checkpoint + 1) / self.env.num_checkpoints * 100
-                            print(f"  ✓ Checkpoint {current_checkpoint + 1}/{self.env.num_checkpoints} "
-                                  f"reached! ({progress_pct:.0f}% complete, +{self.env.checkpoint_reward} reward)")
-                    elif not is_moving_forward and self.env.verbose:
-                        # Debug: car reached checkpoint while moving backward
-                        print(f"  ⚠ Checkpoint {current_checkpoint + 1} reached while moving BACKWARD "
-                              f"(vx={car_forward_velocity:.2f} m/s) - NO REWARD")
-
                     # Lap completion check
                     if (
                         tile.idx == 0 and
@@ -299,28 +270,25 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses a sparse checkpoint system combined with step penalty.
-    All reward parameters are configurable at the top of this file (lines 64-70).
+    The reward structure uses a clean waypoint-based system with time pressure.
+    All reward parameters are configurable at the top of this file (lines 64-71).
 
     **Sparse rewards (main objective):**
-    - Checkpoint rewards: +CHECKPOINT_REWARD points for each of NUM_CHECKPOINTS checkpoints
-      (default: 10 checkpoints × 100 points = 1000 total)
-    - Each checkpoint is ~30 tiles (for typical 300-tile track), making them achievable through exploration
-    - Must visit tiles in sequence to reach next checkpoint
+    - Waypoint rewards: +WAYPOINT_REWARD points for reaching each of NUM_WAYPOINTS waypoints in sequence
+      (default: 20 waypoints × 50 points = 1000 total)
+    - Waypoints are evenly spaced along the track (~15 tiles apart for typical 300-tile track)
+    - Car must be within WAYPOINT_DISTANCE_THRESHOLD meters to reach waypoint (default: 5.0m)
+    - Lap completion: +LAP_COMPLETION_REWARD bonus for completing full lap (default: 500 points)
 
-    **Dense penalties (constraints and speed incentive):**
-    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, implicitly encourages reaching checkpoints quickly)
+    **Dense penalties (constraints and time pressure):**
+    - Per-step penalty: -STEP_PENALTY every frame (default: -1.0, creates time pressure for fast laps)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
-      (default: -1.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
+      (default: -2.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
 
-    **Optional dense reward:**
-    - Forward velocity: +FORWARD_VEL_REWARD per m/s of forward velocity per frame
-      (default: 0.0 = disabled, set to 0.05-0.1 to enable)
-
-    Example with defaults: Reaching checkpoint 5 (50% progress) in 366 frames:
-    - Checkpoint rewards: 5 * 100 = +500
-    - Step penalty: -0.5 * 366 = -183
-    - Total: ~317 points
+    Example with defaults: Reaching waypoint 10 (50% progress) in 400 frames:
+    - Waypoint rewards: 10 * 50 = +500
+    - Step penalty: -1.0 * 400 = -400
+    - Total: ~100 points (grows with lap completion and speed)
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -422,9 +390,10 @@ class CarRacing(gym.Env, EzPickle):
         # This allows enough time to brake for corners (braking from 108→36 km/h needs ~41m)
         self.vector_lookahead = 20
 
-        # Checkpoint system for sparse rewards (configured at top of file)
-        self.num_checkpoints = NUM_CHECKPOINTS
-        self.checkpoint_reward = CHECKPOINT_REWARD
+        # Waypoint system for sparse rewards (configured at top of file)
+        self.num_waypoints = NUM_WAYPOINTS
+        self.waypoint_reward = WAYPOINT_REWARD
+        self.waypoint_distance_threshold = WAYPOINT_DISTANCE_THRESHOLD
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -717,9 +686,9 @@ class CarRacing(gym.Env, EzPickle):
         self.prev_vx = 0.0
         self.prev_vy = 0.0
 
-        # Checkpoint tracking (initialized after track creation)
-        self.last_checkpoint_reached = -1
-        self.checkpoint_size = 0  # Will be set after track is created
+        # Waypoint tracking (initialized after track creation)
+        self.next_waypoint_index = 0  # Which waypoint to reach next (0 to num_waypoints-1)
+        self.waypoint_indices = []  # Track indices for each waypoint (calculated after track creation)
 
         if self.domain_randomize:
             randomize = True
@@ -739,11 +708,13 @@ class CarRacing(gym.Env, EzPickle):
                     "instances of this message)"
                 )
 
-        # Initialize checkpoint system after track is created
-        self.checkpoint_size = len(self.track) // self.num_checkpoints
+        # Initialize waypoint system after track is created
+        # Distribute waypoints evenly along the track
+        waypoint_spacing = len(self.track) // self.num_waypoints
+        self.waypoint_indices = [i * waypoint_spacing for i in range(self.num_waypoints)]
         if self.verbose:
-            print(f"Track has {len(self.track)} tiles, {self.num_checkpoints} checkpoints "
-                  f"of ~{self.checkpoint_size} tiles each")
+            print(f"Track has {len(self.track)} tiles, {self.num_waypoints} waypoints "
+                  f"at ~{waypoint_spacing} tile intervals")
 
         init_beta, init_x, init_y = self.track[0][1:4]
         # The car's "front" is its +X axis in physics.
@@ -850,22 +821,34 @@ class CarRacing(gym.Env, EzPickle):
             car_forward_x = np.cos(self.car.hull.angle)
             car_forward_y = np.sin(self.car.hull.angle)
 
-            # Dot product of velocity with forward direction
+            # Dot product of velocity with forward direction (kept for debug output)
             forward_velocity = (
                 self.car.hull.linearVelocity[0] * car_forward_x +
                 self.car.hull.linearVelocity[1] * car_forward_y
             )
 
-            # Reward forward progress only (backward movement = no reward)
-            # Configured at top of file: FORWARD_VEL_REWARD (currently 0.0 = disabled)
-            # Hypothesis: velocity is implicitly rewarded by reaching checkpoints faster
-            # Can be re-enabled if agent struggles to learn (set to 0.05 or 0.1)
-            self.reward += FORWARD_VEL_REWARD * max(0, forward_velocity)
-
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
             if wheels_off_track > OFFTRACK_THRESHOLD:
                 self.reward -= OFFTRACK_PENALTY * wheels_off_track
+
+            # Check if car reached next waypoint
+            if self.next_waypoint_index < len(self.waypoint_indices):
+                waypoint_tile_idx = self.waypoint_indices[self.next_waypoint_index]
+                waypoint_x, waypoint_y = self.track[waypoint_tile_idx][2], self.track[waypoint_tile_idx][3]
+                car_x, car_y = self.car.hull.position
+
+                distance_to_waypoint = np.sqrt((car_x - waypoint_x)**2 + (car_y - waypoint_y)**2)
+
+                if distance_to_waypoint < self.waypoint_distance_threshold:
+                    # Waypoint reached!
+                    self.reward += self.waypoint_reward
+                    self.next_waypoint_index += 1
+
+                    if self.verbose:
+                        progress_pct = self.next_waypoint_index / self.num_waypoints * 100
+                        print(f"  ✓ Waypoint {self.next_waypoint_index}/{self.num_waypoints} "
+                              f"reached! ({progress_pct:.0f}% complete, +{self.waypoint_reward} reward)")
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward

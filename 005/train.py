@@ -59,8 +59,8 @@ except (ImportError, RuntimeError) as e:
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
 from env.car_racing import (
-    NUM_CHECKPOINTS, CHECKPOINT_REWARD, LAP_COMPLETION_REWARD, FORWARD_VEL_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD
+    NUM_WAYPOINTS, WAYPOINT_REWARD, LAP_COMPLETION_REWARD,
+    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD, WAYPOINT_DISTANCE_THRESHOLD
 )
 
 
@@ -238,10 +238,10 @@ def setup_logging(log_dir, args, env, agent, config):
         f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
 
         f.write("Reward Structure (from env/car_racing.py):\n")
-        f.write(f"  Checkpoints: {NUM_CHECKPOINTS} x {CHECKPOINT_REWARD} points\n")
-        f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (generous bonus for finishing)\n")
-        f.write(f"  Forward velocity: {FORWARD_VEL_REWARD} per m/s per frame\n")
-        f.write(f"  Step penalty: {STEP_PENALTY} per frame (increased to favor faster laps)\n")
+        f.write(f"  Waypoints: {NUM_WAYPOINTS} x {WAYPOINT_REWARD} points (total: {NUM_WAYPOINTS * WAYPOINT_REWARD})\n")
+        f.write(f"  Waypoint distance threshold: {WAYPOINT_DISTANCE_THRESHOLD}m\n")
+        f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
+        f.write(f"  Step penalty: {STEP_PENALTY} per frame (time pressure)\n")
         f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n\n")
 
         f.write("Agent Hyperparameters:\n")
