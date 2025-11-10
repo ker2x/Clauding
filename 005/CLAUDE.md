@@ -335,46 +335,42 @@ All reward parameters are configured at the top of `env/car_racing.py` (lines 64
 ### Current Configuration (Default)
 
 ```python
-NUM_CHECKPOINTS = 15          # 15 checkpoints of ~20 tiles each (for 300-tile track)
-CHECKPOINT_REWARD = 100.0     # 100 points per checkpoint (1500 total)
-LAP_COMPLETION_REWARD = 1000.0  # 1000 bonus for completing a full lap
-FORWARD_VEL_REWARD = 0.1      # +0.1 per m/s per frame (actively encourages speed)
-STEP_PENALTY = 2.0            # -2.0 per frame (strongly favors fast laps)
-OFFTRACK_PENALTY = 1.0        # -1.0 per wheel off track
-OFFTRACK_THRESHOLD = 2        # Allow 2 wheels off (aggressive lines OK)
+PROGRESS_REWARD_SCALE = 4000.0  # Reward scale for track progress (full lap = 4000)
+LAP_COMPLETION_REWARD = 500.0   # 500 bonus for completing a full lap
+STEP_PENALTY = 0.5              # -0.5 per frame (mild time pressure)
+OFFTRACK_PENALTY = 2.0          # -2.0 per wheel off track
+OFFTRACK_THRESHOLD = 2          # Allow 2 wheels off (aggressive lines OK)
 ```
+
+**Reward Math (Continuous Progress):**
+- Progress measured as: furthest_tile_idx / total_tiles (0.0 to 1.0)
+- Reward per progress: progress_delta × 4000
+- 50% progress in 500 frames: 0.5 × 4000 - (0.5 × 500) = **+1750** ✓
+- Full lap (1000-2000 frames): 4000 + 500 - (0.5 × 1000-2000) = **+4000 to +3500** ✓
+- Dense signal: reward every frame car moves to new furthest tile
 
 ### Tuning Guide
 
-**If agent struggles to reach checkpoints** (too sparse):
+**If agent needs more progress reward** (not enough incentive):
 ```python
-NUM_CHECKPOINTS = 20-25     # Make checkpoints smaller/easier
-CHECKPOINT_REWARD = 60-75   # Adjust to keep total ~1500
+PROGRESS_REWARD_SCALE = 6000.0  # Increase from 4000
 ```
 
-**If agent exploits easy checkpoints** (too dense):
+**If agent needs less progress reward** (too easy):
 ```python
-NUM_CHECKPOINTS = 10-12     # Make checkpoints larger/harder
-CHECKPOINT_REWARD = 125-150 # Adjust to keep total ~1500
+PROGRESS_REWARD_SCALE = 3000.0  # Decrease from 4000
 ```
 
-**If agent drives too slowly** (needs more velocity incentive):
+**If agent drives too slowly** (needs more time pressure):
 ```python
-FORWARD_VEL_REWARD = 0.15   # Increase velocity bonus (from 0.1)
-# or
-FORWARD_VEL_REWARD = 0.2    # Even stronger velocity bonus
+STEP_PENALTY = 1.0            # Increase time penalty (from 0.5)
+LAP_COMPLETION_REWARD = 1000.0  # Higher lap bonus encourages speed
 ```
 
-**If agent drives too conservatively** (insufficient time pressure):
+**If agent drives too aggressively off-track** (crashes too often):
 ```python
-STEP_PENALTY = 3.0          # Increase time penalty (from 2.0)
-```
-
-**If agent drives too aggressively** (excessive time pressure):
-```python
-STEP_PENALTY = 1.0          # Reduce time penalty (from 2.0)
-# or
-FORWARD_VEL_REWARD = 0.05   # Reduce velocity bonus
+STEP_PENALTY = 0.2          # Reduce time pressure (from 0.5)
+OFFTRACK_PENALTY = 5.0      # Increase off-track penalty (from 2.0)
 ```
 
 **If agent drives recklessly off-track** (too lenient):
