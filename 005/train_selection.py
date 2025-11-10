@@ -48,6 +48,8 @@ def parse_args():
                         help='Select best agent every N episodes (default: 50)')
     parser.add_argument('--eval-episodes', type=int, default=5,
                         help='Episodes to evaluate each agent during selection (default: 5)')
+    parser.add_argument('--sync-seeds', action='store_true',
+                        help='Use synchronized seeds (same track for all agents per episode)')
 
     # Training parameters
     parser.add_argument('--episodes', type=int, default=2000,
@@ -228,6 +230,8 @@ def main():
     print("Selection-Based Training Configuration")
     print(f"{'='*60}")
     print(f"Number of agents: {args.num_agents}")
+    print(f"Training mode: SEQUENTIAL (fair comparison)")
+    print(f"Seed mode: {'SYNCHRONIZED (same track)' if args.sync_seeds else 'UNSYNCHRONIZED (different tracks)'}")
     print(f"Selection frequency: every {args.selection_frequency} episodes")
     print(f"Evaluation episodes per selection: {args.eval_episodes}")
     print(f"Total episodes: {args.episodes}")
@@ -350,14 +354,21 @@ def main():
                     f"{np.max(eval_rewards):.2f}"
                 ])
 
-        # Train all agents in parallel for this episode
+        # Train all agents sequentially for this episode
+        # (Sequential ensures fair comparison - all agents get equal wall-clock time)
         for agent_id in range(args.num_agents):
             agent = agents[agent_id]
             env = envs[agent_id]
             buffer = replay_buffers[agent_id]
 
             # Reset environment
-            obs, _ = env.reset(seed=1000 + episode + agent_id * 10000)
+            # Synchronized seeds: same track for all agents (fair comparison)
+            # Unsynchronized: different tracks (more diverse exploration)
+            if args.sync_seeds:
+                seed = 1000 + episode
+            else:
+                seed = 1000 + episode + agent_id * 10000
+            obs, _ = env.reset(seed=seed)
             episode_reward = 0.0
             terminated = False
             truncated = False
@@ -404,8 +415,14 @@ def main():
             avg_alpha = np.mean(alphas) if alphas else 0.0
 
             # Find current best agent
-            recent_rewards = [np.mean(rewards[-10:]) if len(rewards) >= 10 else np.mean(rewards)
-                            for rewards in agent_episode_rewards]
+            recent_rewards = []
+            for rewards in agent_episode_rewards:
+                if len(rewards) >= 10:
+                    recent_rewards.append(np.mean(rewards[-10:]))
+                elif len(rewards) > 0:
+                    recent_rewards.append(np.mean(rewards))
+                else:
+                    recent_rewards.append(0.0)  # No episodes yet
             best_agent_id = np.argmax(recent_rewards)
             best_reward = recent_rewards[best_agent_id]
             avg_reward = np.mean(recent_rewards)
@@ -431,8 +448,14 @@ def main():
         # Print progress
         if (episode + 1) % 10 == 0:
             elapsed = time.time() - start_time
-            recent_rewards = [np.mean(rewards[-10:]) if len(rewards) >= 10 else np.mean(rewards)
-                            for rewards in agent_episode_rewards]
+            recent_rewards = []
+            for rewards in agent_episode_rewards:
+                if len(rewards) >= 10:
+                    recent_rewards.append(np.mean(rewards[-10:]))
+                elif len(rewards) > 0:
+                    recent_rewards.append(np.mean(rewards))
+                else:
+                    recent_rewards.append(0.0)
             print(f"Episode {episode + 1}/{args.episodes} | "
                   f"Gen {generation} | "
                   f"Best: {max(recent_rewards):.1f} | "
@@ -450,8 +473,14 @@ def main():
                 agent.save(checkpoint_path)
 
             # Save best agent
-            recent_rewards = [np.mean(rewards[-100:]) if len(rewards) >= 100 else np.mean(rewards)
-                            for rewards in agent_episode_rewards]
+            recent_rewards = []
+            for rewards in agent_episode_rewards:
+                if len(rewards) >= 100:
+                    recent_rewards.append(np.mean(rewards[-100:]))
+                elif len(rewards) > 0:
+                    recent_rewards.append(np.mean(rewards))
+                else:
+                    recent_rewards.append(0.0)
             best_agent_id = np.argmax(recent_rewards)
             if recent_rewards[best_agent_id] > best_overall_reward:
                 best_overall_reward = recent_rewards[best_agent_id]
