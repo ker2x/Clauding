@@ -326,7 +326,7 @@ class CarRacing(gym.Env, EzPickle):
         stationary_patience: int = 50,
         stationary_min_steps: int = 50,
         state_mode: str = "vector",
-        max_episode_steps: int | None = 1500,
+        max_episode_steps: int | None = 2500,
         reward_shaping: bool = True,
         min_episode_steps: int = 150,
         short_episode_penalty: float = -50.0,

@@ -415,7 +415,7 @@ def train(args):
     REWARD_SHAPING = True
     MIN_EPISODE_STEPS = 100
     SHORT_EPISODE_PENALTY = -50.0
-    MAX_EPISODE_STEPS = 1500  # Prevent infinite episodes (stable physics can drive forever)
+    MAX_EPISODE_STEPS = 2500  # 50 seconds: allows lap completion at ≥25 m/s (mid-training speed)
 
     # Create directories
     os.makedirs(args.checkpoint_dir, exist_ok=True)
