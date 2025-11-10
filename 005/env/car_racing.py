@@ -67,6 +67,9 @@ LAP_COMPLETION_REWARD = 500.0   # Large reward for completing a full lap (encour
 STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
 OFFTRACK_PENALTY = 2.0          # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 2          # Number of wheels that can be off track before penalty applies (allows aggressive lines)
+OFFTRACK_TERMINATION_PENALTY = 10.0  # Penalty when going completely off track (reduced from -100 to encourage exploration)
+ONTRACK_REWARD = 0.1            # Small positive reward per frame for staying on track (encourages forward movement)
+FORWARD_SPEED_REWARD_SCALE = 0.5  # Small reward for forward speed (encourages racing even before tile progress)
 
 
 class FrictionDetector:
@@ -298,33 +301,39 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses continuous progress tracking with time pressure.
-    All reward parameters are configurable at the top of this file (lines 64-69).
+    The reward structure uses continuous progress tracking with exploration-friendly shaping.
+    All reward parameters are configurable at the top of this file (lines 64-72).
 
-    **Dense rewards (main objective):**
+    **Dense rewards (main objective and exploration):**
     - Progress reward: +progress_delta × PROGRESS_REWARD_SCALE points for forward movement
       (default: PROGRESS_REWARD_SCALE = 4000, so full lap = +4000 points)
     - Progress measured as furthest tile reached / total tiles (0.0 to 1.0)
     - Only forward progress counts (backward movement = 0 reward)
     - Dense signal: reward every frame the car moves to a new furthest tile
     - Lap completion: +LAP_COMPLETION_REWARD bonus for completing full lap (default: 500 points)
+    - On-track reward: +ONTRACK_REWARD per frame when ≤OFFTRACK_THRESHOLD wheels off (default: +0.1, encourages staying on track)
+    - Forward speed reward: +speed × FORWARD_SPEED_REWARD_SCALE per frame (default: 0.5, capped at +2.0, encourages racing)
 
     **Dense penalties (constraints and time pressure):**
     - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, mild time pressure)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
       (default: -2.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
+    - Off-track termination: -OFFTRACK_TERMINATION_PENALTY when all wheels go off track (default: -10, reduced to encourage exploration)
 
-    Example with defaults: Reaching 50% progress in 500 frames:
+    Example with defaults: Reaching 50% progress in 500 frames at 2 m/s average:
     - Progress reward: 0.5 × 4000 = +2000
     - Step penalty: -0.5 × 500 = -250
-    - Total: ~+1750 points (dense rewards keep learning stable!)
+    - On-track reward: +0.1 × 500 = +50
+    - Speed reward: ~2.0 × 500 = ~+1000 (varies with speed)
+    - Total: ~+2800 points (dense rewards encourage racing!)
 
     ## Starting State
     The car starts at rest in the center of the road.
 
     ## Episode Termination
     The episode finishes when all the tiles are visited. The car can also go outside the playfield -
-     that is, far off the track, in which case it will receive -100 reward and die.
+     that is, far off the track (all 4 wheels off), in which case it will receive -OFFTRACK_TERMINATION_PENALTY
+     reward and die (default: -10, reduced to encourage exploration).
 
     Additionally, if `terminate_stationary=True`, episodes will be truncated early if the car makes
      no progress (no new tiles visited) for `stationary_patience` frames (default: 100), after a
@@ -981,6 +990,17 @@ class CarRacing(gym.Env, EzPickle):
                     progress_pct = current_progress * 100
                     print(f"  → Progress: {progress_pct:.1f}% (+{progress_reward:.1f} reward)")
 
+            # Small positive reward for staying on track (encourages exploration)
+            if wheels_off_track <= OFFTRACK_THRESHOLD:
+                self.reward += ONTRACK_REWARD
+
+            # Small positive reward for forward speed (encourages racing)
+            # This helps agent discover that moving forward is good, even before tile progress
+            car_forward_velocity = self.car.hull.linearVelocity[0]  # Forward velocity component
+            if car_forward_velocity > 0:
+                speed_reward = min(car_forward_velocity * FORWARD_SPEED_REWARD_SCALE, 2.0)  # Cap at +2.0
+                self.reward += speed_reward
+
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
 
@@ -1020,7 +1040,7 @@ class CarRacing(gym.Env, EzPickle):
                 terminated = True
                 info["lap_finished"] = False
                 info["off_track"] = True
-                step_reward = -100
+                step_reward = -OFFTRACK_TERMINATION_PENALTY
 
             # Built-in timeout logic (replaces TimeLimit wrapper for vector mode)
             self.episode_steps += 1
@@ -1151,7 +1171,7 @@ class CarRacing(gym.Env, EzPickle):
                 if all_wheels_off:
                     terminated[car_idx] = True
                     infos[car_idx]["off_track"] = True
-                    step_rewards[car_idx] = -100
+                    step_rewards[car_idx] = -OFFTRACK_TERMINATION_PENALTY
 
                 # Check lap completion for this car
                 if self.car_tile_visited_counts[car_idx] == len(self.track):

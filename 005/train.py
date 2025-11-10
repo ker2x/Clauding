@@ -60,7 +60,8 @@ from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
 from env.car_racing import (
     PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD
+    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
+    OFFTRACK_TERMINATION_PENALTY, ONTRACK_REWARD, FORWARD_SPEED_REWARD_SCALE
 )
 
 
@@ -240,8 +241,11 @@ def setup_logging(log_dir, args, env, agent, config):
         f.write("Reward Structure (from env/car_racing.py):\n")
         f.write(f"  Progress reward: {PROGRESS_REWARD_SCALE} points for full lap (continuous/dense)\n")
         f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
+        f.write(f"  On-track reward: {ONTRACK_REWARD} per frame (encourages staying on track)\n")
+        f.write(f"  Forward speed reward: {FORWARD_SPEED_REWARD_SCALE}×speed per frame (encourages racing, capped at +2.0)\n")
         f.write(f"  Step penalty: {STEP_PENALTY} per frame (time pressure)\n")
-        f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n\n")
+        f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n")
+        f.write(f"  Off-track termination: {OFFTRACK_TERMINATION_PENALTY} (all wheels off)\n\n")
 
         f.write("Agent Hyperparameters:\n")
         f.write(f"  Actor learning rate: {args.lr_actor}\n")
