@@ -174,7 +174,8 @@ def make_carracing_env(
     min_episode_steps=150,
     short_episode_penalty=-50.0,
     max_episode_steps=1500,
-    verbose=False
+    verbose=False,
+    num_cars=1,
 ) -> gym.Env:
     """
     Creates a preprocessed CarRacing-v3 environment for SAC training.
@@ -194,6 +195,7 @@ def make_carracing_env(
         short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
         max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
+        num_cars: Number of cars racing simultaneously (default: 1). Multi-car only supports vector mode.
 
     Returns:
         Environment ready for SAC training with continuous actions.
@@ -215,6 +217,7 @@ def make_carracing_env(
             reward_shaping=reward_shaping,
             min_episode_steps=min_episode_steps,
             short_episode_penalty=short_episode_penalty,
+            num_cars=num_cars,
         )
         return env
 
@@ -222,6 +225,9 @@ def make_carracing_env(
         # Visual mode: Use wrappers for backwards compatibility
         # Create base environment without built-in timeout/reward shaping
         # (let wrappers handle it for visual mode)
+        if num_cars > 1:
+            raise NotImplementedError("Multi-car mode only supports state_mode='vector'")
+
         env = CarRacing(
             render_mode=render_mode,
             verbose=verbose,
@@ -232,6 +238,7 @@ def make_carracing_env(
             state_mode=state_mode,
             max_episode_steps=None,  # Disable built-in timeout for visual mode
             reward_shaping=False,    # Disable built-in shaping for visual mode
+            num_cars=num_cars,
         )
 
         # Reward shaping to discourage degenerate strategies
