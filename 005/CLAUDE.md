@@ -335,34 +335,30 @@ All reward parameters are configured at the top of `env/car_racing.py` (lines 64
 ### Current Configuration (Default)
 
 ```python
-NUM_WAYPOINTS = 20            # 20 waypoints dividing track (~15 tiles each for 300-tile track)
-WAYPOINT_REWARD = 200.0       # 200 points per waypoint (4000 total)
-LAP_COMPLETION_REWARD = 500.0 # 500 bonus for completing a full lap
-STEP_PENALTY = 0.5            # -0.5 per frame (mild time pressure - keeps rewards positive)
-OFFTRACK_PENALTY = 2.0        # -2.0 per wheel off track
-OFFTRACK_THRESHOLD = 2        # Allow 2 wheels off (aggressive lines OK)
-WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to "reach" waypoint
+PROGRESS_REWARD_SCALE = 4000.0  # Reward scale for track progress (full lap = 4000)
+LAP_COMPLETION_REWARD = 500.0   # 500 bonus for completing a full lap
+STEP_PENALTY = 0.5              # -0.5 per frame (mild time pressure)
+OFFTRACK_PENALTY = 2.0          # -2.0 per wheel off track
+OFFTRACK_THRESHOLD = 2          # Allow 2 wheels off (aggressive lines OK)
 ```
 
-**Reward Math:**
-- Per waypoint (50-100 frames): +200 - (0.5 × 50-100) = **+175 to +150** ✓
-- Full lap (1000-2000 frames): +4000 + 500 - (0.5 × 1000-2000) = **+4000 to +3500** ✓
-- Rewards always positive when making progress!
+**Reward Math (Continuous Progress):**
+- Progress measured as: furthest_tile_idx / total_tiles (0.0 to 1.0)
+- Reward per progress: progress_delta × 4000
+- 50% progress in 500 frames: 0.5 × 4000 - (0.5 × 500) = **+1750** ✓
+- Full lap (1000-2000 frames): 4000 + 500 - (0.5 × 1000-2000) = **+4000 to +3500** ✓
+- Dense signal: reward every frame car moves to new furthest tile
 
 ### Tuning Guide
 
-**If agent struggles to reach waypoints** (too sparse):
+**If agent needs more progress reward** (not enough incentive):
 ```python
-NUM_WAYPOINTS = 25-30         # More waypoints = smaller steps
-WAYPOINT_REWARD = 150-160     # Adjust to keep similar ratio
-# or
-WAYPOINT_DISTANCE_THRESHOLD = 7.0  # Easier to reach waypoints
+PROGRESS_REWARD_SCALE = 6000.0  # Increase from 4000
 ```
 
-**If agent needs stronger intermediate guidance** (still too sparse):
+**If agent needs less progress reward** (too easy):
 ```python
-NUM_WAYPOINTS = 40-50         # Very dense waypoints
-WAYPOINT_REWARD = 80-100      # Adjust to keep similar ratio
+PROGRESS_REWARD_SCALE = 3000.0  # Decrease from 4000
 ```
 
 **If agent drives too slowly** (needs more time pressure):
@@ -373,7 +369,7 @@ LAP_COMPLETION_REWARD = 1000.0  # Higher lap bonus encourages speed
 
 **If agent drives too aggressively off-track** (crashes too often):
 ```python
-STEP_PENALTY = 0.5          # Reduce time pressure (from 1.0)
+STEP_PENALTY = 0.2          # Reduce time pressure (from 0.5)
 OFFTRACK_PENALTY = 5.0      # Increase off-track penalty (from 2.0)
 ```
 

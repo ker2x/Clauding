@@ -1,8 +1,11 @@
-# Reward System Refactor: Checkpoint → Waypoint
+# Reward System Refactor: Checkpoint → Waypoint → Continuous Progress
 
 ## Summary
 
-Completely refactored the reward system from a checkpoint-based approach with technical debt to a clean, simple waypoint-based system.
+Refactored reward system three times to find working solution:
+1. **Checkpoint → Waypoint**: Removed technical debt, implemented clean waypoint system
+2. **Waypoint reward math fix**: Fixed negative rewards (increased rewards, reduced penalties)
+3. **Waypoint → Continuous Progress**: Waypoints too sparse, switched to dense continuous progress tracking
 
 ## Changes Made
 
@@ -121,11 +124,49 @@ OFFTRACK_THRESHOLD = 2
 WAYPOINT_DISTANCE_THRESHOLD = 5.0
 ```
 
-## Next Steps
+## 3rd Refactor: Waypoint → Continuous Progress (3rd Commit)
 
-1. Run training and monitor:
-   - Waypoints reached per episode
-   - Exploration behavior
-   - Learning curve stability
-2. Tune if needed (see CLAUDE.md tuning guide)
-3. Fall back to Option 1 (continuous progress) if sparse rewards too difficult
+### Problem with Waypoints
+Training results showed waypoint system failed:
+- Agent stuck at **124.5 reward every episode** (exactly 1 waypoint + time penalty)
+- Reached waypoint 1, then stationary timeout at 150 steps
+- **Critic loss >900** (should be <100) - critic couldn't learn value function
+- 15-tile gap between waypoints too large for random exploration
+
+### Solution: Continuous Progress Tracking
+Switched to dense, continuous progress rewards:
+
+**New Reward Structure:**
+```python
+# Per frame
+reward = -STEP_PENALTY  # -0.5 per frame (mild time pressure)
+reward -= wheels_offtrack * OFFTRACK_PENALTY  # -2.0 per wheel (if > 2 wheels off)
+
+# Continuous progress (dense signal)
+current_progress = furthest_tile_idx / len(track)  # 0.0 to 1.0
+progress_delta = max(0, current_progress - last_progress)  # Only forward
+reward += progress_delta * PROGRESS_REWARD_SCALE  # +4000 for full lap
+
+# On lap completion
+reward += LAP_COMPLETION_REWARD  # +500 bonus
+```
+
+**Benefits:**
+- **Dense signal**: Reward every frame car reaches new furthest tile
+- **Natural backward prevention**: Only forward progress counts
+- **Smooth gradients**: Critic can learn stable value function
+- **No local minima**: Can't get stuck between sparse rewards
+
+**Configuration:**
+```python
+PROGRESS_REWARD_SCALE = 4000.0  # Full lap reward
+LAP_COMPLETION_REWARD = 500.0
+STEP_PENALTY = 0.5
+OFFTRACK_PENALTY = 2.0
+OFFTRACK_THRESHOLD = 2
+```
+
+**Expected Performance:**
+- 50% progress in 500 frames: 0.5 × 4000 - 250 = **+1750** ✓
+- Full lap: 4000 + 500 - (500 to 1000) = **+3500 to +4000** ✓
+- Smooth learning curve with stable critic losses

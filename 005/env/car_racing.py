@@ -62,13 +62,11 @@ MAX_SHAPE_DIM = (
 )
 
 # Reward structure configuration
-NUM_WAYPOINTS = 20          # Number of waypoints to divide track into (~15 tiles each for 300-tile track)
-WAYPOINT_REWARD = 200.0     # Reward for reaching each waypoint in sequence (total = NUM_WAYPOINTS * WAYPOINT_REWARD = 4000)
-LAP_COMPLETION_REWARD = 500.0  # Large reward for completing a full lap (encourages finishing)
-STEP_PENALTY = 0.5          # Penalty per frame (mild time pressure - keeps rewards positive while encouraging speed)
-OFFTRACK_PENALTY = 2.0      # Penalty per wheel off track per frame
-OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
-WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to consider waypoint "reached"
+PROGRESS_REWARD_SCALE = 4000.0  # Reward scale for track progress (full lap = 4000 points)
+LAP_COMPLETION_REWARD = 500.0   # Large reward for completing a full lap (encourages finishing)
+STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+OFFTRACK_PENALTY = 2.0          # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 2          # Number of wheels that can be off track before penalty applies (allows aggressive lines)
 
 
 class FrictionDetector:
@@ -224,6 +222,10 @@ class FrictionDetector:
                     tile.road_visited = True
                     self.env.tile_visited_count += 1
 
+                    # Update furthest tile reached (for progress tracking)
+                    if tile.idx > self.env.furthest_tile_idx:
+                        self.env.furthest_tile_idx = tile.idx
+
                     # Lap completion check
                     if (
                         tile.idx == 0 and
@@ -270,14 +272,15 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses a clean waypoint-based system with time pressure.
-    All reward parameters are configurable at the top of this file (lines 64-71).
+    The reward structure uses continuous progress tracking with time pressure.
+    All reward parameters are configurable at the top of this file (lines 64-69).
 
-    **Sparse rewards (main objective):**
-    - Waypoint rewards: +WAYPOINT_REWARD points for reaching each of NUM_WAYPOINTS waypoints in sequence
-      (default: 20 waypoints × 200 points = 4000 total)
-    - Waypoints are evenly spaced along the track (~15 tiles apart for typical 300-tile track)
-    - Car must be within WAYPOINT_DISTANCE_THRESHOLD meters to reach waypoint (default: 5.0m)
+    **Dense rewards (main objective):**
+    - Progress reward: +progress_delta × PROGRESS_REWARD_SCALE points for forward movement
+      (default: PROGRESS_REWARD_SCALE = 4000, so full lap = +4000 points)
+    - Progress measured as furthest tile reached / total tiles (0.0 to 1.0)
+    - Only forward progress counts (backward movement = 0 reward)
+    - Dense signal: reward every frame the car moves to a new furthest tile
     - Lap completion: +LAP_COMPLETION_REWARD bonus for completing full lap (default: 500 points)
 
     **Dense penalties (constraints and time pressure):**
@@ -285,10 +288,10 @@ class CarRacing(gym.Env, EzPickle):
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
       (default: -2.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
 
-    Example with defaults: Reaching waypoint 10 (50% progress) in 500 frames:
-    - Waypoint rewards: 10 × 200 = +2000
+    Example with defaults: Reaching 50% progress in 500 frames:
+    - Progress reward: 0.5 × 4000 = +2000
     - Step penalty: -0.5 × 500 = -250
-    - Total: ~+1750 points (rewards always positive for making progress!)
+    - Total: ~+1750 points (dense rewards keep learning stable!)
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -390,10 +393,8 @@ class CarRacing(gym.Env, EzPickle):
         # This allows enough time to brake for corners (braking from 108→36 km/h needs ~41m)
         self.vector_lookahead = 20
 
-        # Waypoint system for sparse rewards (configured at top of file)
-        self.num_waypoints = NUM_WAYPOINTS
-        self.waypoint_reward = WAYPOINT_REWARD
-        self.waypoint_distance_threshold = WAYPOINT_DISTANCE_THRESHOLD
+        # Progress tracking for continuous rewards (configured at top of file)
+        self.progress_reward_scale = PROGRESS_REWARD_SCALE
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -686,9 +687,9 @@ class CarRacing(gym.Env, EzPickle):
         self.prev_vx = 0.0
         self.prev_vy = 0.0
 
-        # Waypoint tracking (initialized after track creation)
-        self.next_waypoint_index = 0  # Which waypoint to reach next (0 to num_waypoints-1)
-        self.waypoint_indices = []  # Track indices for each waypoint (calculated after track creation)
+        # Progress tracking for continuous rewards
+        self.furthest_tile_idx = 0  # Furthest tile index reached (for progress calculation)
+        self.last_progress = 0.0    # Previous progress (0.0 to 1.0)
 
         if self.domain_randomize:
             randomize = True
@@ -708,13 +709,9 @@ class CarRacing(gym.Env, EzPickle):
                     "instances of this message)"
                 )
 
-        # Initialize waypoint system after track is created
-        # Distribute waypoints evenly along the track
-        waypoint_spacing = len(self.track) // self.num_waypoints
-        self.waypoint_indices = [i * waypoint_spacing for i in range(self.num_waypoints)]
+        # Progress tracking initialized (no pre-computation needed)
         if self.verbose:
-            print(f"Track has {len(self.track)} tiles, {self.num_waypoints} waypoints "
-                  f"at ~{waypoint_spacing} tile intervals")
+            print(f"Track has {len(self.track)} tiles for continuous progress tracking")
 
         init_beta, init_x, init_y = self.track[0][1:4]
         # The car's "front" is its +X axis in physics.
@@ -832,23 +829,17 @@ class CarRacing(gym.Env, EzPickle):
             if wheels_off_track > OFFTRACK_THRESHOLD:
                 self.reward -= OFFTRACK_PENALTY * wheels_off_track
 
-            # Check if car reached next waypoint
-            if self.next_waypoint_index < len(self.waypoint_indices):
-                waypoint_tile_idx = self.waypoint_indices[self.next_waypoint_index]
-                waypoint_x, waypoint_y = self.track[waypoint_tile_idx][2], self.track[waypoint_tile_idx][3]
-                car_x, car_y = self.car.hull.position
+            # Continuous progress reward (dense signal for forward movement)
+            current_progress = self.furthest_tile_idx / len(self.track)
+            progress_delta = max(0, current_progress - self.last_progress)  # Only forward progress
+            if progress_delta > 0:
+                progress_reward = progress_delta * self.progress_reward_scale
+                self.reward += progress_reward
+                self.last_progress = current_progress
 
-                distance_to_waypoint = np.sqrt((car_x - waypoint_x)**2 + (car_y - waypoint_y)**2)
-
-                if distance_to_waypoint < self.waypoint_distance_threshold:
-                    # Waypoint reached!
-                    self.reward += self.waypoint_reward
-                    self.next_waypoint_index += 1
-
-                    if self.verbose:
-                        progress_pct = self.next_waypoint_index / self.num_waypoints * 100
-                        print(f"  ✓ Waypoint {self.next_waypoint_index}/{self.num_waypoints} "
-                              f"reached! ({progress_pct:.0f}% complete, +{self.waypoint_reward} reward)")
+                if self.verbose and progress_delta > 0.01:  # Print every ~1% progress
+                    progress_pct = current_progress * 100
+                    print(f"  → Progress: {progress_pct:.1f}% (+{progress_reward:.1f} reward)")
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
