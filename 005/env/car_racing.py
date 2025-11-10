@@ -1214,24 +1214,53 @@ class CarRacing(gym.Env, EzPickle):
             # Normalize by a reasonable distance scale
             waypoints.extend([rel_x / PLAYFIELD, rel_y / PLAYFIELD])
 
+        # Normalization constants for better training stability
+        MAX_VELOCITY = 30.0  # m/s (typical max speed ~25-30 m/s)
+        MAX_ANGULAR_VEL = 5.0  # rad/s (typical max ~3-4 rad/s)
+        MAX_ACCELERATION = 50.0  # m/s^2 (typical max ~30-40 m/s^2)
+        MAX_CURVATURE = 1.0  # 1/m (typical sharp turn)
+        MAX_SLIP_RATIO = 2.0  # Dimensionless (clip extreme values)
+
+        # Normalize velocities
+        vx_norm = vx / MAX_VELOCITY
+        vy_norm = vy / MAX_VELOCITY
+        angular_vel_norm = angular_vel / MAX_ANGULAR_VEL
+
+        # Normalize speed
+        speed_norm = speed / MAX_VELOCITY
+
+        # Normalize accelerations
+        ax_norm = ax / MAX_ACCELERATION
+        ay_norm = ay / MAX_ACCELERATION
+
+        # Normalize curvature
+        curvature_norm = curvature / MAX_CURVATURE
+
+        # Normalize slip angles (from radians [-π, π] to [-1, 1])
+        slip_angles_norm = [sa / np.pi for sa in slip_angles]
+
+        # Normalize and clip slip ratios
+        slip_ratios_norm = [np.clip(sr / MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
+
         # Combine all features (67 total, increased from 47)
+        # ALL FEATURES NOW NORMALIZED to similar scales for stable training
         state = np.array([
-            # Basic car state (11)
-            car_x, car_y, vx, vy, angle, angular_vel,
+            # Basic car state (11) - NORMALIZED
+            car_x, car_y, vx_norm, vy_norm, angle, angular_vel_norm,
             wheel_contacts[0], wheel_contacts[1], wheel_contacts[2], wheel_contacts[3],
             track_progress,
-            # Track segment info (5)
-            dist_to_center_norm, angle_diff, curvature, dist_along / TRACK_DETAIL_STEP, seg_len / TRACK_DETAIL_STEP,
-            # Waypoints (40 - increased from 20 for better lookahead)
+            # Track segment info (5) - NORMALIZED
+            dist_to_center_norm, angle_diff, curvature_norm, dist_along / TRACK_DETAIL_STEP, seg_len / TRACK_DETAIL_STEP,
+            # Waypoints (40) - NORMALIZED
             *waypoints,
-            # Speed (1)
-            speed,
-            # Accelerations (2)
-            ax, ay,
-            # Slip angles (4)
-            slip_angles[0], slip_angles[1], slip_angles[2], slip_angles[3],
-            # Slip ratios (4)
-            slip_ratios[0], slip_ratios[1], slip_ratios[2], slip_ratios[3]
+            # Speed (1) - NORMALIZED
+            speed_norm,
+            # Accelerations (2) - NORMALIZED
+            ax_norm, ay_norm,
+            # Slip angles (4) - NORMALIZED
+            slip_angles_norm[0], slip_angles_norm[1], slip_angles_norm[2], slip_angles_norm[3],
+            # Slip ratios (4) - NORMALIZED & CLIPPED
+            slip_ratios_norm[0], slip_ratios_norm[1], slip_ratios_norm[2], slip_ratios_norm[3]
         ], dtype=np.float32)
 
         return state
