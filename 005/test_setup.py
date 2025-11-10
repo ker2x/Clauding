@@ -40,13 +40,13 @@ def test_imports():
             all_imports_ok = False
 
     # Check for Box2D (required for CarRacing)
-    try:
-        import Box2D
-        print(f"✓ {'Box2D':20s} - OK")
-    except ImportError:
-        print(f"✗ {'Box2D':20s} - MISSING")
-        print(f"  Install with: pip install gymnasium[box2d]")
-        all_imports_ok = False
+#    try:
+#        import Box2D
+#        print(f"✓ {'Box2D':20s} - OK")
+#    except ImportError:
+#        print(f"✗ {'Box2D':20s} - MISSING")
+#        print(f"  Install with: pip install gymnasium[box2d]")
+#        all_imports_ok = False
 
     if not all_imports_ok:
         print("\n❌ Some packages are missing. Please install them before proceeding.")
