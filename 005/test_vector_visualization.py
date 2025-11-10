@@ -153,24 +153,41 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     ax_info.axis('off')
     ax_info.set_facecolor('#1a1a1a')
 
+    # Convert world-frame velocities to car-relative frame for clearer display
+    # Model sees world velocities, but car-relative makes more intuitive sense
+    angle_world = angle * 2 * np.pi  # denormalize
+    cos_a = np.cos(angle_world)
+    sin_a = np.sin(angle_world)
+    # Transform to car frame: forward (x) and lateral (y)
+    v_forward = vx * cos_a + vy * sin_a  # Longitudinal velocity
+    v_lateral = -vx * sin_a + vy * cos_a  # Lateral velocity
+
+    # angle_diff tells us how misaligned we are with the track
+    # Positive = car pointing right of track, Negative = car pointing left of track
+    angle_diff_deg = angle_diff * 360  # Convert to degrees for readability
+
     info_text = f"""
     EPISODE: {episode}    STEP: {step}
     REWARD: {reward:+.2f}    TOTAL: {total_reward:+.1f}
 
-    === CAR STATE ===
+    === CAR STATE (World Frame) ===
     Position: ({car_x:.3f}, {car_y:.3f})
-    Velocity: vx={vx:.2f}, vy={vy:.2f}
+    World velocity: vx={vx:.2f}, vy={vy:.2f} m/s
     Speed: {speed:.2f} m/s ({speed_kmh:.1f} km/h)
-    Angle: {angle:.3f} rad
-    Angular vel: {angular_vel:.3f} rad/s
     Track progress: {track_progress*100:.1f}%
 
-    === TRACK INFO ===
+    === CAR STATE (Car Frame) ===
+    Forward vel: {v_forward:.2f} m/s
+    Lateral vel: {v_lateral:.2f} m/s
+    Angular vel: {angular_vel:.3f} rad/s
+
+    === TRACK ALIGNMENT ===
+    Angle diff: {angle_diff_deg:+.1f}° (car vs track)
+    {'→ Car pointing RIGHT of track' if angle_diff > 0.02 else '← Car pointing LEFT of track' if angle_diff < -0.02 else '↑ Car aligned with track'}
     Dist to center: {dist_to_center:.3f}
-    Angle diff: {angle_diff:.3f} rad
     Curvature: {curvature:.3f}
 
-    === ACCELERATIONS ===
+    === ACCELERATIONS (Body Frame) ===
     Longitudinal: {ax:.2f} m/s²
     Lateral: {ay:.2f} m/s²
 
