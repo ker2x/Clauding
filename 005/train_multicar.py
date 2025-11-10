@@ -141,6 +141,68 @@ def configure_cpu_threading(device):
         print(f"  Interop threads: 1")
 
 
+def evaluate_agent(agent, num_cars, n_episodes=5, log_handle=None):
+    """
+    Evaluate agent performance over multiple episodes (single-car evaluation).
+
+    Args:
+        agent: SAC agent
+        num_cars: Number of cars for training (but eval uses 1 car)
+        n_episodes: Number of episodes to evaluate
+        log_handle: Optional file handle for logging
+
+    Returns:
+        Tuple of (mean_reward, std_reward, all_rewards)
+    """
+    # Create single-car environment for evaluation
+    eval_env = make_carracing_env(
+        state_mode='vector',
+        num_cars=1,  # Always evaluate with single car
+        render_mode=None,
+        verbose=False
+    )
+
+    total_rewards = []
+    total_steps = []
+
+    for ep in range(n_episodes):
+        state, _ = eval_env.reset()
+        episode_reward = 0
+        episode_steps = 0
+        done = False
+
+        while not done:
+            # Use deterministic policy (mean action)
+            action = agent.select_action(state, evaluate=True)
+            state, reward, terminated, truncated, _ = eval_env.step(action)
+            episode_reward += reward
+            episode_steps += 1
+            done = terminated or truncated
+
+        total_rewards.append(episode_reward)
+        total_steps.append(episode_steps)
+        msg = f"  Eval episode {ep + 1}/{n_episodes}: reward = {episode_reward:.2f}, steps = {episode_steps}"
+        print(msg)
+        if log_handle:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_handle.write(f"[{timestamp}] {msg}\n")
+
+    eval_env.close()
+
+    mean_reward = np.mean(total_rewards)
+    std_reward = np.std(total_rewards)
+    mean_steps = np.mean(total_steps)
+
+    # Add summary with average steps
+    summary_msg = f"  Average: {mean_reward:.2f} ± {std_reward:.2f} over {n_episodes} episodes ({mean_steps:.1f} steps avg)"
+    print(summary_msg)
+    if log_handle:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_handle.write(f"[{timestamp}] {summary_msg}\n")
+
+    return mean_reward, std_reward, total_rewards
+
+
 def setup_logging(log_dir, args, env, agent, config, num_cars):
     """Setup logging infrastructure."""
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -167,7 +229,7 @@ def setup_logging(log_dir, args, env, agent, config, num_cars):
     with open(eval_csv, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
-            'episode', 'total_steps', 'eval_reward', 'eval_steps', 'timestamp'
+            'episode', 'total_steps', 'eval_mean_reward', 'eval_std_reward', 'timestamp'
         ])
 
     # Save configuration
@@ -446,15 +508,40 @@ def train(args):
                 timestamp
             ])
 
-        # Print progress
+        # Print detailed progress
         if (episode + 1) % 10 == 0:
-            print(f"Episode {episode + 1}/{start_episode + args.episodes}")
+            hours = elapsed_time / 3600
+            print(f"\nEpisode {episode + 1}/{start_episode + args.episodes} | Time: {hours:.2f}h")
             print(f"  Cars: [{', '.join([f'{r:6.1f}' for r in car_episode_rewards])}]")
-            print(f"  Best: Car {best_car_idx} ({best_reward:7.2f}) | Avg: {avg_reward_all_cars:7.2f}")
-            print(f"  Avg(100): {avg_best_reward_100:7.2f} | Steps: {steps:4d} | Total: {total_steps:7d}")
+            print(f"  Best: Car {best_car_idx} ({best_reward:7.2f}) | Avg: {avg_reward_all_cars:7.2f} | Range: [{min_reward:.1f}, {max_reward:.1f}]")
+            print(f"  Reward avg(100): {avg_best_reward_100:7.2f}")
+            print(f"  Steps: {steps:4d} | Total steps: {total_steps:7d} | Buffer: {len(replay_buffer):6d}")
             if total_steps >= args.learning_starts:
-                print(f"  Loss: A={avg_actor_loss:.4f} C1={avg_critic_1_loss:.4f} C2={avg_critic_2_loss:.4f} α={avg_alpha:.4f}")
-            print()
+                print(f"  Loss: Actor={avg_actor_loss:.4f} Critic1={avg_critic_1_loss:.4f} Critic2={avg_critic_2_loss:.4f}")
+                print(f"  Alpha: {avg_alpha:.4f} | Q1: {mean_q1:.2f} | Q2: {mean_q2:.2f} | LogProb: {mean_log_prob:.4f}")
+            else:
+                warmup_remaining = args.learning_starts - total_steps
+                print(f"  Warmup: {warmup_remaining} steps remaining before training starts")
+
+        # Evaluation
+        if (episode + 1) % args.eval_frequency == 0 and total_steps >= args.learning_starts:
+            print(f"\n{'='*60}")
+            print(f"Evaluation at episode {episode + 1}")
+            print(f"{'='*60}")
+            eval_mean, eval_std, eval_rewards = evaluate_agent(agent, args.num_cars, n_episodes=5, log_handle=log_handle)
+
+            # Write to eval CSV
+            with open(eval_csv, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    episode + 1,
+                    total_steps,
+                    f"{eval_mean:.2f}",
+                    f"{eval_std:.2f}",
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                ])
+
+            print(f"{'='*60}\n")
 
         # Save checkpoint
         if (episode + 1) % args.checkpoint_frequency == 0:
@@ -463,28 +550,68 @@ def train(args):
                 f'checkpoint_{args.num_cars}cars_ep{episode + 1}.pt'
             )
             agent.save(checkpoint_path)
-            print(f"Checkpoint saved: {checkpoint_path}")
+            print(f"✓ Checkpoint saved: {checkpoint_path}")
 
         # Save best model
         if avg_best_reward_100 > best_avg_reward:
             best_avg_reward = avg_best_reward_100
             best_path = os.path.join(args.checkpoint_dir, f'best_model_{args.num_cars}cars.pt')
             agent.save(best_path)
-            print(f"New best model saved: {best_path} (avg reward: {best_avg_reward:.2f})")
+            print(f"✓ New best model saved: {best_path} (avg reward: {best_avg_reward:.2f})")
+
+    # Final evaluation
+    print("\n" + "=" * 60)
+    print("FINAL EVALUATION")
+    print("=" * 60)
+    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(
+        agent, args.num_cars, n_episodes=10, log_handle=log_handle
+    )
 
     # Training complete
     env.close()
     log_handle.close()
 
     elapsed_time = time.time() - start_time
+    hours = elapsed_time / 3600
+
+    # Print comprehensive summary
     print("\n" + "=" * 60)
-    print("Training Complete!")
+    print("TRAINING COMPLETE!")
     print("=" * 60)
-    print(f"Total episodes: {args.episodes}")
-    print(f"Total steps: {total_steps}")
-    print(f"Best avg reward (100 ep): {best_avg_reward:.2f}")
-    print(f"Time elapsed: {elapsed_time / 3600:.2f} hours")
-    print(f"Data collected: {total_steps * args.num_cars} transitions ({args.num_cars}× multiplier)")
+    print(f"\nTraining Configuration:")
+    print(f"  Number of cars: {args.num_cars}")
+    print(f"  Episodes: {args.episodes}")
+    print(f"  Total steps: {total_steps:,}")
+    print(f"  Data collected: {total_steps * args.num_cars:,} transitions ({args.num_cars}× multiplier)")
+    print(f"  Learning started at: {args.learning_starts:,} steps")
+    print(f"  Buffer size: {len(replay_buffer):,} / {args.buffer_size:,}")
+
+    print(f"\nTraining Results:")
+    print(f"  Best avg reward (100 ep): {best_avg_reward:.2f}")
+    print(f"  Final episode best car reward: {best_reward:.2f}")
+    print(f"  Final episode avg all cars: {avg_reward_all_cars:.2f}")
+
+    print(f"\nFinal Evaluation (10 episodes, single car):")
+    print(f"  Mean reward: {final_eval_mean:.2f} ± {final_eval_std:.2f}")
+    print(f"  Min reward: {min(final_eval_rewards):.2f}")
+    print(f"  Max reward: {max(final_eval_rewards):.2f}")
+
+    print(f"\nTraining Time:")
+    print(f"  Total time: {hours:.2f} hours ({elapsed_time/60:.1f} minutes)")
+    print(f"  Time per episode: {elapsed_time/args.episodes:.1f} seconds")
+    print(f"  Steps per second: {total_steps/elapsed_time:.1f}")
+    print(f"  Transitions per second: {(total_steps * args.num_cars)/elapsed_time:.1f} ({args.num_cars}× multiplier)")
+
+    print(f"\nSaved Models:")
+    print(f"  Best model: checkpoints_multicar/best_model_{args.num_cars}cars.pt")
+    print(f"  Latest checkpoint: checkpoints_multicar/checkpoint_{args.num_cars}cars_ep{args.episodes}.pt")
+
+    print(f"\nLogs:")
+    print(f"  Training log: {training_csv}")
+    print(f"  Evaluation log: {eval_csv}")
+
+    print("\n" + "=" * 60)
+    print("Multi-car competitive training complete! 🏁")
     print("=" * 60)
 
 
