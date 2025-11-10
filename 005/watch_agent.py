@@ -293,14 +293,14 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     fig.tight_layout()
     fig.canvas.draw()
 
-    # Convert to numpy array (RGB)
-    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    # Convert to numpy array (RGB) - using buffer_rgba() for compatibility
+    buf = fig.canvas.buffer_rgba()
+    img = np.asarray(buf)
 
     plt.close(fig)
 
-    # Convert RGB to BGR for OpenCV
-    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    # Convert RGBA to BGR for OpenCV (drop alpha channel)
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
 
     return img_bgr
 
