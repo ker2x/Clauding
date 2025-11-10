@@ -391,8 +391,12 @@ def main():
                         ])
 
                     # Print progress every 10 episodes (any agent)
-                    total_episodes = sum(agent_episode_counts)
-                    if total_episodes % 10 == 0:
+                    total_episodes_sum = sum(agent_episode_counts)
+                    min_episodes = min(agent_episode_counts)
+                    max_episodes = max(agent_episode_counts)
+
+                    # Only print when min episodes is a multiple of 10
+                    if min_episodes % 10 == 0 and min_episodes > 0:
                         elapsed = time.time() - start_time
                         hours = elapsed / 3600
 
@@ -416,7 +420,8 @@ def main():
                         # Get metrics from best agent
                         best_metrics = agent_metrics[best_agent]
 
-                        print(f"\nEpisode {total_episodes} | Gen {generation} | Time: {hours:.2f}h")
+                        print(f"\nEpisode {min_episodes}/{args.episodes} (per agent) | Gen {generation} | Time: {hours:.2f}h")
+                        print(f"  Episode range: [{min_episodes}, {max_episodes}] across {args.num_agents} agents")
                         print(f"  Agents: [{', '.join([f'{r:6.1f}' for r in current_rewards])}]")
                         print(f"  Best: Agent {best_agent} ({avg_rewards_10[best_agent]:7.2f}) | "
                               f"Avg: {np.mean(avg_rewards_10):7.2f} | "
