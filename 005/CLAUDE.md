@@ -4,31 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** (no discretization). Project 004 is a fork of Project 003 - both projects share the same implementation. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and supports both vector-based (36D track geometry) and visual-based (96×96 images) state representations.
+This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** (no discretization) and a **custom 2D physics engine** (removed Box2D dependency). Project 005 evolves from Project 004 with enhanced physics simulation and improved reward structure. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and supports both vector-based (36D track geometry) and visual-based (96×96 images) state representations.
 
 ### Current Reward Structure (Quick Reference)
 
-All configurable at top of `env/car_racing.py` (lines 64-70):
+All configurable at top of `env/car_racing.py` (lines 64-71):
 
 **Sparse (main objective):**
-- `+100` per checkpoint (10 checkpoints total = 1000 points max)
+- `+100` per checkpoint (15 checkpoints total = 1500 points max)
+- `+1000` for completing a full lap (generous bonus for finishing)
 
 **Dense (speed incentive):**
-- `-0.5` per frame (implicit: faster → less penalty)
+- `+0.1` per m/s of forward velocity per frame (encourages faster driving)
+- `-2.0` per frame step penalty (increased to strongly favor fast lap times)
 
 **Dense (constraints):**
 - `-1.0` per wheel off-track (only when >2 wheels off, so 2 wheels off = OK)
 - `-100 + episode ends` when all 4 wheels off
 
-**Disabled:**
-- Forward velocity bonus = `0.0` (velocity implicitly rewarded via checkpoints + step penalty)
-
 ## Recent Changes
 
 **Current Implementation Highlights**:
-- **Checkpoint-based rewards**: 10 checkpoints × 100 points = 1000 max score (sparse rewards)
+- **Custom 2D physics engine**: Removed Box2D dependency for cleaner, more interpretable physics simulation
+- **Checkpoint-based rewards**: 15 checkpoints × 100 points + 1000 lap completion = 2500 max score
+- **Forward velocity bonus**: +0.1 per m/s per frame actively encourages faster driving
+- **Increased step penalty**: -2.0 per frame strongly favors fast lap completion times
 - **Polygon-based collision detection**: Accurate wheel-on-track detection using ray casting
-- **Configurable reward parameters**: All constants at top of `car_racing.py:64-70` for easy tuning
+- **Configurable reward parameters**: All constants at top of `car_racing.py:64-71` for easy tuning
 - **Performance optimized**: Spatial partitioning for collision detection (~580 steps/sec)
 - **Verbose mode**: `--verbose` flag provides detailed timing diagnostics for debugging
 
@@ -175,11 +177,11 @@ Alpha (entropy coefficient) is learned automatically:
 ## File Structure and Responsibilities
 
 ```
-003/ and 004/ (identical structure)
+005/
 ├── env/
-│   ├── car_racing.py       # Modified CarRacing-v3 with vector state mode
+│   ├── car_racing.py       # Modified CarRacing-v3 with custom 2D physics (no Box2D)
 │   │                       # Key: _create_vector_state() returns 36D state
-│   └── car_dynamics.py     # Car physics simulation
+│   └── car_dynamics.py     # Custom 2D car physics simulation (Magic Formula tires)
 │
 ├── sac_agent.py            # SAC implementation (440 lines)
 │   ├── VectorActor/Critic  # MLP networks for 36D state
@@ -328,43 +330,51 @@ Actions sampled from Gaussian, bounded with tanh.
 
 ## Reward Structure Tuning
 
-All reward parameters are configured at the top of `env/car_racing.py` (lines 64-70). No code diving required!
+All reward parameters are configured at the top of `env/car_racing.py` (lines 64-71). No code diving required!
 
 ### Current Configuration (Default)
 
 ```python
-NUM_CHECKPOINTS = 10        # 10 checkpoints of ~30 tiles each
-CHECKPOINT_REWARD = 100.0   # 100 points per checkpoint (1000 total)
-FORWARD_VEL_REWARD = 0.0    # Disabled (velocity implicitly rewarded)
-STEP_PENALTY = 0.5          # -0.5 per frame (encourages speed)
-OFFTRACK_PENALTY = 1.0      # -1.0 per wheel off track
-OFFTRACK_THRESHOLD = 2      # Allow 2 wheels off (aggressive lines OK)
+NUM_CHECKPOINTS = 15          # 15 checkpoints of ~20 tiles each (for 300-tile track)
+CHECKPOINT_REWARD = 100.0     # 100 points per checkpoint (1500 total)
+LAP_COMPLETION_REWARD = 1000.0  # 1000 bonus for completing a full lap
+FORWARD_VEL_REWARD = 0.1      # +0.1 per m/s per frame (actively encourages speed)
+STEP_PENALTY = 2.0            # -2.0 per frame (strongly favors fast laps)
+OFFTRACK_PENALTY = 1.0        # -1.0 per wheel off track
+OFFTRACK_THRESHOLD = 2        # Allow 2 wheels off (aggressive lines OK)
 ```
 
 ### Tuning Guide
 
 **If agent struggles to reach checkpoints** (too sparse):
 ```python
-NUM_CHECKPOINTS = 15-20     # Make checkpoints smaller/easier
-CHECKPOINT_REWARD = 50-67   # Adjust to keep total ~1000
+NUM_CHECKPOINTS = 20-25     # Make checkpoints smaller/easier
+CHECKPOINT_REWARD = 60-75   # Adjust to keep total ~1500
 ```
 
 **If agent exploits easy checkpoints** (too dense):
 ```python
-NUM_CHECKPOINTS = 5-7       # Make checkpoints larger/harder
-CHECKPOINT_REWARD = 143-200 # Adjust to keep total ~1000
+NUM_CHECKPOINTS = 10-12     # Make checkpoints larger/harder
+CHECKPOINT_REWARD = 125-150 # Adjust to keep total ~1500
 ```
 
-**If agent doesn't move forward** (no velocity incentive):
+**If agent drives too slowly** (needs more velocity incentive):
 ```python
-FORWARD_VEL_REWARD = 0.05   # Enable velocity bonus (start small)
+FORWARD_VEL_REWARD = 0.15   # Increase velocity bonus (from 0.1)
 # or
-FORWARD_VEL_REWARD = 0.1    # Stronger velocity bonus
+FORWARD_VEL_REWARD = 0.2    # Even stronger velocity bonus
 ```
 
-**If agent drives too slowly** (insufficient time pressure):
+**If agent drives too conservatively** (insufficient time pressure):
 ```python
-STEP_PENALTY = 1.0          # Double time penalty (was 0.5)
+STEP_PENALTY = 3.0          # Increase time penalty (from 2.0)
+```
+
+**If agent drives too aggressively** (excessive time pressure):
+```python
+STEP_PENALTY = 1.0          # Reduce time penalty (from 2.0)
+# or
+FORWARD_VEL_REWARD = 0.05   # Reduce velocity bonus
 ```
 
 **If agent drives recklessly off-track** (too lenient):

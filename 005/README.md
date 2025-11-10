@@ -1,8 +1,8 @@
-# CarRacing-v3 SAC Agent (Project 004)
+# CarRacing-v3 SAC Agent (Project 005)
 
-Soft Actor-Critic (SAC) implementation for CarRacing-v3 with **continuous action space** - no discretization.
+Soft Actor-Critic (SAC) implementation for CarRacing-v3 with **continuous action space** and **custom 2D physics engine** (no Box2D dependency).
 
-**Note**: Project 004 is a fork of Project 003. Both projects share the same SAC implementation. This is an improved version of project 002, using:
+**Note**: Project 005 is an evolution of Project 004, featuring a custom physics engine that removes the Box2D dependency. This is an improved version of earlier projects, using:
 - **Continuous actions** instead of discretized actions
 - **SAC** (Soft Actor-Critic) instead of DDQN
 - **Vector mode** (36D track geometry) for fast training
@@ -14,6 +14,7 @@ This project implements SAC for the CarRacing-v3 environment, which features a *
 
 ### Key Features
 
+- **Custom 2D Physics Engine**: Removed Box2D dependency for cleaner, more interpretable physics simulation
 - **Soft Actor-Critic (SAC)**: State-of-the-art off-policy RL algorithm for continuous control
 - **Continuous Actions**: Native support for `[steering, gas, brake]` without discretization
 - **Twin Q-Networks**: Reduces Q-value overestimation bias
@@ -22,7 +23,7 @@ This project implements SAC for the CarRacing-v3 environment, which features a *
 - **Experience Replay**: Stores and samples past experiences for stable learning
 - **Frame Preprocessing**: Grayscale conversion, normalization, and frame stacking (visual mode)
 - **Early Termination**: Stationary car detection for 3x training speedup
-- **Continuous Reward Shaping**: Speed bonus and progressive off-track penalties
+- **Enhanced Reward Shaping**: Forward velocity bonus, lap completion bonus, and increased step penalty for faster lap times
 - **Checkpointing**: Save and resume training at any point
 
 ## Environment
@@ -33,7 +34,7 @@ This project implements SAC for the CarRacing-v3 environment, which features a *
 - **Action Space**: Continuous `[steering, acceleration]`
   - steering: [-1.0, 1.0] (left to right)
   - acceleration: [-1.0, 1.0] (brake to gas)
-- **Reward**: +100 per checkpoint (10 total), -0.5 per frame, -1.0 per wheel off-track (when >2 wheels off)
+- **Reward**: +100 per checkpoint (15 total), +1000 lap completion, +0.1 per m/s forward velocity, -2.0 per frame, -1.0 per wheel off-track (when >2 wheels off)
 
 ## Setup
 
@@ -273,9 +274,9 @@ CarRacing is more challenging than Atari games. With vector mode (RECOMMENDED):
 - **Cause 2**: Running on CPU instead of GPU
 - **Fix 2**: Verify MPS/CUDA is available with `test_setup.py`
 
-### "Import errors / Box2D missing"
-- **Cause**: Box2D not installed
-- **Fix**: `pip install 'gymnasium[box2d]'`
+### "Import errors / pygame or opencv missing"
+- **Cause**: Required dependencies not installed
+- **Fix**: `pip install -r requirements.txt` or individually: `pip install pygame opencv-python`
 
 ## References
 
