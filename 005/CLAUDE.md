@@ -336,20 +336,25 @@ All reward parameters are configured at the top of `env/car_racing.py` (lines 64
 
 ```python
 NUM_WAYPOINTS = 20            # 20 waypoints dividing track (~15 tiles each for 300-tile track)
-WAYPOINT_REWARD = 50.0        # 50 points per waypoint (1000 total)
+WAYPOINT_REWARD = 200.0       # 200 points per waypoint (4000 total)
 LAP_COMPLETION_REWARD = 500.0 # 500 bonus for completing a full lap
-STEP_PENALTY = 1.0            # -1.0 per frame (time pressure for fast laps)
+STEP_PENALTY = 0.5            # -0.5 per frame (mild time pressure - keeps rewards positive)
 OFFTRACK_PENALTY = 2.0        # -2.0 per wheel off track
 OFFTRACK_THRESHOLD = 2        # Allow 2 wheels off (aggressive lines OK)
 WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to "reach" waypoint
 ```
+
+**Reward Math:**
+- Per waypoint (50-100 frames): +200 - (0.5 × 50-100) = **+175 to +150** ✓
+- Full lap (1000-2000 frames): +4000 + 500 - (0.5 × 1000-2000) = **+4000 to +3500** ✓
+- Rewards always positive when making progress!
 
 ### Tuning Guide
 
 **If agent struggles to reach waypoints** (too sparse):
 ```python
 NUM_WAYPOINTS = 25-30         # More waypoints = smaller steps
-WAYPOINT_REWARD = 35-40       # Adjust to keep total ~1000
+WAYPOINT_REWARD = 150-160     # Adjust to keep similar ratio
 # or
 WAYPOINT_DISTANCE_THRESHOLD = 7.0  # Easier to reach waypoints
 ```
@@ -357,12 +362,12 @@ WAYPOINT_DISTANCE_THRESHOLD = 7.0  # Easier to reach waypoints
 **If agent needs stronger intermediate guidance** (still too sparse):
 ```python
 NUM_WAYPOINTS = 40-50         # Very dense waypoints
-WAYPOINT_REWARD = 20-25       # Adjust to keep total ~1000
+WAYPOINT_REWARD = 80-100      # Adjust to keep similar ratio
 ```
 
 **If agent drives too slowly** (needs more time pressure):
 ```python
-STEP_PENALTY = 2.0            # Increase time penalty (from 1.0)
+STEP_PENALTY = 1.0            # Increase time penalty (from 0.5)
 LAP_COMPLETION_REWARD = 1000.0  # Higher lap bonus encourages speed
 ```
 

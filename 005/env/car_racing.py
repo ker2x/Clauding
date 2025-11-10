@@ -63,9 +63,9 @@ MAX_SHAPE_DIM = (
 
 # Reward structure configuration
 NUM_WAYPOINTS = 20          # Number of waypoints to divide track into (~15 tiles each for 300-tile track)
-WAYPOINT_REWARD = 50.0      # Reward for reaching each waypoint in sequence (total = NUM_WAYPOINTS * WAYPOINT_REWARD = 1000)
+WAYPOINT_REWARD = 200.0     # Reward for reaching each waypoint in sequence (total = NUM_WAYPOINTS * WAYPOINT_REWARD = 4000)
 LAP_COMPLETION_REWARD = 500.0  # Large reward for completing a full lap (encourages finishing)
-STEP_PENALTY = 1.0          # Penalty per frame (encourages speed via less total penalty)
+STEP_PENALTY = 0.5          # Penalty per frame (mild time pressure - keeps rewards positive while encouraging speed)
 OFFTRACK_PENALTY = 2.0      # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
 WAYPOINT_DISTANCE_THRESHOLD = 5.0  # Distance in meters to consider waypoint "reached"
@@ -275,20 +275,20 @@ class CarRacing(gym.Env, EzPickle):
 
     **Sparse rewards (main objective):**
     - Waypoint rewards: +WAYPOINT_REWARD points for reaching each of NUM_WAYPOINTS waypoints in sequence
-      (default: 20 waypoints × 50 points = 1000 total)
+      (default: 20 waypoints × 200 points = 4000 total)
     - Waypoints are evenly spaced along the track (~15 tiles apart for typical 300-tile track)
     - Car must be within WAYPOINT_DISTANCE_THRESHOLD meters to reach waypoint (default: 5.0m)
     - Lap completion: +LAP_COMPLETION_REWARD bonus for completing full lap (default: 500 points)
 
     **Dense penalties (constraints and time pressure):**
-    - Per-step penalty: -STEP_PENALTY every frame (default: -1.0, creates time pressure for fast laps)
+    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, mild time pressure)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
       (default: -2.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
 
-    Example with defaults: Reaching waypoint 10 (50% progress) in 400 frames:
-    - Waypoint rewards: 10 * 50 = +500
-    - Step penalty: -1.0 * 400 = -400
-    - Total: ~100 points (grows with lap completion and speed)
+    Example with defaults: Reaching waypoint 10 (50% progress) in 500 frames:
+    - Waypoint rewards: 10 × 200 = +2000
+    - Step penalty: -0.5 × 500 = -250
+    - Total: ~+1750 points (rewards always positive for making progress!)
 
     ## Starting State
     The car starts at rest in the center of the road.

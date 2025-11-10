@@ -32,22 +32,26 @@ Completely refactored the reward system from a checkpoint-based approach with te
 **Reward Structure:**
 ```python
 # Per frame
-reward = -STEP_PENALTY  # -1.0 per frame (time pressure)
+reward = -STEP_PENALTY  # -0.5 per frame (mild time pressure)
 reward -= wheels_offtrack * OFFTRACK_PENALTY  # -2.0 per wheel (if > 2 wheels off)
 
 # When waypoint reached
-reward += WAYPOINT_REWARD  # +50 per waypoint
+reward += WAYPOINT_REWARD  # +200 per waypoint
 
 # On lap completion
 reward += LAP_COMPLETION_REWARD  # +500 bonus
 ```
 
 **Total possible rewards:**
-- Waypoints: 20 × 50 = +1000
+- Waypoints: 20 × 200 = +4000
 - Lap completion: +500
-- Total positive: +1500
-- Step penalties: depends on speed (~-600 to -1500 for typical lap)
-- Net expected: ~0 to +900 for successful lap
+- Total positive: +4500
+- Step penalties: depends on speed (~-500 to -1000 for typical lap)
+- Net expected: **+3500 to +4000 for successful lap** ✓
+
+**Fixed (2nd commit):** Initial values were too low - step penalties outpaced waypoint rewards,
+making crash-early optimal. Increased WAYPOINT_REWARD (50→200) and reduced STEP_PENALTY (1.0→0.5)
+so rewards are always positive when making progress.
 
 ### 3. Code Changes
 
@@ -109,9 +113,9 @@ reward += LAP_COMPLETION_REWARD  # +500 bonus
 All parameters at top of `env/car_racing.py`:
 ```python
 NUM_WAYPOINTS = 20
-WAYPOINT_REWARD = 50.0
+WAYPOINT_REWARD = 200.0          # Fixed: 50.0 → 200.0 (4x increase)
 LAP_COMPLETION_REWARD = 500.0
-STEP_PENALTY = 1.0
+STEP_PENALTY = 0.5               # Fixed: 1.0 → 0.5 (less harsh)
 OFFTRACK_PENALTY = 2.0
 OFFTRACK_THRESHOLD = 2
 WAYPOINT_DISTANCE_THRESHOLD = 5.0
