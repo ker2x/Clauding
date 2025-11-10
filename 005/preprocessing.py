@@ -79,15 +79,15 @@ class RewardShaper(gym.Wrapper):
     a "safe" strategy. This encourages the agent to actually drive and
     make progress.
 
-    Penalty: -50 if episode ends in < min_steps (configurable)
+    Penalty: -10 if episode ends in < min_steps (configurable, reduced to encourage exploration)
     """
 
-    def __init__(self, env, min_steps=150, short_episode_penalty=-50.0):
+    def __init__(self, env, min_steps=150, short_episode_penalty=-10.0):
         """
         Args:
             env: Environment to wrap
             min_steps: Episodes shorter than this get penalized (default: 150)
-            short_episode_penalty: Penalty for short episodes (default: -50.0)
+            short_episode_penalty: Penalty for short episodes (default: -10.0, reduced to encourage exploration)
         """
         super().__init__(env)
         self.min_steps = min_steps
@@ -172,7 +172,7 @@ def make_carracing_env(
     state_mode="vector",
     reward_shaping=True,
     min_episode_steps=150,
-    short_episode_penalty=-50.0,
+    short_episode_penalty=-10.0,
     max_episode_steps=1500,
     verbose=False,
     num_cars=1,
@@ -192,7 +192,7 @@ def make_carracing_env(
                     - visual: slowest, full rendering with frame stacking and wrappers
         reward_shaping: Apply reward shaping to discourage short episodes (default: True)
         min_episode_steps: Minimum episode length before penalty (default: 150)
-        short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
+        short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -10.0, reduced to encourage exploration)
         max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
         num_cars: Number of cars racing simultaneously (default: 1). Multi-car only supports vector mode.
