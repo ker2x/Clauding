@@ -84,6 +84,8 @@ def parse_args():
     # Environment parameters
     parser.add_argument('--device', type=str, default='cpu',
                         help='Device (must be cpu for multiprocessing, default: cpu)')
+    parser.add_argument('--threads-per-agent', type=int, default=None,
+                        help='CPU threads per agent (default: auto-calculated as num_cores/num_agents)')
     parser.add_argument('--verbose', action='store_true',
                         help='Enable verbose output')
     parser.add_argument('--resume', type=str, default=None,
@@ -96,7 +98,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue, episode_offset):
+def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue, episode_offset, threads_per_agent=1):
     """
     Worker process that trains a single agent.
 
@@ -107,8 +109,12 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         command_queue: Queue to receive commands from coordinator
         state_dict_queue: Queue to receive new model weights
         episode_offset: Base episode number for seeding
+        threads_per_agent: Number of CPU threads this agent should use
     """
     import torch
+
+    # Set thread count to prevent CPU oversubscription
+    torch.set_num_threads(threads_per_agent)
 
     # Environment constants
     MAX_EPISODE_STEPS = 2500
@@ -315,10 +321,21 @@ def main():
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
 
+    # Calculate threads per agent to prevent CPU oversubscription
+    num_cores = mp.cpu_count()
+    if args.threads_per_agent is not None:
+        threads_per_agent = max(1, args.threads_per_agent)
+        thread_mode = "manual"
+    else:
+        threads_per_agent = max(1, num_cores // args.num_agents)
+        thread_mode = "auto"
+
     print(f"\n{'='*60}")
     print("PARALLEL Selection-Based Training Configuration")
     print(f"{'='*60}")
     print(f"Number of agents: {args.num_agents}")
+    print(f"CPU cores available: {num_cores}")
+    print(f"Threads per agent: {threads_per_agent} ({thread_mode})")
     print(f"Training mode: TRUE PARALLEL (multiprocessing)")
     print(f"Seed mode: {'SYNCHRONIZED' if args.sync_seeds else 'UNSYNCHRONIZED'}")
     print(f"Selection frequency: every {args.selection_frequency} episodes")
@@ -341,12 +358,13 @@ def main():
         p = Process(
             target=worker_process,
             args=(agent_id, args, result_queue, command_queues[agent_id],
-                  state_dict_queues[agent_id], 0)
+                  state_dict_queues[agent_id], 0, threads_per_agent)
         )
         p.start()
         workers.append(p)
 
     print(f"Started {args.num_agents} parallel worker processes")
+    print(f"Each agent using {threads_per_agent} CPU thread(s)")
     print(f"{'='*60}\n")
 
     # Training state
