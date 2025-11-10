@@ -62,13 +62,11 @@ MAX_SHAPE_DIM = (
 )
 
 # Reward structure configuration
-NUM_CHECKPOINTS = 15        # Number of checkpoints to divide track into (~30 tiles each for 300-tile track)
-CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
-LAP_COMPLETION_REWARD = 500.0  # Large reward for completing a full lap (encourages finishing)
-FORWARD_VEL_REWARD = 0.1    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
-STEP_PENALTY = 1.0          # Penalty per frame (encourages speed via less total penalty) - increased to strongly favor fast laps
-OFFTRACK_PENALTY = 2.0      # Penalty per wheel off track per frame
-OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
+PROGRESS_REWARD_SCALE = 4000.0  # Reward scale for track progress (full lap = 4000 points)
+LAP_COMPLETION_REWARD = 500.0   # Large reward for completing a full lap (encourages finishing)
+STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+OFFTRACK_PENALTY = 2.0          # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 2          # Number of wheels that can be off track before penalty applies (allows aggressive lines)
 
 
 class FrictionDetector:
@@ -238,47 +236,18 @@ class FrictionDetector:
                     else:
                         self.env.tile_visited_count += 1
 
-                    # Checkpoint system: reward when reaching NEXT checkpoint in sequence
-                    # This prevents backward driving exploits where AI wraps around to get rewards
-                    current_checkpoint = tile.idx // self.env.checkpoint_size
-
-                    # Get expected checkpoint for this car
-                    if self.env.num_cars > 1:
-                        expected_next_checkpoint = self.env.car_last_checkpoints[car_id] + 1
-                    else:
-                        expected_next_checkpoint = self.env.last_checkpoint_reached + 1
-
-                    # Allow wrapping: after last checkpoint (14), next is 0 (lap completion)
-                    if expected_next_checkpoint >= self.env.num_checkpoints:
-                        expected_next_checkpoint = 0
-
-                    # Check that car is moving forward (not backward)
-                    # Get car's forward velocity (vx in body frame)
+                    # Update furthest tile reached (for progress tracking)
+                    # Anti-exploit: Only update if car is moving forward (prevents backward driving exploits)
                     car_forward_velocity = car.vx if hasattr(car, 'vx') else 0.0
                     is_moving_forward = car_forward_velocity > 0.1  # Must be moving forward at > 0.1 m/s
 
-                    # Only reward if:
-                    # 1. Reaching the NEXT checkpoint in sequence (prevents backward farming)
-                    # 2. Moving forward (prevents backward driving exploits)
-                    if current_checkpoint == expected_next_checkpoint and is_moving_forward:
-                        # Update checkpoint tracking
-                        if self.env.num_cars > 1:
-                            self.env.car_last_checkpoints[car_id] = current_checkpoint
-                            self.env.car_rewards[car_id] += self.env.checkpoint_reward
-                        else:
-                            self.env.last_checkpoint_reached = current_checkpoint
-                            self.env.reward += self.env.checkpoint_reward
-
-                        if self.env.verbose:
-                            progress_pct = (current_checkpoint + 1) / self.env.num_checkpoints * 100
-                            car_str = f"Car {car_id} " if self.env.num_cars > 1 else ""
-                            print(f"  ✓ {car_str}Checkpoint {current_checkpoint + 1}/{self.env.num_checkpoints} "
-                                  f"reached! ({progress_pct:.0f}% complete, +{self.env.checkpoint_reward} reward)")
-                    elif not is_moving_forward and self.env.verbose:
-                        # Debug: car reached checkpoint while moving backward
+                    if is_moving_forward and tile.idx > self.env.furthest_tile_idx:
+                        self.env.furthest_tile_idx = tile.idx
+                    elif not is_moving_forward and self.env.verbose and tile.idx > self.env.furthest_tile_idx:
+                        # Debug: car reached new tile while moving backward
                         car_str = f"Car {car_id} " if self.env.num_cars > 1 else ""
-                        print(f"  ⚠ {car_str}Checkpoint {current_checkpoint + 1} reached while moving BACKWARD "
-                              f"(vx={car_forward_velocity:.2f} m/s) - NO REWARD")
+                        print(f"  ⚠ {car_str}Tile {tile.idx} reached while moving BACKWARD "
+                              f"(vx={car_forward_velocity:.2f} m/s) - NO PROGRESS UPDATE")
 
                     # Lap completion check (per-car)
                     if tile.idx == 0:
@@ -329,28 +298,26 @@ class CarRacing(gym.Env, EzPickle):
     and provides sufficient information for the agent to learn proper racing behavior.
 
     ## Rewards
-    The reward structure uses a sparse checkpoint system combined with step penalty.
-    All reward parameters are configurable at the top of this file (lines 64-70).
+    The reward structure uses continuous progress tracking with time pressure.
+    All reward parameters are configurable at the top of this file (lines 64-69).
 
-    **Sparse rewards (main objective):**
-    - Checkpoint rewards: +CHECKPOINT_REWARD points for each of NUM_CHECKPOINTS checkpoints
-      (default: 10 checkpoints × 100 points = 1000 total)
-    - Each checkpoint is ~30 tiles (for typical 300-tile track), making them achievable through exploration
-    - Must visit tiles in sequence to reach next checkpoint
+    **Dense rewards (main objective):**
+    - Progress reward: +progress_delta × PROGRESS_REWARD_SCALE points for forward movement
+      (default: PROGRESS_REWARD_SCALE = 4000, so full lap = +4000 points)
+    - Progress measured as furthest tile reached / total tiles (0.0 to 1.0)
+    - Only forward progress counts (backward movement = 0 reward)
+    - Dense signal: reward every frame the car moves to a new furthest tile
+    - Lap completion: +LAP_COMPLETION_REWARD bonus for completing full lap (default: 500 points)
 
-    **Dense penalties (constraints and speed incentive):**
-    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, implicitly encourages reaching checkpoints quickly)
+    **Dense penalties (constraints and time pressure):**
+    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, mild time pressure)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when >OFFTRACK_THRESHOLD wheels off
-      (default: -1.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
+      (default: -2.0 per wheel when >2 wheels off, allows aggressive racing with 2 wheels off)
 
-    **Optional dense reward:**
-    - Forward velocity: +FORWARD_VEL_REWARD per m/s of forward velocity per frame
-      (default: 0.0 = disabled, set to 0.05-0.1 to enable)
-
-    Example with defaults: Reaching checkpoint 5 (50% progress) in 366 frames:
-    - Checkpoint rewards: 5 * 100 = +500
-    - Step penalty: -0.5 * 366 = -183
-    - Total: ~317 points
+    Example with defaults: Reaching 50% progress in 500 frames:
+    - Progress reward: 0.5 × 4000 = +2000
+    - Step penalty: -0.5 × 500 = -250
+    - Total: ~+1750 points (dense rewards keep learning stable!)
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -385,7 +352,7 @@ class CarRacing(gym.Env, EzPickle):
         stationary_patience: int = 50,
         stationary_min_steps: int = 50,
         state_mode: str = "vector",
-        max_episode_steps: int | None = 1500,
+        max_episode_steps: int | None = 2500,
         reward_shaping: bool = True,
         min_episode_steps: int = 150,
         short_episode_penalty: float = -50.0,
@@ -471,9 +438,8 @@ class CarRacing(gym.Env, EzPickle):
         # This allows enough time to brake for corners (braking from 108→36 km/h needs ~41m)
         self.vector_lookahead = 20
 
-        # Checkpoint system for sparse rewards (configured at top of file)
-        self.num_checkpoints = NUM_CHECKPOINTS
-        self.checkpoint_reward = CHECKPOINT_REWARD
+        # Progress tracking for continuous rewards (configured at top of file)
+        self.progress_reward_scale = PROGRESS_REWARD_SCALE
 
         # Continuous: 2D action space [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
@@ -823,8 +789,9 @@ class CarRacing(gym.Env, EzPickle):
             self.prev_vx = 0.0
             self.prev_vy = 0.0
 
-        # Checkpoint tracking (initialized after track creation)
-        self.checkpoint_size = 0  # Will be set after track is created
+        # Progress tracking for continuous rewards
+        self.furthest_tile_idx = 0  # Furthest tile index reached (for progress calculation)
+        self.last_progress = 0.0    # Previous progress (0.0 to 1.0)
 
         if self.domain_randomize:
             randomize = True
@@ -844,11 +811,9 @@ class CarRacing(gym.Env, EzPickle):
                     "instances of this message)"
                 )
 
-        # Initialize checkpoint system after track is created
-        self.checkpoint_size = len(self.track) // self.num_checkpoints
+        # Progress tracking initialized (no pre-computation needed)
         if self.verbose:
-            print(f"Track has {len(self.track)} tiles, {self.num_checkpoints} checkpoints "
-                  f"of ~{self.checkpoint_size} tiles each")
+            print(f"Track has {len(self.track)} tiles for continuous progress tracking")
 
         init_beta, init_x, init_y = self.track[0][1:4]
         # The car's "front" is its +X axis in physics.
@@ -993,22 +958,28 @@ class CarRacing(gym.Env, EzPickle):
             car_forward_x = np.cos(self.car.hull.angle)
             car_forward_y = np.sin(self.car.hull.angle)
 
-            # Dot product of velocity with forward direction
+            # Dot product of velocity with forward direction (kept for debug output)
             forward_velocity = (
                 self.car.hull.linearVelocity[0] * car_forward_x +
                 self.car.hull.linearVelocity[1] * car_forward_y
             )
 
-            # Reward forward progress only (backward movement = no reward)
-            # Configured at top of file: FORWARD_VEL_REWARD (currently 0.0 = disabled)
-            # Hypothesis: velocity is implicitly rewarded by reaching checkpoints faster
-            # Can be re-enabled if agent struggles to learn (set to 0.05 or 0.1)
-            self.reward += FORWARD_VEL_REWARD * max(0, forward_velocity)
-
             # Continuous penalty for wheels off track (no sharp boundaries to exploit)
             wheels_off_track = sum(1 for wheel in self.car.wheels if len(wheel.tiles) == 0)
             if wheels_off_track > OFFTRACK_THRESHOLD:
                 self.reward -= OFFTRACK_PENALTY * wheels_off_track
+
+            # Continuous progress reward (dense signal for forward movement)
+            current_progress = self.furthest_tile_idx / len(self.track)
+            progress_delta = max(0, current_progress - self.last_progress)  # Only forward progress
+            if progress_delta > 0:
+                progress_reward = progress_delta * self.progress_reward_scale
+                self.reward += progress_reward
+                self.last_progress = current_progress
+
+                if self.verbose and progress_delta > 0.01:  # Print every ~1% progress
+                    progress_pct = current_progress * 100
+                    print(f"  → Progress: {progress_pct:.1f}% (+{progress_reward:.1f} reward)")
 
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
@@ -1169,15 +1140,6 @@ class CarRacing(gym.Env, EzPickle):
 
                 # Calculate reward for this car
                 self.car_rewards[car_idx] -= STEP_PENALTY
-
-                # Forward velocity reward
-                car_forward_x = np.cos(car.hull.angle)
-                car_forward_y = np.sin(car.hull.angle)
-                forward_velocity = (
-                    car.hull.linearVelocity[0] * car_forward_x +
-                    car.hull.linearVelocity[1] * car_forward_y
-                )
-                self.car_rewards[car_idx] += FORWARD_VEL_REWARD * max(0, forward_velocity)
 
                 # Off-track penalty
                 wheels_off = sum(1 for wheel in car.wheels if len(wheel.tiles) == 0)
