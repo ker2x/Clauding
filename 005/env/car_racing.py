@@ -66,7 +66,7 @@ NUM_CHECKPOINTS = 15        # Number of checkpoints to divide track into (~30 ti
 CHECKPOINT_REWARD = 100.0   # Reward for reaching each checkpoint (total = NUM_CHECKPOINTS * CHECKPOINT_REWARD)
 LAP_COMPLETION_REWARD = 1000.0  # Large reward for completing a full lap (encourages finishing)
 FORWARD_VEL_REWARD = 0.1    # Reward per m/s of forward velocity per frame (0.0 = disabled, try 0.05-0.1 to enable)
-STEP_PENALTY = 0.5          # Penalty per frame (encourages speed via less total penalty) - increased from 0.3
+STEP_PENALTY = 2.0          # Penalty per frame (encourages speed via less total penalty) - increased to strongly favor fast laps
 OFFTRACK_PENALTY = 1.0      # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 2      # Number of wheels that can be off track before penalty applies (allows aggressive lines)
 
