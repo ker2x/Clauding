@@ -701,3 +701,35 @@ class SACAgent:
             self.log_alpha.data = checkpoint['log_alpha'].data
             self.alpha_optimizer.load_state_dict(checkpoint['alpha_optimizer'])
             self.alpha = self.log_alpha.exp()
+
+    def get_state_dict(self):
+        """Get agent state dictionary (for in-memory cloning)."""
+        import copy
+        return {
+            'actor': copy.deepcopy(self.actor.state_dict()),
+            'critic_1': copy.deepcopy(self.critic_1.state_dict()),
+            'critic_2': copy.deepcopy(self.critic_2.state_dict()),
+            'critic_target_1': copy.deepcopy(self.critic_target_1.state_dict()),
+            'critic_target_2': copy.deepcopy(self.critic_target_2.state_dict()),
+            'actor_optimizer': copy.deepcopy(self.actor_optimizer.state_dict()),
+            'critic_1_optimizer': copy.deepcopy(self.critic_1_optimizer.state_dict()),
+            'critic_2_optimizer': copy.deepcopy(self.critic_2_optimizer.state_dict()),
+            'log_alpha': copy.deepcopy(self.log_alpha) if self.auto_entropy_tuning else None,
+            'alpha_optimizer': copy.deepcopy(self.alpha_optimizer.state_dict()) if self.auto_entropy_tuning else None,
+        }
+
+    def load_state_dict(self, state_dict):
+        """Load agent state from dictionary (for in-memory cloning)."""
+        self.actor.load_state_dict(state_dict['actor'])
+        self.critic_1.load_state_dict(state_dict['critic_1'])
+        self.critic_2.load_state_dict(state_dict['critic_2'])
+        self.critic_target_1.load_state_dict(state_dict['critic_target_1'])
+        self.critic_target_2.load_state_dict(state_dict['critic_target_2'])
+        self.actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
+        self.critic_1_optimizer.load_state_dict(state_dict['critic_1_optimizer'])
+        self.critic_2_optimizer.load_state_dict(state_dict['critic_2_optimizer'])
+
+        if self.auto_entropy_tuning and state_dict['log_alpha'] is not None:
+            self.log_alpha.data = state_dict['log_alpha'].data
+            self.alpha_optimizer.load_state_dict(state_dict['alpha_optimizer'])
+            self.alpha = self.log_alpha.exp()
