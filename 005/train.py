@@ -59,7 +59,7 @@ except (ImportError, RuntimeError) as e:
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
 from env.car_racing import (
-    NUM_CHECKPOINTS, CHECKPOINT_REWARD, FORWARD_VEL_REWARD,
+    NUM_CHECKPOINTS, CHECKPOINT_REWARD, LAP_COMPLETION_REWARD, FORWARD_VEL_REWARD,
     STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD
 )
 
@@ -241,8 +241,9 @@ def setup_logging(log_dir, args, env, agent, config):
 
         f.write("Reward Structure (from env/car_racing.py):\n")
         f.write(f"  Checkpoints: {NUM_CHECKPOINTS} x {CHECKPOINT_REWARD} points\n")
+        f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (generous bonus for finishing)\n")
         f.write(f"  Forward velocity: {FORWARD_VEL_REWARD} per m/s per frame\n")
-        f.write(f"  Step penalty: {STEP_PENALTY} per frame\n")
+        f.write(f"  Step penalty: {STEP_PENALTY} per frame (increased to favor faster laps)\n")
         f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n\n")
 
         f.write("Agent Hyperparameters:\n")
