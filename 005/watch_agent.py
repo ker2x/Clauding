@@ -4,6 +4,12 @@ Watch a trained SAC agent play CarRacing-v3.
 This script loads a trained agent from a checkpoint and visualizes its performance.
 Uses OpenCV for rendering (more reliable than pygame on macOS).
 
+For vector mode agents, this displays a custom visualization showing:
+- Top-down view of the 20 track waypoints the model sees (car-relative coordinates)
+- Car state (position, velocity, wheel contacts, etc.)
+- Track information (curvature, distance to center, etc.)
+- Tire dynamics (slip angles and slip ratios for each wheel)
+
 Usage:
     # Watch agent from checkpoint
     python watch_agent.py --checkpoint checkpoints/best_model.pt
@@ -20,6 +26,11 @@ import cv2
 import numpy as np
 import time
 import torch
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, FancyArrow, Rectangle
+from matplotlib.collections import LineCollection
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent
@@ -106,6 +117,192 @@ def get_car_speed(env):
             speed_kmh = speed_ms * 3.6
 
     return speed_kmh
+
+
+def visualize_vector_state(state_vector, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
+    """
+    Visualize the 67D vector state to show what the model sees.
+
+    Vector state structure (67D):
+    - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
+    - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along, seg_len
+    - Waypoints (40): 20 waypoints × (x, y) in car-relative coordinates
+    - Speed (1): magnitude of velocity
+    - Accelerations (2): longitudinal, lateral
+    - Slip angles (4): for each wheel [FL, FR, RL, RR]
+    - Slip ratios (4): for each wheel [FL, FR, RL, RR]
+
+    Args:
+        state_vector: 67D numpy array
+        episode: Episode number
+        step: Step number
+        reward: Current reward
+        total_reward: Cumulative reward
+        action: Action taken
+        alpha: SAC alpha parameter
+        speed_kmh: Car speed in km/h
+
+    Returns:
+        RGB image (numpy array) showing the visualization
+    """
+    # Parse state vector
+    car_x = state_vector[0]
+    car_y = state_vector[1]
+    vx = state_vector[2]
+    vy = state_vector[3]
+    angle = state_vector[4]
+    angular_vel = state_vector[5]
+    wheel_contacts = state_vector[6:10]
+    track_progress = state_vector[10]
+
+    dist_to_center = state_vector[11]
+    angle_diff = state_vector[12]
+    curvature = state_vector[13]
+    dist_along = state_vector[14]
+    seg_len = state_vector[15]
+
+    # Extract waypoints (20 waypoints × 2 coordinates = 40 values)
+    waypoints_flat = state_vector[16:56]
+    waypoints = waypoints_flat.reshape(20, 2)
+
+    speed = state_vector[56]
+    ax = state_vector[57]
+    ay = state_vector[58]
+
+    slip_angles = state_vector[59:63]
+    slip_ratios = state_vector[63:67]
+
+    # Create figure with subplots
+    fig = plt.figure(figsize=(14, 8))
+
+    # Main plot: Top-down view with waypoints
+    ax_main = plt.subplot(2, 2, (1, 3))
+    ax_main.set_aspect('equal')
+    ax_main.set_xlim(-0.3, 0.3)
+    ax_main.set_ylim(-0.1, 0.5)
+    ax_main.set_facecolor('#1a1a1a')
+    ax_main.grid(True, alpha=0.2, color='white')
+    ax_main.set_xlabel('X (car-relative, normalized)', color='white')
+    ax_main.set_ylabel('Y (car-relative, normalized)', color='white')
+    ax_main.tick_params(colors='white')
+    ax_main.set_title('Model\'s View: Track Lookahead (20 Waypoints)',
+                      color='white', fontweight='bold', fontsize=12)
+
+    # Draw car at origin (since waypoints are in car-relative coordinates)
+    car_length = 0.02
+    car_width = 0.01
+    car_rect = Rectangle((-car_width/2, -car_length/2), car_width, car_length,
+                         facecolor='cyan', edgecolor='white', linewidth=2, zorder=10)
+    ax_main.add_patch(car_rect)
+
+    # Draw forward direction arrow
+    arrow = FancyArrow(0, 0, 0, 0.04, width=0.01,
+                      head_width=0.02, head_length=0.01,
+                      facecolor='yellow', edgecolor='white', linewidth=1, zorder=11)
+    ax_main.add_patch(arrow)
+
+    # Draw waypoints
+    if len(waypoints) > 0:
+        # Connect waypoints with lines
+        segments = []
+        for i in range(len(waypoints) - 1):
+            segments.append([waypoints[i], waypoints[i+1]])
+
+        lc = LineCollection(segments, colors='lime', linewidths=2, alpha=0.7, zorder=5)
+        ax_main.add_collection(lc)
+
+        # Draw waypoint markers with gradient color (closer = brighter)
+        colors = plt.cm.hot(np.linspace(0.3, 1.0, len(waypoints)))
+        for i, (wx, wy) in enumerate(waypoints):
+            ax_main.plot(wx, wy, 'o', color=colors[i], markersize=6,
+                        markeredgecolor='white', markeredgewidth=0.5, zorder=6)
+
+        # Add distance annotations for first few waypoints
+        for i in [0, 4, 9, 14, 19]:
+            if i < len(waypoints):
+                wx, wy = waypoints[i]
+                dist = np.sqrt(wx**2 + wy**2)
+                ax_main.annotate(f'{i+1}', (wx, wy),
+                               textcoords='offset points', xytext=(0, 5),
+                               fontsize=7, color='white', ha='center',
+                               bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7))
+
+    # Car state info (top right)
+    ax_info = plt.subplot(2, 2, 2)
+    ax_info.axis('off')
+    ax_info.set_facecolor('#1a1a1a')
+
+    info_text = f"""
+    EPISODE: {episode}    STEP: {step}
+    REWARD: {reward:+.2f}    TOTAL: {total_reward:+.1f}
+
+    === CAR STATE ===
+    Position: ({car_x:.3f}, {car_y:.3f})
+    Velocity: vx={vx:.2f}, vy={vy:.2f}
+    Speed: {speed:.2f} m/s ({speed_kmh:.1f} km/h)
+    Angle: {angle:.3f} rad
+    Angular vel: {angular_vel:.3f} rad/s
+    Track progress: {track_progress*100:.1f}%
+
+    === TRACK INFO ===
+    Dist to center: {dist_to_center:.3f}
+    Angle diff: {angle_diff:.3f} rad
+    Curvature: {curvature:.3f}
+
+    === ACCELERATIONS ===
+    Longitudinal: {ax:.2f} m/s²
+    Lateral: {ay:.2f} m/s²
+
+    === WHEEL CONTACTS ===
+    FL: {'✓' if wheel_contacts[0] > 0.5 else '✗'}    FR: {'✓' if wheel_contacts[1] > 0.5 else '✗'}
+    RL: {'✓' if wheel_contacts[2] > 0.5 else '✗'}    RR: {'✓' if wheel_contacts[3] > 0.5 else '✗'}
+    """
+
+    ax_info.text(0.05, 0.95, info_text,
+                transform=ax_info.transAxes,
+                fontfamily='monospace', fontsize=9,
+                verticalalignment='top', color='white')
+
+    # Slip angles and ratios (bottom right)
+    ax_slip = plt.subplot(2, 2, 4)
+    ax_slip.axis('off')
+    ax_slip.set_facecolor('#1a1a1a')
+
+    slip_text = f"""
+    === SLIP ANGLES (rad) ===
+    FL: {slip_angles[0]:+.3f}    FR: {slip_angles[1]:+.3f}
+    RL: {slip_angles[2]:+.3f}    RR: {slip_angles[3]:+.3f}
+
+    === SLIP RATIOS ===
+    FL: {slip_ratios[0]:+.3f}    FR: {slip_ratios[1]:+.3f}
+    RL: {slip_ratios[2]:+.3f}    RR: {slip_ratios[3]:+.3f}
+
+    === ACTION ===
+    {format_action(action)}
+
+    === SAC PARAMETERS ===
+    Alpha (entropy): {alpha:.4f}
+    """
+
+    ax_slip.text(0.05, 0.95, slip_text,
+                transform=ax_slip.transAxes,
+                fontfamily='monospace', fontsize=9,
+                verticalalignment='top', color='white')
+
+    # Convert matplotlib figure to numpy array
+    fig.tight_layout()
+    fig.canvas.draw()
+
+    # Convert to numpy array (RGB)
+    img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    plt.close(fig)
+
+    # Convert RGB to BGR for OpenCV
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+    return img_bgr
 
 
 def render_frame(frame, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
@@ -255,20 +452,29 @@ def watch_agent(args):
 
                 # Render if enabled
                 if not args.no_render:
-                    # Get RGB frame for display
-                    rgb_frame = env.render()
-
                     # Get car speed
                     speed_kmh = get_car_speed(env)
 
-                    # Add overlay
-                    display_frame = render_frame(
-                        rgb_frame, episode + 1, step, reward, total_reward,
-                        action, alpha_value, speed_kmh
-                    )
+                    if state_mode == 'vector':
+                        # Use vector state visualization
+                        display_frame = visualize_vector_state(
+                            state, episode + 1, step, reward, total_reward,
+                            action, alpha_value, speed_kmh
+                        )
+                        window_title = 'SAC Agent - Vector State Visualization'
+                    else:
+                        # Get RGB frame for display (visual mode)
+                        rgb_frame = env.render()
+
+                        # Add overlay
+                        display_frame = render_frame(
+                            rgb_frame, episode + 1, step, reward, total_reward,
+                            action, alpha_value, speed_kmh
+                        )
+                        window_title = 'SAC Agent - CarRacing-v3'
 
                     # Display
-                    cv2.imshow('SAC Agent - CarRacing-v3', display_frame)
+                    cv2.imshow(window_title, display_frame)
 
                     # Handle keyboard input
                     key = cv2.waitKey(1) & 0xFF
