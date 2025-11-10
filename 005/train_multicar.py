@@ -368,7 +368,7 @@ def train(args):
                     replay_buffer.push(
                         obs[i],
                         actions[i],
-                        rewards[i],
+                        float(rewards[i]),  # Convert numpy.float32 to Python float
                         next_obs[i],
                         float(terminated[i] or truncated[i])
                     )
