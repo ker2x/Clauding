@@ -207,6 +207,17 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         truncated = False
         steps = 0
 
+        # Episode metrics
+        episode_metrics = {
+            'actor_loss': [],
+            'critic_1_loss': [],
+            'critic_2_loss': [],
+            'alpha': [],
+            'mean_q1': [],
+            'mean_q2': [],
+            'mean_log_prob': []
+        }
+
         while not (terminated or truncated):
             action = agent.select_action(obs, evaluate=False)
             next_obs, reward, terminated, truncated, _ = env.step(action)
@@ -217,7 +228,14 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
             # Train agent
             if (total_steps >= args.learning_starts and
                 len(buffer) >= args.batch_size):
-                agent.update(buffer, args.batch_size)
+                metrics = agent.update(buffer, args.batch_size)
+                episode_metrics['actor_loss'].append(metrics['actor_loss'])
+                episode_metrics['critic_1_loss'].append(metrics['critic_1_loss'])
+                episode_metrics['critic_2_loss'].append(metrics['critic_2_loss'])
+                episode_metrics['alpha'].append(metrics['alpha'])
+                episode_metrics['mean_q1'].append(metrics.get('mean_q1', 0.0))
+                episode_metrics['mean_q2'].append(metrics.get('mean_q2', 0.0))
+                episode_metrics['mean_log_prob'].append(metrics.get('mean_log_prob', 0.0))
 
             obs = next_obs
             steps += 1
@@ -225,8 +243,16 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
 
         episode_count += 1
 
-        # Report episode result
-        result_queue.put(('EPISODE_DONE', agent_id, episode_reward, episode_count))
+        # Calculate average metrics
+        avg_metrics = {}
+        for key, values in episode_metrics.items():
+            avg_metrics[key] = np.mean(values) if values else 0.0
+
+        # Report episode result with metrics
+        result_queue.put((
+            'EPISODE_DONE', agent_id, episode_reward, episode_count,
+            steps, total_steps, len(buffer), avg_metrics
+        ))
 
     env.close()
 
@@ -326,6 +352,12 @@ def main():
     generation = 0
     agent_episode_counts = [0] * args.num_agents
     agent_recent_rewards = [[] for _ in range(args.num_agents)]
+    agent_total_steps = [0] * args.num_agents
+    agent_episode_steps = [0] * args.num_agents
+    agent_buffer_sizes = [0] * args.num_agents
+    agent_metrics = [{'actor_loss': 0.0, 'critic_1_loss': 0.0, 'critic_2_loss': 0.0,
+                      'alpha': 0.0, 'mean_q1': 0.0, 'mean_q2': 0.0, 'mean_log_prob': 0.0}
+                     for _ in range(args.num_agents)]
     best_overall_reward = float('-inf')
 
     start_time = time.time()
@@ -338,9 +370,13 @@ def main():
                 msg_type, agent_id, *data = result_queue.get(timeout=1.0)
 
                 if msg_type == 'EPISODE_DONE':
-                    episode_reward, episode_count = data
+                    episode_reward, episode_count, steps, total_steps, buffer_size, metrics = data
                     agent_episode_counts[agent_id] = episode_count
                     agent_recent_rewards[agent_id].append(episode_reward)
+                    agent_total_steps[agent_id] = total_steps
+                    agent_episode_steps[agent_id] = steps
+                    agent_buffer_sizes[agent_id] = buffer_size
+                    agent_metrics[agent_id] = metrics
 
                     # Log episode
                     with open(training_csv, 'a', newline='') as f:
@@ -358,20 +394,49 @@ def main():
                     total_episodes = sum(agent_episode_counts)
                     if total_episodes % 10 == 0:
                         elapsed = time.time() - start_time
-                        avg_rewards = []
-                        for rewards in agent_recent_rewards:
-                            if len(rewards) >= 10:
-                                avg_rewards.append(np.mean(rewards[-10:]))
-                            elif len(rewards) > 0:
-                                avg_rewards.append(np.mean(rewards))
-                            else:
-                                avg_rewards.append(0.0)
+                        hours = elapsed / 3600
 
-                        print(f"Episodes: {total_episodes} | "
-                              f"Gen {generation} | "
-                              f"Best: {max(avg_rewards):.1f} | "
-                              f"Avg: {np.mean(avg_rewards):.1f} | "
-                              f"Time: {elapsed/60:.1f}m")
+                        # Calculate reward stats
+                        current_rewards = []
+                        avg_rewards_10 = []
+                        for rewards in agent_recent_rewards:
+                            if len(rewards) > 0:
+                                current_rewards.append(rewards[-1])
+                            else:
+                                current_rewards.append(0.0)
+                            if len(rewards) >= 10:
+                                avg_rewards_10.append(np.mean(rewards[-10:]))
+                            elif len(rewards) > 0:
+                                avg_rewards_10.append(np.mean(rewards))
+                            else:
+                                avg_rewards_10.append(0.0)
+
+                        best_agent = np.argmax(avg_rewards_10)
+
+                        # Get metrics from best agent
+                        best_metrics = agent_metrics[best_agent]
+
+                        print(f"\nEpisode {total_episodes} | Gen {generation} | Time: {hours:.2f}h")
+                        print(f"  Agents: [{', '.join([f'{r:6.1f}' for r in current_rewards])}]")
+                        print(f"  Best: Agent {best_agent} ({avg_rewards_10[best_agent]:7.2f}) | "
+                              f"Avg: {np.mean(avg_rewards_10):7.2f} | "
+                              f"Range: [{min(current_rewards):.1f}, {max(current_rewards):.1f}]")
+                        print(f"  Reward avg(10): {np.mean(avg_rewards_10):7.2f}")
+                        print(f"  Steps: {agent_episode_steps[best_agent]:4d} | "
+                              f"Total: {agent_total_steps[best_agent]:7d} | "
+                              f"Buffer: {agent_buffer_sizes[best_agent]:6d}")
+
+                        if agent_total_steps[best_agent] >= args.learning_starts:
+                            print(f"  Loss: Actor={best_metrics['actor_loss']:.4f} "
+                                  f"Critic1={best_metrics['critic_1_loss']:.4f} "
+                                  f"Critic2={best_metrics['critic_2_loss']:.4f}")
+                            print(f"  Alpha: {best_metrics['alpha']:.4f} | "
+                                  f"Q1: {best_metrics['mean_q1']:.2f} | "
+                                  f"Q2: {best_metrics['mean_q2']:.2f} | "
+                                  f"LogProb: {best_metrics['mean_log_prob']:.4f}")
+                        else:
+                            warmup_remaining = args.learning_starts - agent_total_steps[best_agent]
+                            print(f"  Warmup: {warmup_remaining} steps remaining before training starts")
 
                     # Check if selection should occur
                     min_episodes = min(agent_episode_counts)
