@@ -464,8 +464,15 @@ def main():
 
                     # Check if selection should occur
                     min_episodes = min(agent_episode_counts)
-                    if min_episodes > 0 and min_episodes % args.selection_frequency == 0:
-                        # All agents have completed selection_frequency episodes
+                    max_episodes = max(agent_episode_counts)
+
+                    # Trigger selection when:
+                    # 1. Slowest agent reaches milestone (min_episodes % frequency == 0)
+                    # 2. All agents are synchronized (min == max)
+                    if (min_episodes > 0 and
+                        min_episodes % args.selection_frequency == 0 and
+                        min_episodes == max_episodes):
+                        # All agents synchronized at selection milestone
                         generation += 1
 
                         print(f"\n{'='*60}")
