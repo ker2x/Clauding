@@ -54,7 +54,7 @@ except (ImportError, RuntimeError) as e:
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
 from env.car_racing import (
-    NUM_CHECKPOINTS, CHECKPOINT_REWARD, LAP_COMPLETION_REWARD, FORWARD_VEL_REWARD,
+    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
     STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD
 )
 
