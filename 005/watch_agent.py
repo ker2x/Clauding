@@ -11,8 +11,14 @@ For vector mode agents, this displays a custom visualization showing:
 - Tire dynamics (slip angles and slip ratios for each wheel)
 
 Usage:
-    # Watch agent from checkpoint
+    # Watch agent from checkpoint (default: both game and vector views)
     python watch_agent.py --checkpoint checkpoints/best_model.pt
+
+    # Watch with only game view
+    python watch_agent.py --checkpoint checkpoints/best_model.pt --view game
+
+    # Watch with only vector state visualization
+    python watch_agent.py --checkpoint checkpoints/best_model.pt --view vector
 
     # Watch for specific number of episodes
     python watch_agent.py --checkpoint checkpoints/best_model.pt --episodes 3
@@ -48,6 +54,8 @@ def parse_args():
                         help='Disable rendering (just compute rewards)')
     parser.add_argument('--fps', type=int, default=30,
                         help='Display FPS (default: 30)')
+    parser.add_argument('--view', type=str, default='both', choices=['game', 'vector', 'both'],
+                        help='Which view to show for vector mode: game, vector, or both (default: both)')
 
     return parser.parse_args()
 
@@ -483,26 +491,26 @@ def watch_agent(args):
                     speed_kmh = get_car_speed(env)
 
                     if state_mode == 'vector':
-                        # Vector mode: Show both game render AND vector visualization
+                        # Vector mode: Show game render and/or vector visualization based on --view option
 
-                        # Get vector state visualization
-                        vector_viz = visualize_vector_state(
-                            state, episode + 1, step, reward, total_reward,
-                            action, alpha_value, speed_kmh
-                        )
+                        # Get game render if needed
+                        if args.view in ['game', 'both']:
+                            rgb_frame = env.render()
+                            game_render = render_frame(
+                                rgb_frame, episode + 1, step, reward, total_reward,
+                                action, alpha_value, speed_kmh
+                            )
+                            cv2.imshow('SAC Agent - Game View', game_render)
 
-                        # Get game render
-                        rgb_frame = env.render()
-                        game_render = render_frame(
-                            rgb_frame, episode + 1, step, reward, total_reward,
-                            action, alpha_value, speed_kmh
-                        )
+                        # Get vector state visualization if needed
+                        if args.view in ['vector', 'both']:
+                            vector_viz = visualize_vector_state(
+                                state, episode + 1, step, reward, total_reward,
+                                action, alpha_value, speed_kmh
+                            )
+                            cv2.imshow('SAC Agent - Vector State (Model View)', vector_viz)
 
-                        # Display both in separate windows
-                        cv2.imshow('SAC Agent - Game View', game_render)
-                        cv2.imshow('SAC Agent - Vector State (Model View)', vector_viz)
-
-                        # Use first window for key handling
+                        # Handle keyboard input
                         key = cv2.waitKey(1) & 0xFF
                     else:
                         # Visual mode: Only show game render
