@@ -97,9 +97,7 @@ def parse_args():
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Use automatic entropy tuning (default: True)')
 
-    # Environment parameters
-    parser.add_argument('--state-mode', type=str, default='vector', choices=['visual', 'vector'],
-                        help='State representation: visual (images) or vector (track geometry with lookahead) - vector is fastest (default: vector)')
+    # Environment parameters (vector mode only)
 
     # Resume training
     parser.add_argument('--resume', type=str, default=None,
@@ -210,8 +208,8 @@ def setup_logging(log_dir, args, env, agent, config):
     log_handle.write("=" * 70 + "\n")
     log_handle.write(f"Timestamp: {timestamp}\n")
     log_handle.write(f"Device: {agent.device}\n")
-    log_handle.write(f"State mode: {args.state_mode}\n")
-    log_handle.write(f"State shape: {env.observation_space.shape}\n")
+    log_handle.write(f"State mode: vector (67D)\n")
+    log_handle.write(f"State dimension: {env.observation_space.shape[0]}\n")
     log_handle.write(f"Action space: Continuous (3D)\n")
     log_handle.write(f"Episodes: {args.episodes}\n")
     log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
@@ -229,8 +227,8 @@ def setup_logging(log_dir, args, env, agent, config):
         f.write("=" * 70 + "\n")
         f.write(f"Date: {timestamp}\n")
         f.write(f"Device: {agent.device}\n")
-        f.write(f"State mode: {args.state_mode}\n")
-        f.write(f"State shape: {env.observation_space.shape}\n\n")
+        f.write(f"State mode: vector (67D)\n")
+        f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
 
         f.write("Environment:\n")
         f.write(f"  Name: CarRacing-v3\n")
@@ -413,7 +411,6 @@ def plot_training_progress(episode_rewards, metrics, save_path):
 def train(args):
     """Main training loop."""
     # Environment configuration (single source of truth)
-    STACK_SIZE = 4
     TERMINATE_STATIONARY = True
     STATIONARY_PATIENCE = 50
     REWARD_SHAPING = True
@@ -435,11 +432,9 @@ def train(args):
     # Create training environment
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
-        stack_size=STACK_SIZE,
         terminate_stationary=TERMINATE_STATIONARY,
         stationary_patience=STATIONARY_PATIENCE,
         render_mode=None,
-        state_mode=args.state_mode,
         reward_shaping=REWARD_SHAPING,
         min_episode_steps=MIN_EPISODE_STEPS,
         short_episode_penalty=SHORT_EPISODE_PENALTY,
@@ -448,11 +443,11 @@ def train(args):
     )
 
     action_dim = env.action_space.shape[0]
-    state_shape = env.observation_space.shape
+    state_dim = env.observation_space.shape[0]
 
     print(f"Environment created:")
-    print(f"  State mode: {args.state_mode}")
-    print(f"  State shape: {state_shape}")
+    print(f"  State mode: vector (67D state vector)")
+    print(f"  State dimension: {state_dim}")
     print(f"  Action space: Continuous (3D)")
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
@@ -461,9 +456,8 @@ def train(args):
     # Create agent
     print("\nCreating SAC agent...")
     agent = SACAgent(
-        state_shape=state_shape,
+        state_dim=state_dim,
         action_dim=action_dim,
-        state_mode=args.state_mode,
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
         lr_alpha=args.lr_alpha,
@@ -473,16 +467,11 @@ def train(args):
         device=device
     )
 
-    # Enable verbose mode if requested
-    if args.verbose:
-        agent.verbose = True
-        print("  Verbose mode enabled for agent (timing will be printed every 100 updates)")
-
     # Create replay buffer
     print("Creating replay buffer...")
     replay_buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=state_shape,
+        state_shape=state_dim,
         action_dim=action_dim,
         device=device
     )

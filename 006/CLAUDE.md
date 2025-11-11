@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine** (no Box2D dependency). The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and supports both vector-based (67D) and visual-based (96×96 images) state representations.
+This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine** (no Box2D dependency). The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (67D) state representation** for training.
 
 ### Key Features
 
@@ -12,7 +12,7 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 - **Custom 2D Physics**: Clean, interpretable physics simulation with Magic Formula tires
 - **Soft Actor-Critic**: State-of-the-art continuous control algorithm
 - **Vector Mode**: 67D state representation (car state + track geometry + lookahead waypoints)
-- **Visual Mode**: 96×96 RGB frames with stacking (for visualization)
+- **Clean Architecture**: Simplified codebase focused on vector mode for optimal performance
 
 ### Current Reward Structure
 
@@ -76,21 +76,11 @@ python train_selection_parallel.py --num-agents 8 --resume checkpoints_selection
 - Wall-clock speedup: ~N× compared to single agent
 - Automatic checkpoint saving every tournament
 
-### Alternative Training Methods
+### Alternative Training Method
 
 **Standard single-agent training:**
 ```bash
 python train.py --episodes 2000
-```
-
-**Multi-car training (ghost cars on same track):**
-```bash
-python train_multicar.py --num-cars 4 --episodes 2000
-```
-
-**Vectorized environments:**
-```bash
-python train_vectorenv.py --num-envs 4 --episodes 2000
 ```
 
 ## Common Commands
@@ -109,7 +99,7 @@ python test_setup.py
 # Watch random agent (baseline)
 python watch_random_agent.py --episodes 3
 
-# Watch trained agent (auto-detects state mode)
+# Watch trained agent
 python watch_agent.py --checkpoint checkpoints_selection_parallel/best_model.pt --episodes 5
 
 # Play as human
@@ -118,19 +108,14 @@ python play_human.py
 
 ## Architecture Overview
 
-### State Representations
+### State Representation
 
-**Vector Mode (Default, 67D):**
+**Vector Mode (67D):**
 - Car state (11D): position, velocity, angle, wheel contacts, progress
 - Track segment (5D): distance to center, angle, curvature, segment info
 - Lookahead waypoints (20×2 = 40D): future waypoints in car coordinates
 - Obstacles/competitors (11D): nearest opponent information
 - Fast training, no rendering required
-
-**Visual Mode (4×96×96):**
-- 4 stacked grayscale frames
-- CNN-based networks
-- For visualization and watching only
 
 ### SAC Algorithm
 
@@ -145,13 +130,9 @@ python play_human.py
 
 ### Network Architecture
 
-**Vector Mode (Default):**
+**Vector Mode:**
 - Actor: 67D → FC(256)×3 → 2D action (mean, log_std)
 - Critic: 67D + 2D action → FC(512)×4 → Q-value
-
-**Visual Mode:**
-- Actor: 4×96×96 → Conv×3 → FC(512) → 2D action
-- Critic: 4×96×96 → Conv×3 + 2D action → Q-value
 
 ## File Structure
 
@@ -161,13 +142,11 @@ python play_human.py
 │   ├── car_racing.py       # Modified CarRacing-v3 with custom physics
 │   └── car_dynamics.py     # Custom 2D car physics (Magic Formula)
 │
-├── sac_agent.py            # SAC implementation (actor-critic networks)
-├── preprocessing.py         # Environment wrappers and factory function
+├── sac_agent.py            # SAC implementation (vector mode only)
+├── preprocessing.py         # Environment factory function
 │
 ├── train_selection_parallel.py  # PRIMARY: Parallel selection training
 ├── train.py                     # Standard single-agent training
-├── train_multicar.py            # Multi-car ghost racing
-├── train_vectorenv.py           # Vectorized environments
 │
 ├── watch_agent.py          # Visualize trained agent
 ├── watch_random_agent.py   # Baseline random agent
@@ -224,15 +203,14 @@ python train_selection_parallel.py --device cpu  # Default
 ```
 
 **For single-agent training:**
-- Vector mode: Use `--device cpu` (fastest for small MLPs)
-- Visual mode: Use `--device mps` or `--device cuda` (10× faster than CPU)
+- Vector mode: Use `--device cpu` (fastest for small MLPs) or `--device auto` (auto-detects)
 
 ## Checkpoint Format
 
 Checkpoints contain:
 - Network weights (actor, critics, targets)
 - Optimizer states
-- `state_mode`: 'vector' or 'visual' (critical for loading)
+- `state_dim`: 67 (vector dimension)
 - `action_dim`: 2
 - Entropy tuning parameters (if enabled)
 
@@ -240,8 +218,6 @@ Checkpoints contain:
 - `generation_N.pt`: Winner from generation N (historical record)
 - `latest_generation.pt`: Most recent tournament winner (easy resume)
 - `best_model.pt`: Best reward ever achieved (only updated on improvement)
-
-When loading checkpoints, `watch_agent.py` auto-detects state_mode to create matching networks.
 
 ## Debugging Patterns
 
@@ -299,7 +275,6 @@ PROGRESS_REWARD_SCALE = 6000.0  # Increase from 4000.0
 - `README.md`: User-facing documentation and quick start
 - `SAC_EXPLAINED.md`: Deep dive into SAC algorithm
 - `TRAINING_COMPARISON.md`: Comparison of training methods
-- `MULTICAR_USAGE.md`: Ghost car racing guide
 - `logs_selection_parallel/training.log`: Training progress
 
 ## References
@@ -309,4 +284,4 @@ PROGRESS_REWARD_SCALE = 6000.0  # Increase from 4000.0
 
 ---
 
-*Last updated: 2025 - Project 006*
+*Last updated: 2025 - Project 006 - Vector Mode Only*

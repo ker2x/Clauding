@@ -136,7 +136,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
 
     # Create environment
     env = make_carracing_env(
-        state_mode='vector',
         max_episode_steps=MAX_EPISODE_STEPS,
         terminate_stationary=True,
         stationary_patience=STATIONARY_PATIENCE,
@@ -147,15 +146,14 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         verbose=args.verbose
     )
 
-    state_shape = env.observation_space.shape
+    state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     device = torch.device('cpu')  # Force CPU for multiprocessing
 
     # Create agent
     agent = SACAgent(
-        state_shape=state_shape,
+        state_dim=state_dim,
         action_dim=action_dim,
-        state_mode='vector',
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
         lr_alpha=args.lr_alpha,
@@ -172,7 +170,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     # Create replay buffer
     buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=state_shape,
+        state_shape=state_dim,
         action_dim=action_dim,
         device=device
     )
@@ -196,7 +194,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 # Clear replay buffer on selection (fresh start with new weights)
                 buffer = ReplayBuffer(
                     capacity=args.buffer_size,
-                    state_shape=state_shape,
+                    state_shape=state_dim,
                     action_dim=action_dim,
                     device=device
                 )
@@ -289,7 +287,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                     agent.load_state_dict(new_state_dict)
                     buffer = ReplayBuffer(
                         capacity=args.buffer_size,
-                        state_shape=state_shape,
+                        state_shape=state_dim,
                         action_dim=action_dim,
                         device=device
                     )
