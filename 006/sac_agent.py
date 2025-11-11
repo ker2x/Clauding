@@ -248,6 +248,11 @@ class SACAgent:
         self.critic_target_1 = VectorCritic(state_dim, action_dim).to(self.device)
         self.critic_target_2 = VectorCritic(state_dim, action_dim).to(self.device)
 
+        # Fix for MPS bug: .to(device) can corrupt weights, producing NaN values
+        # Check and re-initialize if needed
+        if self.device.type == 'mps':
+            self._fix_mps_nan_weights()
+
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
         self.critic_target_2.load_state_dict(self.critic_2.state_dict())
@@ -436,6 +441,32 @@ class SACAgent:
             'mean_q2': current_q2.mean().item(),
             'mean_log_prob': log_probs.mean().item()
         }
+
+    def _fix_mps_nan_weights(self):
+        """
+        Fix MPS bug where .to(device) corrupts weights with NaN values.
+
+        This is a PyTorch MPS backend bug where transferring initialized weights
+        from CPU to MPS can corrupt them. We detect corrupted weights and
+        re-initialize them directly on the MPS device.
+        """
+        networks = [
+            ('actor', self.actor),
+            ('critic_1', self.critic_1),
+            ('critic_2', self.critic_2),
+            ('critic_target_1', self.critic_target_1),
+            ('critic_target_2', self.critic_target_2)
+        ]
+
+        for name, network in networks:
+            for param_name, param in network.named_parameters():
+                if torch.isnan(param).any():
+                    print(f"WARNING: Detected NaN in {name}.{param_name} after .to(mps), re-initializing...")
+                    # Re-initialize directly on MPS device
+                    if 'weight' in param_name:
+                        nn.init.kaiming_uniform_(param, a=0.01, nonlinearity='leaky_relu')
+                    elif 'bias' in param_name:
+                        nn.init.constant_(param, 0.0)
 
     def _soft_update(self, source, target):
         """Soft update target network parameters."""
