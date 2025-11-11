@@ -200,10 +200,8 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 state_dict = agent.get_state_dict()
                 result_queue.put(('WEIGHTS', agent_id, state_dict))
                 continue
-            elif command == 'RESUME':
-                # Update checkpoint and resume training
-                next_checkpoint = checkpoint_queue.get()
-                continue
+            # Note: RESUME commands are ONLY processed in the blocking wait loop at checkpoint
+            # If processed here, agents might skip the checkpoint wait
 
         except queue.Empty:
             pass
