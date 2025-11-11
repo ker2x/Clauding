@@ -240,11 +240,11 @@ class SACAgent:
         if auto_entropy_tuning:
             # Target entropy = -dim(A) (heuristic)
             self.target_entropy = -action_dim
-            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device, dtype=torch.float32)
             self.alpha_optimizer = optim.Adam([self.log_alpha], lr=lr_alpha)
             self.alpha = self.log_alpha.exp()
         else:
-            self.alpha = torch.tensor(alpha, device=self.device)
+            self.alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
 
     def _apply_action_bounds(self, z):
         """
@@ -394,7 +394,7 @@ class SACAgent:
 
             self.alpha = self.log_alpha.exp()
         else:
-            alpha_loss = torch.tensor(0.0)
+            alpha_loss = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
         # ===========================
         # Soft Update Target Networks
