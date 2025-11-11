@@ -677,14 +677,24 @@ def main():
                                 f"{max(eval_rewards.values()):.2f}"
                             ])
 
-                        # Update best overall
+                        # Save checkpoint after every tournament
+                        import torch
+
+                        # Save generation-specific checkpoint
+                        gen_path = os.path.join(args.checkpoint_dir, f'generation_{generation}.pt')
+                        torch.save(winner_state_dict, gen_path)
+                        print(f"  💾 Saved generation {generation} checkpoint", flush=True)
+
+                        # Save latest generation checkpoint (for easy resume)
+                        latest_path = os.path.join(args.checkpoint_dir, 'latest_generation.pt')
+                        torch.save(winner_state_dict, latest_path)
+
+                        # Update best overall if improved
                         if winner_reward > best_overall_reward:
                             best_overall_reward = winner_reward
                             best_path = os.path.join(args.checkpoint_dir, 'best_model.pt')
-                            # Save winner's state dict to file
-                            import torch
                             torch.save(winner_state_dict, best_path)
-                            print(f"✓ New best model saved: {best_overall_reward:.2f}")
+                            print(f"  ✓ New best model saved: {best_overall_reward:.2f}", flush=True)
 
             except queue.Empty:
                 pass
