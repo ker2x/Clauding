@@ -261,10 +261,10 @@ class SACAgent:
         self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
         self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
 
-        # Fix for MPS bug: .to(device) can corrupt weights, producing NaN values
-        # Check and re-initialize if needed
+        # MPS workaround: Reinitialize ALL weights directly on MPS device
+        # PyTorch's default init + .to(device) seems to produce NaN on MPS
         if self.device.type == 'mps':
-            self._fix_mps_nan_weights()
+            self._reinitialize_for_mps()
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
@@ -464,13 +464,16 @@ class SACAgent:
             'mean_log_prob': log_probs.mean().item()
         }
 
-    def _fix_mps_nan_weights(self):
+    def _reinitialize_for_mps(self):
         """
-        Fix MPS bug where .to(device) corrupts weights with NaN values.
+        Workaround for MPS bugs: Reinitialize ALL weights directly on MPS device.
 
-        This is a PyTorch MPS backend bug where transferring initialized weights
-        from CPU to MPS can corrupt them. We detect corrupted weights and
-        re-initialize them directly on the MPS device.
+        Issues observed:
+        1. .to(device) can corrupt some weights
+        2. Default PyTorch initialization may not be MPS-compatible
+        3. Some init functions (orthogonal_, xavier_) produce NaN on MPS
+
+        Solution: Use only simple, conservative initialization directly on MPS.
         """
         networks = [
             ('actor', self.actor),
@@ -481,14 +484,14 @@ class SACAgent:
         ]
 
         for name, network in networks:
-            for param_name, param in network.named_parameters():
-                if torch.isnan(param).any():
-                    print(f"WARNING: Detected NaN in {name}.{param_name} after .to(mps), re-initializing...")
-                    # Re-initialize directly on MPS device
-                    if 'weight' in param_name:
-                        nn.init.kaiming_uniform_(param, a=0.01, nonlinearity='leaky_relu')
-                    elif 'bias' in param_name:
-                        nn.init.constant_(param, 0.0)
+            for module in network.modules():
+                if isinstance(module, nn.Linear):
+                    # Use simple uniform initialization (most stable on MPS)
+                    nn.init.uniform_(module.weight, -0.1, 0.1)
+                    if module.bias is not None:
+                        nn.init.constant_(module.bias, 0.0)
+
+        print("INFO: Reinitialized all network weights for MPS compatibility")
 
     def _soft_update(self, source, target):
         """Soft update target network parameters."""
