@@ -64,7 +64,7 @@ MAX_SHAPE_DIM = (
 # Reward structure configuration
 PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
 LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
-STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+STEP_PENALTY = 0.6              # Penalty per frame (mild time pressure)
 STATIONARY_PENALTY = 1.0        # Penalty per frame for being stationary (speed < 0.5 m/s)
 ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track (encourages staying on track)
 OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
