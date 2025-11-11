@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """
-Parallel Selection-Based Training for CarRacing-v3
+Parallel Selection Training for CarRacing-v3 SAC Agent
 
-Trains N independent models in TRUE PARALLEL using multiprocessing:
-- N agents train simultaneously on separate CPU cores
-- Every M episodes: synchronize, evaluate all, select best
-- Clone winner to all agents, restart parallel training
-- Wall-clock time = 1× (not N×) with N× sample collection
+PRIMARY TRAINING METHOD for this project.
 
-This gives evolutionary pressure WITHOUT sacrificing sample efficiency.
+Evolutionary training with N independent agents running in parallel:
+- Each agent trains independently on a separate CPU core
+- Every M episodes: evaluate all agents and select the best performer
+- Clone winner's weights to all other agents
+- Continue parallel training from winner
+
+Advantages:
+- True parallel execution (N× CPU utilization)
+- Evolutionary selection pressure improves convergence
+- Sample efficient (N× data collection)
+- Wall-clock speedup: ~N× compared to single-agent training
+
+Recommended: Use 8 agents with 8+ CPU cores for optimal performance.
 """
 
 import argparse
