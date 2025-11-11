@@ -59,16 +59,22 @@ class VectorActor(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        """Initialize weights using orthogonal initialization for better stability."""
+        """
+        Initialize weights for numerical stability.
+        Uses Xavier uniform for MPS compatibility (orthogonal init has NaN issues on MPS).
+        """
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+                # Xavier uniform is more stable on MPS than orthogonal
+                nn.init.xavier_uniform_(module.weight, gain=1.0)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0.0)
 
-        # Initialize output layers with smaller weights
-        nn.init.orthogonal_(self.mean.weight, gain=0.01)
-        nn.init.orthogonal_(self.log_std.weight, gain=0.01)
+        # Initialize output layers with smaller weights for stable initial policy
+        nn.init.uniform_(self.mean.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.mean.bias, -3e-3, 3e-3)
+        nn.init.uniform_(self.log_std.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.log_std.bias, -3e-3, 3e-3)
 
     def forward(self, state):
         if self.use_layer_norm:
@@ -113,15 +119,20 @@ class VectorCritic(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
-        """Initialize weights using orthogonal initialization for better stability."""
+        """
+        Initialize weights for numerical stability.
+        Uses Xavier uniform for MPS compatibility (orthogonal init has NaN issues on MPS).
+        """
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+                # Xavier uniform is more stable on MPS than orthogonal
+                nn.init.xavier_uniform_(module.weight, gain=1.0)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0.0)
 
-        # Initialize output layer with smaller weights
-        nn.init.orthogonal_(self.fc4.weight, gain=1.0)
+        # Initialize output layer with smaller weights for stable initial Q-values
+        nn.init.uniform_(self.fc4.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.fc4.bias, -3e-3, 3e-3)
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=1)
