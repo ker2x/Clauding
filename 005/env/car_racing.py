@@ -62,14 +62,14 @@ MAX_SHAPE_DIM = (
 )
 
 # Reward structure configuration
-PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points) - reduced to prevent risky behavior
-LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing) - increased to reward completion
-STEP_PENALTY = 0.1              # Penalty per frame (mild time pressure) - reduced to not discourage exploration
-OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame - increased to discourage off-track driving
-OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies - set to 0 so ANY wheel off is penalized
-OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track - increased to strongly discourage crashes
+PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
+LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
+STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
 ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track (encourages staying on track)
-FORWARD_SPEED_REWARD_SCALE = 0.0  # Removed speed reward - progress should be the main driver, not raw speed
+OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies - set to 0 so ANY wheel off is penalized
+OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
+FORWARD_SPEED_REWARD_SCALE = 0.0
 
 
 class FrictionDetector:
