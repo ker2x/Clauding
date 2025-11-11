@@ -379,6 +379,10 @@ def main():
                      for _ in range(args.num_agents)]
     best_overall_reward = float('-inf')
 
+    # Tournament checkpoint tracking
+    next_tournament_checkpoint = args.selection_frequency
+    tournament_pending = False
+
     start_time = time.time()
 
     # Main coordination loop
@@ -466,14 +470,20 @@ def main():
                     min_episodes = min(agent_episode_counts)
                     max_episodes = max(agent_episode_counts)
 
-                    # Trigger selection when:
-                    # 1. Slowest agent reaches milestone (min_episodes % frequency == 0)
-                    # 2. All agents are synchronized (min == max)
-                    if (min_episodes > 0 and
-                        min_episodes % args.selection_frequency == 0 and
-                        min_episodes == max_episodes):
-                        # All agents synchronized at selection milestone
+                    # Check if slowest agent has reached the tournament checkpoint
+                    if not tournament_pending and min_episodes >= next_tournament_checkpoint:
+                        tournament_pending = True
+                        print(f"\n{'='*60}")
+                        print(f"Tournament checkpoint reached: {next_tournament_checkpoint} episodes")
+                        print(f"Waiting for all agents to reach checkpoint...")
+                        print(f"Agent progress: {agent_episode_counts}")
+                        print(f"{'='*60}\n")
+
+                    # Trigger selection when all agents have reached the checkpoint
+                    if tournament_pending and all(count >= next_tournament_checkpoint for count in agent_episode_counts):
+                        # All agents have reached the tournament checkpoint
                         generation += 1
+                        tournament_pending = False
 
                         print(f"\n{'='*60}")
                         print(f"GENERATION {generation}: Selection Tournament")
@@ -517,6 +527,9 @@ def main():
 
                         print(f"  All agents now copies of Agent {winner_id}")
                         print(f"{'='*60}\n")
+
+                        # Update next tournament checkpoint
+                        next_tournament_checkpoint += args.selection_frequency
 
                         # Log selection
                         with open(selection_csv, 'a', newline='') as f:
