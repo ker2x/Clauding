@@ -101,6 +101,11 @@ class ReplayBuffer:
     Memory-efficient approach: stores data on CPU, transfers only sampled batches to device.
     This avoids memory issues while maintaining speed.
 
+    Optimizations:
+    - Pinned memory: Faster CPU->GPU transfers (when CUDA available)
+    - Non-blocking transfers: Asynchronous GPU copies for better throughput
+    - Pre-allocated tensors: Avoid repeated allocations
+
     Performance improvement: ~5-8x faster sampling (20ms → 2-4ms)
     Memory usage: Only batch size * state_size on device (vs full buffer on device)
     """
@@ -110,13 +115,23 @@ class ReplayBuffer:
         self.action_dim = action_dim
         self.state_shape = state_shape if isinstance(state_shape, tuple) else (state_shape,)
 
+        # Use pinned memory for faster GPU transfers (CUDA only)
+        self.use_pinned_memory = device.type == 'cuda'
+
         # Pre-allocate tensors on CPU for memory efficiency
-        # Only sampled batches are transferred to device
+        # Pinned memory enables faster async transfers to GPU
         self.states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
         self.actions = torch.zeros((capacity, action_dim), dtype=torch.float32, device='cpu')
         self.rewards = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
         self.next_states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
         self.dones = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
+
+        if self.use_pinned_memory:
+            self.states = self.states.pin_memory()
+            self.actions = self.actions.pin_memory()
+            self.rewards = self.rewards.pin_memory()
+            self.next_states = self.next_states.pin_memory()
+            self.dones = self.dones.pin_memory()
 
         # Circular buffer management
         self.ptr = 0  # Current write position
@@ -153,19 +168,20 @@ class ReplayBuffer:
         Sample a batch of experiences.
 
         Samples on CPU (fast indexing), then transfers batch to target device.
+        Uses non-blocking transfers for better throughput when pinned memory is enabled.
         This is ~5-8x faster than the old numpy conversion approach.
         """
         # Generate random indices on CPU (avoid cross-device operations)
         indices = torch.randint(0, self.size, (batch_size,), device='cpu')
 
         # Index on CPU, then transfer batch to device
-        # This is much faster than transferring the entire buffer to device
+        # non_blocking=True enables async transfer when using pinned memory
         return (
-            self.states[indices].to(self.device),
-            self.actions[indices].to(self.device),
-            self.rewards[indices].to(self.device),
-            self.next_states[indices].to(self.device),
-            self.dones[indices].to(self.device)
+            self.states[indices].to(self.device, non_blocking=True),
+            self.actions[indices].to(self.device, non_blocking=True),
+            self.rewards[indices].to(self.device, non_blocking=True),
+            self.next_states[indices].to(self.device, non_blocking=True),
+            self.dones[indices].to(self.device, non_blocking=True)
         )
 
     def __len__(self):
