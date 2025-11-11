@@ -67,30 +67,30 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train SAC agent on CarRacing-v3')
 
     # Training parameters
-    parser.add_argument('--episodes', type=int, default=2000,
-                        help='Number of episodes to train (default: 2000)')
-    parser.add_argument('--learning-starts', type=int, default=5000,
-                        help='Steps before training starts (default: 5000)')
-    parser.add_argument('--eval-frequency', type=int, default=100,
-                        help='Evaluate every N episodes (default: 100)')
-    parser.add_argument('--checkpoint-frequency', type=int, default=100,
-                        help='Save checkpoint every N episodes (default: 100)')
+    parser.add_argument('--episodes', type=int, default=DEFAULT_EPISODES,
+                        help=f'Number of episodes to train (default: {DEFAULT_EPISODES})')
+    parser.add_argument('--learning-starts', type=int, default=DEFAULT_LEARNING_STARTS,
+                        help=f'Steps before training starts (default: {DEFAULT_LEARNING_STARTS})')
+    parser.add_argument('--eval-frequency', type=int, default=DEFAULT_EVAL_FREQUENCY,
+                        help=f'Evaluate every N episodes (default: {DEFAULT_EVAL_FREQUENCY})')
+    parser.add_argument('--checkpoint-frequency', type=int, default=DEFAULT_CHECKPOINT_FREQUENCY,
+                        help=f'Save checkpoint every N episodes (default: {DEFAULT_CHECKPOINT_FREQUENCY})')
 
     # Agent hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=3e-4,
-                        help='Actor learning rate (default: 3e-4)')
-    parser.add_argument('--lr-critic', type=float, default=3e-4,
-                        help='Critic learning rate (default: 3e-4)')
-    parser.add_argument('--lr-alpha', type=float, default=3e-4,
-                        help='Alpha learning rate (default: 3e-4)')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='Discount factor (default: 0.99)')
-    parser.add_argument('--tau', type=float, default=0.005,
-                        help='Soft update coefficient (default: 0.005)')
-    parser.add_argument('--buffer-size', type=int, default=100000,
-                        help='Replay buffer size (default: 100000)')
-    parser.add_argument('--batch-size', type=int, default=256,
-                        help='Training batch size (default: 256)')
+    parser.add_argument('--lr-actor', type=float, default=DEFAULT_LR_ACTOR,
+                        help=f'Actor learning rate (default: {DEFAULT_LR_ACTOR})')
+    parser.add_argument('--lr-critic', type=float, default=DEFAULT_LR_CRITIC,
+                        help=f'Critic learning rate (default: {DEFAULT_LR_CRITIC})')
+    parser.add_argument('--lr-alpha', type=float, default=DEFAULT_LR_ALPHA,
+                        help=f'Alpha learning rate (default: {DEFAULT_LR_ALPHA})')
+    parser.add_argument('--gamma', type=float, default=DEFAULT_GAMMA,
+                        help=f'Discount factor (default: {DEFAULT_GAMMA})')
+    parser.add_argument('--tau', type=float, default=DEFAULT_TAU,
+                        help=f'Soft update coefficient (default: {DEFAULT_TAU})')
+    parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
+                        help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f'Training batch size (default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Use automatic entropy tuning (default: True)')
 
@@ -101,14 +101,14 @@ def parse_args():
                         help='Path to checkpoint to resume from')
 
     # Paths
-    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints',
-                        help='Directory to save checkpoints (default: checkpoints)')
-    parser.add_argument('--log-dir', type=str, default='logs',
-                        help='Directory to save logs (default: logs)')
+    parser.add_argument('--checkpoint-dir', type=str, default=DEFAULT_CHECKPOINT_DIR,
+                        help=f'Directory to save checkpoints (default: {DEFAULT_CHECKPOINT_DIR})')
+    parser.add_argument('--log-dir', type=str, default=DEFAULT_LOG_DIR,
+                        help=f'Directory to save logs (default: {DEFAULT_LOG_DIR})')
 
     # Device selection
-    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda', 'mps'],
-                        help='Device to use for training: auto (default), cpu, cuda, or mps')
+    parser.add_argument('--device', type=str, default=DEFAULT_DEVICE, choices=['auto', 'cpu', 'cuda', 'mps'],
+                        help=f'Device to use for training: auto (default), cpu, cuda, or mps')
 
     # Debugging
     parser.add_argument('--verbose', action='store_true', default=False,

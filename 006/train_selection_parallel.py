@@ -51,42 +51,42 @@ def parse_args():
     )
 
     # Selection parameters
-    parser.add_argument('--num-agents', type=int, default=8,
-                        help='Number of parallel agents (default: 8)')
-    parser.add_argument('--selection-frequency', type=int, default=50,
-                        help='Select best agent every N episodes (default: 50)')
-    parser.add_argument('--eval-episodes', type=int, default=10,
-                        help='Episodes to evaluate each agent during selection (default: 10)')
-    parser.add_argument('--elite-count', type=int, default=1,
-                        help='Number of top agents to preserve (1=winner-takes-all, 2+=elite preservation, default: 1)')
+    parser.add_argument('--num-agents', type=int, default=DEFAULT_NUM_AGENTS,
+                        help=f'Number of parallel agents (default: {DEFAULT_NUM_AGENTS})')
+    parser.add_argument('--selection-frequency', type=int, default=DEFAULT_SELECTION_FREQUENCY,
+                        help=f'Select best agent every N episodes (default: {DEFAULT_SELECTION_FREQUENCY})')
+    parser.add_argument('--eval-episodes', type=int, default=DEFAULT_EVAL_EPISODES,
+                        help=f'Episodes to evaluate each agent during selection (default: {DEFAULT_EVAL_EPISODES})')
+    parser.add_argument('--elite-count', type=int, default=DEFAULT_ELITE_COUNT,
+                        help=f'Number of top agents to preserve (1=winner-takes-all, 2+=elite preservation, default: {DEFAULT_ELITE_COUNT})')
     parser.add_argument('--sync-seeds', action='store_true',
                         help='Use synchronized seeds (same track for all agents per episode)')
 
     # Training parameters
-    parser.add_argument('--episodes', type=int, default=2000,
-                        help='Total training episodes (default: 2000)')
-    parser.add_argument('--learning-starts', type=int, default=5000,
-                        help='Steps before training starts (default: 5000)')
-    parser.add_argument('--checkpoint-frequency', type=int, default=100,
-                        help='Save checkpoint every N episodes (default: 100)')
+    parser.add_argument('--episodes', type=int, default=DEFAULT_EPISODES,
+                        help=f'Total training episodes (default: {DEFAULT_EPISODES})')
+    parser.add_argument('--learning-starts', type=int, default=DEFAULT_LEARNING_STARTS,
+                        help=f'Steps before training starts (default: {DEFAULT_LEARNING_STARTS})')
+    parser.add_argument('--checkpoint-frequency', type=int, default=DEFAULT_CHECKPOINT_FREQUENCY,
+                        help=f'Save checkpoint every N episodes (default: {DEFAULT_CHECKPOINT_FREQUENCY})')
 
     # Agent hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=3e-4,
-                        help='Actor learning rate (default: 3e-4)')
-    parser.add_argument('--lr-critic', type=float, default=3e-4,
-                        help='Critic learning rate (default: 3e-4)')
-    parser.add_argument('--lr-alpha', type=float, default=3e-4,
-                        help='Alpha learning rate (default: 3e-4)')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='Discount factor (default: 0.99)')
-    parser.add_argument('--tau', type=float, default=0.005,
-                        help='Target network update rate (default: 0.005)')
+    parser.add_argument('--lr-actor', type=float, default=DEFAULT_LR_ACTOR,
+                        help=f'Actor learning rate (default: {DEFAULT_LR_ACTOR})')
+    parser.add_argument('--lr-critic', type=float, default=DEFAULT_LR_CRITIC,
+                        help=f'Critic learning rate (default: {DEFAULT_LR_CRITIC})')
+    parser.add_argument('--lr-alpha', type=float, default=DEFAULT_LR_ALPHA,
+                        help=f'Alpha learning rate (default: {DEFAULT_LR_ALPHA})')
+    parser.add_argument('--gamma', type=float, default=DEFAULT_GAMMA,
+                        help=f'Discount factor (default: {DEFAULT_GAMMA})')
+    parser.add_argument('--tau', type=float, default=DEFAULT_TAU,
+                        help=f'Target network update rate (default: {DEFAULT_TAU})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Automatically tune entropy coefficient')
-    parser.add_argument('--buffer-size', type=int, default=1000000,
-                        help='Replay buffer size (default: 1000000)')
-    parser.add_argument('--batch-size', type=int, default=256,
-                        help='Batch size (default: 256)')
+    parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
+                        help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f'Batch size (default: {DEFAULT_BATCH_SIZE})')
 
     # Environment parameters
     parser.add_argument('--device', type=str, default='cpu',
@@ -97,10 +97,10 @@ def parse_args():
                         help='Enable verbose output')
     parser.add_argument('--resume', type=str, default=None,
                         help='Path to checkpoint to resume from')
-    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints_selection_parallel',
-                        help='Directory to save checkpoints')
-    parser.add_argument('--log-dir', type=str, default='logs_selection_parallel',
-                        help='Directory to save logs')
+    parser.add_argument('--checkpoint-dir', type=str, default=DEFAULT_SELECTION_CHECKPOINT_DIR,
+                        help=f'Directory to save checkpoints (default: {DEFAULT_SELECTION_CHECKPOINT_DIR})')
+    parser.add_argument('--log-dir', type=str, default=DEFAULT_SELECTION_LOG_DIR,
+                        help=f'Directory to save logs (default: {DEFAULT_SELECTION_LOG_DIR})')
 
     return parser.parse_args()
 
