@@ -136,11 +136,11 @@ class ReplayBuffer:
 
         # Pre-allocate tensors on CPU for memory efficiency
         # Pinned memory enables faster async transfers to GPU
-        self.states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
-        self.actions = torch.zeros((capacity, action_dim), dtype=torch.float32, device='cpu')
-        self.rewards = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
-        self.next_states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
-        self.dones = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
+        self.states = torch.zeros((capacity, *self.state_shape), device='cpu')
+        self.actions = torch.zeros((capacity, action_dim), device='cpu')
+        self.rewards = torch.zeros((capacity, 1), device='cpu')
+        self.next_states = torch.zeros((capacity, *self.state_shape), device='cpu')
+        self.dones = torch.zeros((capacity, 1), device='cpu')
 
         if self.use_pinned_memory:
             self.states = self.states.pin_memory()
@@ -162,11 +162,11 @@ class ReplayBuffer:
         """
         # Convert inputs to torch tensors if they aren't already
         if not isinstance(state, torch.Tensor):
-            state = torch.from_numpy(np.array(state)).float()
+            state = torch.from_numpy(np.array(state))
         if not isinstance(action, torch.Tensor):
-            action = torch.from_numpy(np.array(action)).float()
+            action = torch.from_numpy(np.array(action))
         if not isinstance(next_state, torch.Tensor):
-            next_state = torch.from_numpy(np.array(next_state)).float()
+            next_state = torch.from_numpy(np.array(next_state))
 
         # Store in pre-allocated CPU tensors (no device transfer on push)
         self.states[self.ptr] = state
@@ -280,11 +280,11 @@ class SACAgent:
         if auto_entropy_tuning:
             # Target entropy = -dim(A) (heuristic)
             self.target_entropy = -action_dim
-            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device, dtype=torch.float32)
+            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             self.alpha_optimizer = optim.Adam([self.log_alpha], lr=lr_alpha)
             self.alpha = self.log_alpha.exp()
         else:
-            self.alpha = torch.tensor(alpha, device=self.device, dtype=torch.float32)
+            self.alpha = torch.tensor(alpha, device=self.device)
 
     def _apply_action_bounds(self, z):
         """
@@ -313,7 +313,7 @@ class SACAgent:
         Returns:
             action: Action to take in native bounds
         """
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        state = torch.tensor(state, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
             mean, log_std = self.actor(state)
@@ -443,7 +443,7 @@ class SACAgent:
 
             self.alpha = self.log_alpha.exp()
         else:
-            alpha_loss = torch.tensor(0.0, device=self.device, dtype=torch.float32)
+            alpha_loss = torch.tensor(0.0, device=self.device)
 
         # ===========================
         # Soft Update Target Networks
