@@ -5,8 +5,11 @@ This module contains common functions used across different training scripts:
 - evaluate_agent: Evaluate agent performance
 - configure_cpu_threading: Optimize CPU threading for training
 - get_device: Determine which device to use (CPU/CUDA/MPS)
+- setup_logging: Configure logging infrastructure for training
 """
 
+import os
+import csv
 import multiprocessing
 import torch
 import numpy as np
@@ -132,3 +135,163 @@ def evaluate_agent(agent, env, n_episodes=5, log_handle=None, seed_offset=None,
         return mean_reward, std_reward, total_rewards
     else:
         return mean_reward
+
+
+def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=None):
+    """
+    Setup logging infrastructure for training.
+
+    Args:
+        log_dir: Directory to save log files
+        args: Training arguments (argparse Namespace)
+        mode: 'standard' for full logging or 'selection' for parallel selection training
+        env: CarRacing environment (required for standard mode)
+        agent: SAC agent (required for standard mode)
+        config: Dict with environment configuration values (required for standard mode)
+
+    Returns:
+        For mode='standard': Tuple of (training_csv_path, eval_csv_path, log_file_handle)
+        For mode='selection': Tuple of (training_csv_path, selection_csv_path)
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    if mode == 'selection':
+        # Simplified logging for parallel selection training
+        training_csv = os.path.join(log_dir, f'training_{timestamp}.csv')
+        with open(training_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'episode', 'generation', 'agent_id', 'reward',
+                'best_agent_id', 'best_avg_reward'
+            ])
+
+        # Selection log for tournament results
+        selection_csv = os.path.join(log_dir, f'selection_{timestamp}.csv')
+        with open(selection_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'generation', 'episode', 'winner_id', 'winner_eval_reward',
+                'avg_eval_reward', 'min_eval_reward', 'max_eval_reward'
+            ])
+
+        print(f"\nLogging initialized:")
+        print(f"  Training log: {training_csv}")
+        print(f"  Selection log: {selection_csv}")
+        return training_csv, selection_csv
+
+    elif mode == 'standard':
+        # Full logging for standard training
+        if env is None or agent is None or config is None:
+            raise ValueError("env, agent, and config are required for standard mode")
+
+        # Create CSV for training metrics
+        training_csv = os.path.join(log_dir, 'training_metrics.csv')
+        with open(training_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'episode', 'total_steps', 'episode_steps', 'reward',
+                'actor_loss', 'critic_1_loss', 'critic_2_loss', 'alpha_loss',
+                'alpha', 'mean_q1', 'mean_q2', 'mean_log_prob',
+                'elapsed_time_sec', 'avg_reward_100', 'timestamp'
+            ])
+
+        # Create CSV for evaluation metrics
+        eval_csv = os.path.join(log_dir, 'evaluation_metrics.csv')
+        with open(eval_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'episode', 'total_steps', 'eval_mean_reward', 'eval_std_reward',
+                'eval_rewards', 'is_best', 'elapsed_time_sec', 'timestamp'
+            ])
+
+        # Create human-readable log file
+        log_file = os.path.join(log_dir, 'training.log')
+        log_handle = open(log_file, 'w', buffering=1)  # Line buffering for real-time updates
+
+        # Write header to log file
+        log_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_handle.write("=" * 70 + "\n")
+        log_handle.write("SAC Training Session Started\n")
+        log_handle.write("=" * 70 + "\n")
+        log_handle.write(f"Timestamp: {log_timestamp}\n")
+        log_handle.write(f"Device: {agent.device}\n")
+        log_handle.write(f"State mode: vector (67D)\n")
+        log_handle.write(f"State dimension: {env.observation_space.shape[0]}\n")
+        log_handle.write(f"Action space: Continuous (3D)\n")
+        log_handle.write(f"Episodes: {args.episodes}\n")
+        log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
+        log_handle.write(f"Auto entropy tuning: {args.auto_entropy_tuning}\n")
+        log_handle.write(f"Early termination: enabled (patience={config['stationary_patience']})\n")
+        log_handle.write(f"Reward shaping: enabled (penalty {config['short_episode_penalty']} for episodes < {config['min_episode_steps']} steps)\n")
+        if hasattr(args, 'resume') and args.resume:
+            log_handle.write(f"Resumed from: {args.resume}\n")
+        log_handle.write("=" * 70 + "\n\n")
+
+        # Create system info file
+        system_info_path = os.path.join(log_dir, 'system_info.txt')
+        with open(system_info_path, 'w') as f:
+            # Import reward constants here to avoid circular imports
+            try:
+                from env.car_racing import (
+                    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD, ONTRACK_REWARD,
+                    FORWARD_SPEED_REWARD_SCALE, STEP_PENALTY, OFFTRACK_PENALTY,
+                    OFFTRACK_THRESHOLD, OFFTRACK_TERMINATION_PENALTY
+                )
+
+                f.write("Training Configuration\n")
+                f.write("=" * 70 + "\n")
+                f.write(f"Date: {log_timestamp}\n")
+                f.write(f"Device: {agent.device}\n")
+                f.write(f"State mode: vector (67D)\n")
+                f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
+
+                f.write("Environment:\n")
+                f.write(f"  Name: CarRacing-v3\n")
+                f.write(f"  Actions: Continuous [steering, gas, brake]\n")
+                f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
+                f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
+
+                f.write("Reward Structure (from env/car_racing.py):\n")
+                f.write(f"  Progress reward: {PROGRESS_REWARD_SCALE} points for full lap (continuous/dense)\n")
+                f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
+                f.write(f"  On-track reward: {ONTRACK_REWARD} per frame (encourages staying on track)\n")
+                f.write(f"  Forward speed reward: {FORWARD_SPEED_REWARD_SCALE}×speed per frame (encourages racing, capped at +2.0)\n")
+                f.write(f"  Step penalty: {STEP_PENALTY} per frame (time pressure)\n")
+                f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n")
+                f.write(f"  Off-track termination: {OFFTRACK_TERMINATION_PENALTY} (all wheels off)\n\n")
+            except ImportError:
+                f.write("Training Configuration\n")
+                f.write("=" * 70 + "\n")
+                f.write(f"Date: {log_timestamp}\n")
+                f.write(f"Device: {agent.device}\n")
+                f.write(f"State mode: vector (67D)\n")
+                f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
+
+            f.write("Agent Hyperparameters:\n")
+            f.write(f"  Actor learning rate: {args.lr_actor}\n")
+            f.write(f"  Critic learning rate: {args.lr_critic}\n")
+            f.write(f"  Gamma (discount): {args.gamma}\n")
+            f.write(f"  Tau (soft update): {args.tau}\n")
+            f.write(f"  Batch size: {args.batch_size}\n")
+            f.write(f"  Buffer size: {args.buffer_size}\n")
+            f.write(f"  Learning starts: {args.learning_starts} steps\n")
+            f.write(f"  Auto entropy tuning: {args.auto_entropy_tuning}\n\n")
+
+            f.write("Training Schedule:\n")
+            f.write(f"  Total episodes: {args.episodes}\n")
+            if hasattr(args, 'eval_frequency'):
+                f.write(f"  Eval frequency: {args.eval_frequency} episodes\n")
+            if hasattr(args, 'checkpoint_frequency'):
+                f.write(f"  Checkpoint frequency: {args.checkpoint_frequency} episodes\n\n")
+
+        print(f"\nLogging initialized:")
+        print(f"  Training metrics: {training_csv}")
+        print(f"  Evaluation metrics: {eval_csv}")
+        print(f"  Training log: {log_file}")
+        print(f"  System info: {system_info_path}")
+
+        return training_csv, eval_csv, log_handle
+
+    else:
+        raise ValueError(f"Unknown mode: {mode}. Must be 'standard' or 'selection'")

@@ -58,12 +58,8 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
-from training_utils import get_device, configure_cpu_threading, evaluate_agent
-from env.car_racing import (
-    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
-    OFFTRACK_TERMINATION_PENALTY, ONTRACK_REWARD, FORWARD_SPEED_REWARD_SCALE
-)
+from training_utils import get_device, configure_cpu_threading, evaluate_agent, setup_logging
+from constants import *
 
 
 def parse_args():
@@ -119,116 +115,6 @@ def parse_args():
                         help='Enable verbose mode from environment for debugging (default: False)')
 
     return parser.parse_args()
-
-
-def setup_logging(log_dir, args, env, agent, config):
-    """
-    Setup logging infrastructure: CSV files, log file, system info.
-
-    Args:
-        log_dir: Directory to save log files
-        args: Training arguments
-        env: CarRacing environment
-        agent: SAC agent
-        config: Dict with environment configuration values
-
-    Returns:
-        Tuple of (training_csv_path, eval_csv_path, log_file_handle)
-    """
-    # Create CSV for training metrics
-    training_csv = os.path.join(log_dir, 'training_metrics.csv')
-    with open(training_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'total_steps', 'episode_steps', 'reward',
-            'actor_loss', 'critic_1_loss', 'critic_2_loss', 'alpha_loss',
-            'alpha', 'mean_q1', 'mean_q2', 'mean_log_prob',
-            'elapsed_time_sec', 'avg_reward_100', 'timestamp'
-        ])
-
-    # Create CSV for evaluation metrics
-    eval_csv = os.path.join(log_dir, 'evaluation_metrics.csv')
-    with open(eval_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'total_steps', 'eval_mean_reward', 'eval_std_reward',
-            'eval_rewards', 'is_best', 'elapsed_time_sec', 'timestamp'
-        ])
-
-    # Create human-readable log file
-    log_file = os.path.join(log_dir, 'training.log')
-    log_handle = open(log_file, 'w', buffering=1)  # Line buffering for real-time updates
-
-    # Write header to log file
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_handle.write("=" * 70 + "\n")
-    log_handle.write("SAC Training Session Started\n")
-    log_handle.write("=" * 70 + "\n")
-    log_handle.write(f"Timestamp: {timestamp}\n")
-    log_handle.write(f"Device: {agent.device}\n")
-    log_handle.write(f"State mode: vector (67D)\n")
-    log_handle.write(f"State dimension: {env.observation_space.shape[0]}\n")
-    log_handle.write(f"Action space: Continuous (3D)\n")
-    log_handle.write(f"Episodes: {args.episodes}\n")
-    log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
-    log_handle.write(f"Auto entropy tuning: {args.auto_entropy_tuning}\n")
-    log_handle.write(f"Early termination: enabled (patience={config['stationary_patience']})\n")
-    log_handle.write(f"Reward shaping: enabled (penalty {config['short_episode_penalty']} for episodes < {config['min_episode_steps']} steps)\n")
-    if args.resume:
-        log_handle.write(f"Resumed from: {args.resume}\n")
-    log_handle.write("=" * 70 + "\n\n")
-
-    # Create system info file
-    system_info_path = os.path.join(log_dir, 'system_info.txt')
-    with open(system_info_path, 'w') as f:
-        f.write("Training Configuration\n")
-        f.write("=" * 70 + "\n")
-        f.write(f"Date: {timestamp}\n")
-        f.write(f"Device: {agent.device}\n")
-        f.write(f"State mode: vector (67D)\n")
-        f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
-
-        f.write("Environment:\n")
-        f.write(f"  Name: CarRacing-v3\n")
-        f.write(f"  Actions: Continuous [steering, gas, brake]\n")
-        f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
-        f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
-
-        f.write("Reward Structure (from env/car_racing.py):\n")
-        f.write(f"  Progress reward: {PROGRESS_REWARD_SCALE} points for full lap (continuous/dense)\n")
-        f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
-        f.write(f"  On-track reward: {ONTRACK_REWARD} per frame (encourages staying on track)\n")
-        f.write(f"  Forward speed reward: {FORWARD_SPEED_REWARD_SCALE}×speed per frame (encourages racing, capped at +2.0)\n")
-        f.write(f"  Step penalty: {STEP_PENALTY} per frame (time pressure)\n")
-        f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n")
-        f.write(f"  Off-track termination: {OFFTRACK_TERMINATION_PENALTY} (all wheels off)\n\n")
-
-        f.write("Agent Hyperparameters:\n")
-        f.write(f"  Actor learning rate: {args.lr_actor}\n")
-        f.write(f"  Critic learning rate: {args.lr_critic}\n")
-        f.write(f"  Alpha learning rate: {args.lr_alpha}\n")
-        f.write(f"  Gamma: {args.gamma}\n")
-        f.write(f"  Tau: {args.tau}\n")
-        f.write(f"  Buffer size: {args.buffer_size}\n")
-        f.write(f"  Batch size: {args.batch_size}\n")
-        f.write(f"  Auto entropy tuning: {args.auto_entropy_tuning}\n")
-        f.write(f"  Learning starts: {args.learning_starts} steps\n\n")
-
-        f.write("Training Parameters:\n")
-        f.write(f"  Episodes: {args.episodes}\n")
-        f.write(f"  Eval frequency: {args.eval_frequency} episodes\n")
-        f.write(f"  Checkpoint frequency: {args.checkpoint_frequency} episodes\n\n")
-
-        f.write("Resume Settings:\n")
-        f.write(f"  Resumed from: {args.resume if args.resume else 'None'}\n")
-
-    print(f"Logging initialized:")
-    print(f"  Training metrics: {training_csv}")
-    print(f"  Evaluation metrics: {eval_csv}")
-    print(f"  Training log: {log_file}")
-    print(f"  System info: {system_info_path}")
-
-    return training_csv, eval_csv, log_handle
 
 
 def plot_training_progress(episode_rewards, metrics, save_path):
@@ -398,7 +284,7 @@ def train(args):
         'short_episode_penalty': SHORT_EPISODE_PENALTY,
         'max_episode_steps': MAX_EPISODE_STEPS
     }
-    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, env, agent, config)
+    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, mode='standard', env=env, agent=agent, config=config)
 
     # Training metrics
     episode_rewards = []

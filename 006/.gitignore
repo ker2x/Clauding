@@ -4,40 +4,56 @@ __pycache__/
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
 
 # Virtual environments
 venv/
-.venv/
 ENV/
+.venv
 
 # EXCEPTION: Track our custom env/ directory (local CarRacing environment)
 !env/
 
-# IDEs
+# Training outputs
+checkpoints/
+checkpoints_selection_parallel/
+logs/
+logs_selection_parallel/
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Plots and visualizations
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.avi
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# MacOS
+# OS
 .DS_Store
-
-# Project-specific
-checkpoints/
-logs/
-*.pt
-*.png
-*.mp4
-*.gif
+Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
 
-# Training artifacts
-wandb/
-tensorboard/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data files (if any)
+data/
+*.csv
+*.h5
+*.hdf5

@@ -40,12 +40,8 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
-from training_utils import evaluate_agent
-from env.car_racing import (
-    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
-    OFFTRACK_TERMINATION_PENALTY, ONTRACK_REWARD, FORWARD_SPEED_REWARD_SCALE
-)
+from training_utils import evaluate_agent, setup_logging
+from constants import *
 
 
 def parse_args():
@@ -306,31 +302,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     env.close()
 
 
-def setup_logging(log_dir, args):
-    """Set up logging files."""
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    # Training log
-    training_csv = os.path.join(log_dir, f'training_{timestamp}.csv')
-    with open(training_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'generation', 'agent_id', 'reward',
-            'best_agent_id', 'best_avg_reward'
-        ])
-
-    # Selection log
-    selection_csv = os.path.join(log_dir, f'selection_{timestamp}.csv')
-    with open(selection_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'generation', 'episode', 'winner_id', 'winner_eval_reward',
-            'avg_eval_reward', 'min_eval_reward', 'max_eval_reward'
-        ])
-
-    return training_csv, selection_csv
-
-
 def main():
     args = parse_args()
 
@@ -374,7 +345,7 @@ def main():
     print(f"{'='*60}\n")
 
     # Initialize logging
-    training_csv, selection_csv = setup_logging(args.log_dir, args)
+    training_csv, selection_csv = setup_logging(args.log_dir, args, mode='selection')
 
     # Create communication queues
     result_queue = mp.Queue()
