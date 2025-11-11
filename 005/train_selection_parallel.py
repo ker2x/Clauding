@@ -305,8 +305,8 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     env.close()
 
 
-def evaluate_agent(agent, env, num_episodes, seed_offset=10000):
-    """Evaluate an agent over multiple episodes."""
+def evaluate_agent(agent, env, num_episodes, seed_offset=10000, max_steps_per_episode=2500):
+    """Evaluate an agent over multiple episodes with timeout protection."""
     total_reward = 0.0
 
     for ep in range(num_episodes):
@@ -314,11 +314,18 @@ def evaluate_agent(agent, env, num_episodes, seed_offset=10000):
         episode_reward = 0.0
         terminated = False
         truncated = False
+        steps = 0
 
         while not (terminated or truncated):
             action = agent.select_action(obs, evaluate=True)
             obs, reward, terminated, truncated, _ = env.step(action)
             episode_reward += reward
+            steps += 1
+
+            # Safety timeout to prevent infinite loops
+            if steps >= max_steps_per_episode:
+                print(f"WARNING: Evaluation episode {ep} exceeded {max_steps_per_episode} steps, terminating")
+                break
 
         total_reward += episode_reward
 
@@ -532,18 +539,38 @@ def main():
                         print(f"{'='*60}")
 
                         # Request evaluation from all workers
+                        print(f"  Requesting evaluation from all {args.num_agents} agents...")
                         for aid in range(args.num_agents):
                             command_queues[aid].put('EVALUATE')
+                        print(f"  Evaluation commands sent, waiting for results...")
 
-                        # Collect evaluation results
+                        # Collect evaluation results with timeout
                         eval_rewards = {}
+                        eval_timeout = 120.0  # 2 minutes total timeout for all evaluations
+                        eval_start_time = time.time()
+
                         while len(eval_rewards) < args.num_agents:
-                            msg_type, aid, *data = result_queue.get(timeout=30.0)
-                            if msg_type == 'EVAL_RESULT':
-                                eval_reward = data[0]
-                                eval_rewards[aid] = eval_reward
-                                print(f"  Agent {aid}: {eval_reward:.2f} avg reward")
-                            # Ignore other messages during evaluation
+                            remaining_time = eval_timeout - (time.time() - eval_start_time)
+                            if remaining_time <= 0:
+                                print(f"  ERROR: Evaluation timeout! Only received {len(eval_rewards)}/{args.num_agents} results")
+                                print(f"  Missing agents: {[i for i in range(args.num_agents) if i not in eval_rewards]}")
+                                # Use zero reward for missing agents
+                                for aid in range(args.num_agents):
+                                    if aid not in eval_rewards:
+                                        eval_rewards[aid] = float('-inf')
+                                break
+
+                            try:
+                                msg_type, aid, *data = result_queue.get(timeout=min(10.0, remaining_time))
+                                if msg_type == 'EVAL_RESULT':
+                                    eval_reward = data[0]
+                                    eval_rewards[aid] = eval_reward
+                                    print(f"  Agent {aid}: {eval_reward:.2f} avg reward ({len(eval_rewards)}/{args.num_agents})")
+                                # Ignore other messages during evaluation
+                            except queue.Empty:
+                                elapsed = time.time() - eval_start_time
+                                print(f"  Still waiting... {len(eval_rewards)}/{args.num_agents} received (elapsed: {elapsed:.1f}s)")
+                                continue
 
                         # Select winner
                         winner_id = max(eval_rewards.keys(), key=lambda k: eval_rewards[k])
