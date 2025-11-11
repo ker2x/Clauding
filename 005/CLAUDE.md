@@ -48,24 +48,33 @@ Train N independent agents in parallel with evolutionary selection:
 # Train with 8 parallel agents (RECOMMENDED)
 python train_selection_parallel.py --num-agents 8 --episodes 2000
 
+# Train with elite preservation (top 2 agents survive)
+python train_selection_parallel.py --num-agents 8 --elite-count 2
+
 # Quick test with fewer agents
 python train_selection_parallel.py --num-agents 4 --episodes 500
 
-# Resume from checkpoint
-python train_selection_parallel.py --num-agents 8 --resume checkpoints_selection_parallel/best_model.pt
+# Resume from latest generation
+python train_selection_parallel.py --num-agents 8 --resume checkpoints_selection_parallel/latest_generation.pt
 ```
 
 **How it works:**
 - N agents train simultaneously on separate CPU cores
 - Every M episodes: synchronize, evaluate all agents, select best performer
-- Clone winner to all agents, restart parallel training
+- Clone winner to other agents (with optional elite preservation)
+- Checkpoint saved after every tournament
 - Provides evolutionary pressure with N× sample collection
+
+**Tournament Strategies:**
+- `--elite-count 1` (default): Winner-takes-all, maximum selection pressure
+- `--elite-count 2+`: Elite preservation, maintains diversity
 
 **Advantages:**
 - True parallel execution (N× CPU utilization)
-- Evolutionary selection pressure
+- Evolutionary selection pressure improves convergence
 - Sample efficient (N× data collection)
 - Wall-clock speedup: ~N× compared to single agent
+- Automatic checkpoint saving every tournament
 
 ### Alternative Training Methods
 
@@ -177,6 +186,8 @@ python play_human.py
 |-----------|---------|-------------|
 | `--num-agents` | 8 | Number of parallel agents (selection training) |
 | `--selection-frequency` | 50 | Episodes between selection tournaments |
+| `--eval-episodes` | 10 | Episodes per tournament evaluation |
+| `--elite-count` | 1 | Top N agents preserved (1=winner-takes-all) |
 | `--learning-starts` | 5000 | Steps before training begins |
 | `--lr-actor` | 3e-4 | Actor learning rate |
 | `--lr-critic` | 3e-4 | Critic learning rate |
@@ -225,6 +236,11 @@ Checkpoints contain:
 - `action_dim`: 2
 - Entropy tuning parameters (if enabled)
 
+**Parallel selection training saves:**
+- `generation_N.pt`: Winner from generation N (historical record)
+- `latest_generation.pt`: Most recent tournament winner (easy resume)
+- `best_model.pt`: Best reward ever achieved (only updated on improvement)
+
 When loading checkpoints, `watch_agent.py` auto-detects state_mode to create matching networks.
 
 ## Debugging Patterns
@@ -242,8 +258,10 @@ When loading checkpoints, `watch_agent.py` auto-detects state_mode to create mat
 
 ### Selection Tournament Issues
 - Agents should synchronize at checkpoint episodes
-- Winner should be cloned to all positions
+- Winner should be cloned to non-elite positions
 - Check logs for "GENERATION N: Selection Tournament" messages
+- If timeout occurs, missing agents assigned -inf reward
+- Evaluation has 2500 step limit per episode (prevents infinite loops)
 
 ## Reward Tuning
 
