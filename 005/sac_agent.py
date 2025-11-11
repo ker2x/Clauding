@@ -1,13 +1,23 @@
 """
-Soft Actor-Critic (SAC) agent for CarRacing-v3 with continuous actions.
+Soft Actor-Critic (SAC) Agent for CarRacing-v3
 
-SAC is a state-of-the-art off-policy algorithm that:
-1. Maximizes both reward AND entropy (encourages exploration)
-2. Uses two Q-networks to reduce overestimation bias
-3. Automatically tunes the entropy coefficient (temperature parameter)
+Implements SAC, a state-of-the-art off-policy RL algorithm for continuous control:
 
-Reference: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor"
-           Haarnoja et al., 2018 (https://arxiv.org/abs/1801.01290)
+Key Features:
+1. Maximum entropy objective (balances reward and exploration)
+2. Twin Q-networks (reduces overestimation bias)
+3. Automatic entropy tuning (learns optimal exploration coefficient)
+4. Continuous action space support (steering, acceleration)
+5. Supports both vector (67D) and visual (96×96 RGB) state modes
+
+Architecture:
+- Actor: Gaussian policy with reparameterization trick
+- Critics: Two Q-networks with soft target updates
+- Alpha: Learned entropy coefficient
+
+References:
+- Haarnoja et al., 2018: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL"
+- Haarnoja et al., 2019: "Soft Actor-Critic Algorithms and Applications"
 """
 
 import torch
