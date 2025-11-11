@@ -33,18 +33,23 @@ python test_setup.py
 # Parallel selection training with 8 agents (fastest, best results)
 python train_selection_parallel.py --num-agents 8 --episodes 2000
 
+# With elite preservation (maintains diversity)
+python train_selection_parallel.py --num-agents 8 --elite-count 2
+
 # Quick test with fewer agents
 python train_selection_parallel.py --num-agents 4 --episodes 500
 
-# Resume from checkpoint
-python train_selection_parallel.py --resume checkpoints_selection_parallel/best_model.pt
+# Resume from latest generation
+python train_selection_parallel.py --resume checkpoints_selection_parallel/latest_generation.pt
 ```
 
 **Why parallel selection?**
 - True parallel execution (8× CPU utilization)
-- Evolutionary pressure (best agent survives)
+- Evolutionary pressure (best agents survive)
+- Optional elite preservation (maintains diversity)
 - Faster convergence through selection
 - Sample efficient (8× data collection)
+- Automatic checkpoints every tournament
 
 ### 3. Watch Your Agent
 
@@ -82,8 +87,14 @@ python train_selection_parallel.py --num-agents 8 --episodes 2000
 **Benefits:**
 - ~8× wall-clock speedup with 8 agents
 - Evolutionary selection pressure
-- Better exploration through diversity
+- Optional elite preservation (--elite-count 2+) maintains diversity
+- Automatic checkpoint saving every tournament
 - No manual hyperparameter tuning needed
+
+**Checkpoints saved:**
+- `generation_N.pt`: Winner from each tournament
+- `latest_generation.pt`: Most recent (for easy resume)
+- `best_model.pt`: Best reward ever (only updated on improvement)
 
 ### Alternative Training Methods
 
@@ -171,6 +182,8 @@ Uses LayerNorm for stability, LeakyReLU to prevent dead neurons.
 |-----------|---------|-------------|
 | `--num-agents` | 8 | Parallel agents (selection training) |
 | `--selection-frequency` | 50 | Episodes between tournaments |
+| `--eval-episodes` | 10 | Episodes per tournament evaluation |
+| `--elite-count` | 1 | Top N agents preserved (1=winner-takes-all, 2+=elite) |
 | `--episodes` | 2000 | Total training episodes per agent |
 | `--learning-starts` | 5000 | Random steps before learning |
 | `--lr-actor` | 3e-4 | Actor learning rate |
@@ -261,6 +274,11 @@ Uses LayerNorm for stability, LeakyReLU to prevent dead neurons.
 - **Check CPU usage:** Should be ~800% with 8 agents
 - **Reduce agents if limited cores:** 4 agents needs 4+ cores
 - **Monitor progress:** Check `logs_selection_parallel/` directory
+
+### Tournament gets stuck
+- **Timeout protection:** Evaluation limited to 2500 steps per episode
+- **Check diagnostics:** Should see "Sent EVALUATE to agent N" messages
+- **Missing agents:** Assigned -inf reward after 2-minute timeout
 
 ## Reward Tuning
 
