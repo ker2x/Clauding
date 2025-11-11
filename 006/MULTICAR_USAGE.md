@@ -153,7 +153,7 @@ The limiting factor is **CPU** (physics simulation), not memory!
 ## File Structure
 
 ```
-005/
+006/
 ├── env/car_racing.py          # Multi-car environment (modified)
 ├── preprocessing.py            # Updated with num_cars parameter
 ├── train_multicar.py          # Multi-car training script (NEW)

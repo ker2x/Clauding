@@ -151,8 +151,8 @@ Our value of **0.97** provides realistic street tire behavior with gradual grip 
 ## Usage
 
 These parameters are used in:
-- `005/env/car_dynamics.py` - Core physics simulation
-- `005/play_human_gui.py` - Interactive parameter tuning GUI
+- `006/env/car_dynamics.py` - Core physics simulation
+- `006/play_human_gui.py` - Interactive parameter tuning GUI
 
 The GUI allows real-time adjustment of all Pacejka parameters for experimentation, but the defaults are calibrated to match the real MX-5.
 

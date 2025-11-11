@@ -1,4 +1,4 @@
-# CarRacing-v3 SAC Agent (Project 005)
+# CarRacing-v3 SAC Agent (Project 006)
 
 Soft Actor-Critic (SAC) implementation for CarRacing-v3 with **continuous action space**, **custom 2D physics engine**, and **parallel selection training**.
 
@@ -229,7 +229,7 @@ Uses LayerNorm for stability, LeakyReLU to prevent dead neurons.
 ## File Structure
 
 ```
-005/
+006/
 ├── env/
 │   ├── car_racing.py       # Custom CarRacing environment
 │   └── car_dynamics.py     # 2D physics with Magic Formula
@@ -327,4 +327,4 @@ Built with:
 
 ---
 
-*Project 005 - 2025*
+*Project 006 - 2025*

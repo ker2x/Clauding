@@ -156,7 +156,7 @@ python play_human.py
 ## File Structure
 
 ```
-005/
+006/
 ├── env/
 │   ├── car_racing.py       # Modified CarRacing-v3 with custom physics
 │   └── car_dynamics.py     # Custom 2D car physics (Magic Formula)
@@ -309,4 +309,4 @@ PROGRESS_REWARD_SCALE = 6000.0  # Increase from 4000.0
 
 ---
 
-*Last updated: 2025 - Project 005*
+*Last updated: 2025 - Project 006*

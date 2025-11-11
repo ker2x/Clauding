@@ -37,7 +37,7 @@ import time
 
 class VectorActor(nn.Module):
     """
-    Actor (policy) network for vector state mode (67D input as of 005).
+    Actor (policy) network for vector state mode (67D input as of 006).
     Outputs mean and log_std for a Gaussian policy.
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
@@ -67,7 +67,7 @@ class VectorActor(nn.Module):
 
 class VectorCritic(nn.Module):
     """
-    Critic (Q-function) network for vector state mode (67D input as of 005).
+    Critic (Q-function) network for vector state mode (67D input as of 006).
     Takes state and action as input, outputs Q-value.
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
