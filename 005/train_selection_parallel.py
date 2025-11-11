@@ -98,7 +98,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue, episode_offset, threads_per_agent=1):
+def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue, episode_offset, threads_per_agent=1, checkpoint_queue=None):
     """
     Worker process that trains a single agent.
 
@@ -110,6 +110,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         state_dict_queue: Queue to receive new model weights
         episode_offset: Base episode number for seeding
         threads_per_agent: Number of CPU threads this agent should use
+        checkpoint_queue: Queue to receive next checkpoint value
     """
     import torch
 
@@ -168,6 +169,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
 
     total_steps = 0
     episode_count = 0
+    next_checkpoint = args.selection_frequency  # Track the next tournament checkpoint
 
     # Training loop
     while True:
@@ -197,6 +199,10 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 # Send current weights to coordinator
                 state_dict = agent.get_state_dict()
                 result_queue.put(('WEIGHTS', agent_id, state_dict))
+                continue
+            elif command == 'RESUME':
+                # Update checkpoint and resume training
+                next_checkpoint = checkpoint_queue.get()
                 continue
 
         except queue.Empty:
@@ -260,6 +266,35 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
             'EPISODE_DONE', agent_id, episode_reward, episode_count,
             steps, total_steps, len(buffer), avg_metrics
         ))
+
+        # Check if we've reached the tournament checkpoint
+        if episode_count >= next_checkpoint:
+            # Wait at checkpoint for tournament and RESUME command (blocking)
+            while True:
+                command = command_queue.get()  # Blocking wait
+
+                if command == 'STOP':
+                    env.close()
+                    return
+                elif command == 'LOAD_WEIGHTS':
+                    new_state_dict = state_dict_queue.get()
+                    agent.load_state_dict(new_state_dict)
+                    buffer = ReplayBuffer(
+                        capacity=args.buffer_size,
+                        state_shape=state_shape,
+                        action_dim=action_dim,
+                        device=device
+                    )
+                elif command == 'EVALUATE':
+                    eval_reward = evaluate_agent(agent, env, args.eval_episodes, seed_offset=10000 + episode_offset)
+                    result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
+                elif command == 'GET_WEIGHTS':
+                    state_dict = agent.get_state_dict()
+                    result_queue.put(('WEIGHTS', agent_id, state_dict))
+                elif command == 'RESUME':
+                    # Update checkpoint and break out of wait loop
+                    next_checkpoint = checkpoint_queue.get()
+                    break
 
     env.close()
 
@@ -351,6 +386,7 @@ def main():
     result_queue = mp.Queue()
     command_queues = [mp.Queue() for _ in range(args.num_agents)]
     state_dict_queues = [mp.Queue() for _ in range(args.num_agents)]
+    checkpoint_queues = [mp.Queue() for _ in range(args.num_agents)]
 
     # Start worker processes
     workers = []
@@ -358,7 +394,7 @@ def main():
         p = Process(
             target=worker_process,
             args=(agent_id, args, result_queue, command_queues[agent_id],
-                  state_dict_queues[agent_id], 0, threads_per_agent)
+                  state_dict_queues[agent_id], 0, threads_per_agent, checkpoint_queues[agent_id])
         )
         p.start()
         workers.append(p)
@@ -530,6 +566,11 @@ def main():
 
                         # Update next tournament checkpoint
                         next_tournament_checkpoint += args.selection_frequency
+
+                        # Resume all agents with new checkpoint
+                        for aid in range(args.num_agents):
+                            checkpoint_queues[aid].put(next_tournament_checkpoint)
+                            command_queues[aid].put('RESUME')
 
                         # Log selection
                         with open(selection_csv, 'a', newline='') as f:
