@@ -58,6 +58,7 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
+from training_utils import get_device, configure_cpu_threading, evaluate_agent
 from env.car_racing import (
     PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
     STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
@@ -118,49 +119,6 @@ def parse_args():
                         help='Enable verbose mode from environment for debugging (default: False)')
 
     return parser.parse_args()
-
-
-def get_device(device_arg):
-    """Determine which device to use for training."""
-    if device_arg == 'auto':
-        if torch.cuda.is_available():
-            return torch.device('cuda')
-        elif torch.backends.mps.is_available():
-            return torch.device('mps')
-        else:
-            return torch.device('cpu')
-    else:
-        return torch.device(device_arg)
-
-
-def configure_cpu_threading(device):
-    """
-    Configure PyTorch CPU threading for optimal performance.
-
-    Critical for CPU training performance! Without this, PyTorch defaults to using
-    only 1-2 threads, resulting in ~100-120% CPU usage instead of utilizing all cores.
-
-    Args:
-        device: torch device (cuda/mps/cpu)
-    """
-    if device.type == 'cpu':
-        # Get number of physical CPU cores (not hyperthreads)
-        num_cores = multiprocessing.cpu_count()
-
-        # For CPU training, use all available cores
-        # Set intra-op parallelism (within a single operation like matrix multiply)
-        torch.set_num_threads(num_cores)
-
-        # Set inter-op parallelism (across independent operations)
-        # Using num_cores // 2 to balance with intra-op threads
-        torch.set_num_interop_threads(max(1, num_cores // 2))
-
-        print(f"\nCPU Threading Configuration:")
-        print(f"  Physical cores detected: {num_cores}")
-        print(f"  PyTorch intra-op threads: {torch.get_num_threads()}")
-        print(f"  PyTorch inter-op threads: {torch.get_num_interop_threads()}")
-    else:
-        print(f"\nDevice is {device.type}, skipping CPU threading configuration\n")
 
 
 def setup_logging(log_dir, args, env, agent, config):
@@ -271,58 +229,6 @@ def setup_logging(log_dir, args, env, agent, config):
     print(f"  System info: {system_info_path}")
 
     return training_csv, eval_csv, log_handle
-
-
-def evaluate_agent(agent, env, n_episodes=5, log_handle=None):
-    """
-    Evaluate agent performance over multiple episodes.
-
-    Args:
-        agent: SAC agent
-        env: CarRacing environment
-        n_episodes: Number of episodes to evaluate
-        log_handle: Optional file handle for logging
-
-    Returns:
-        Tuple of (mean_reward, std_reward, all_rewards)
-    """
-    total_rewards = []
-    total_steps = []
-
-    for ep in range(n_episodes):
-        state, _ = env.reset()
-        episode_reward = 0
-        episode_steps = 0
-        done = False
-
-        while not done:
-            # Use deterministic policy (mean action)
-            action = agent.select_action(state, evaluate=True)
-            state, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
-            episode_steps += 1
-            done = terminated or truncated
-
-        total_rewards.append(episode_reward)
-        total_steps.append(episode_steps)
-        msg = f"  Eval episode {ep + 1}/{n_episodes}: reward = {episode_reward:.2f}, steps = {episode_steps}"
-        print(msg)
-        if log_handle:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            log_handle.write(f"[{timestamp}] {msg}\n")
-
-    mean_reward = np.mean(total_rewards)
-    std_reward = np.std(total_rewards)
-    mean_steps = np.mean(total_steps)
-
-    # Add summary with average steps
-    summary_msg = f"  Average steps per eval episode: {mean_steps:.1f}"
-    print(summary_msg)
-    if log_handle:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_handle.write(f"[{timestamp}] {summary_msg}\n")
-
-    return mean_reward, std_reward, total_rewards
 
 
 def plot_training_progress(episode_rewards, metrics, save_path):
@@ -630,7 +536,7 @@ def train(args):
             log_handle.write(f"[{eval_timestamp}] {'=' * 50}\n")
             log_handle.write(f"[{eval_timestamp}] Evaluation at episode {episode + 1}\n")
 
-            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=5, log_handle=log_handle)
+            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=5, log_handle=log_handle, return_details=True)
             print(f"Evaluation reward (5 episodes): {eval_mean:.2f} (±{eval_std:.2f})")
             print("-" * 60 + "\n")
 
@@ -687,7 +593,7 @@ def train(args):
     log_handle.write(f"[{final_timestamp}] {'=' * 50}\n")
     log_handle.write(f"[{final_timestamp}] Final evaluation (10 episodes)\n")
 
-    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=10, log_handle=log_handle)
+    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=10, log_handle=log_handle, return_details=True)
     print(f"Final evaluation reward (10 episodes): {final_eval_mean:.2f} (±{final_eval_std:.2f})")
     print("=" * 60)
 

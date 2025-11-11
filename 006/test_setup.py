@@ -103,7 +103,7 @@ def test_environment():
 
         # Create base environment using local CarRacing class
         print("Creating base CarRacing-v3 environment...")
-        env = CarRacing(render_mode=None, continuous=True, state_mode='vector')
+        env = CarRacing(render_mode=None, continuous=True)
 
         print(f"✓ Environment created successfully")
         print(f"  Observation space: {env.observation_space.shape}")
@@ -148,7 +148,6 @@ def test_preprocessing():
         # Test vector mode (default, recommended)
         print("Creating preprocessed environment (vector mode)...")
         env = make_carracing_env(
-            state_mode='vector',
             render_mode=None
         )
 
@@ -198,9 +197,8 @@ def test_agent():
         # Create agent for vector mode
         print("Creating SAC agent (vector mode)...")
         agent = SACAgent(
-            state_shape=36,  # 36D vector state
+            state_dim=36,  # 36D vector state
             action_dim=3,  # [steering, gas, brake]
-            state_mode='vector',
             lr_actor=3e-4,
             lr_critic=3e-4,
             device=torch.device('cpu')  # Use CPU for testing

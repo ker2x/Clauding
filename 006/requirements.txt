@@ -1,9 +1,12 @@
-#gymnasium[box2d]>=0.29.0
-gymnasium>=0.29.0
-torch>=2.0.0
-torchvision>=0.15.0
-numpy>=1.24.0
-opencv-python>=4.8.0
-matplotlib>=3.7.0
-pillow>=10.0.0
-psutil>=5.9.0
+# Core dependencies
+gymnasium>=0.29.0         # RL environment framework
+torch>=2.0.0              # Deep learning framework
+numpy>=1.24.0             # Numerical computing
+
+# Visualization (optional - not required for training)
+opencv-python>=4.8.0      # Image processing and display
+matplotlib>=3.7.0         # Plotting training metrics
+pillow>=10.0.0            # Image operations
+
+# System monitoring
+psutil>=5.9.0             # CPU/memory monitoring during training

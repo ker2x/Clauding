@@ -40,6 +40,7 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
+from training_utils import evaluate_agent
 from env.car_racing import (
     PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
     STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
@@ -200,7 +201,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 )
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
-                eval_reward = evaluate_agent(agent, env, args.eval_episodes, seed_offset=10000 + episode_offset)
+                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
                 result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 continue
             elif command == 'GET_WEIGHTS':
@@ -292,7 +293,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                         device=device
                     )
                 elif command == 'EVALUATE':
-                    eval_reward = evaluate_agent(agent, env, args.eval_episodes, seed_offset=10000 + episode_offset)
+                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
                     result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 elif command == 'GET_WEIGHTS':
                     state_dict = agent.get_state_dict()
@@ -303,33 +304,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                     break
 
     env.close()
-
-
-def evaluate_agent(agent, env, num_episodes, seed_offset=10000, max_steps_per_episode=2500):
-    """Evaluate an agent over multiple episodes with timeout protection."""
-    total_reward = 0.0
-
-    for ep in range(num_episodes):
-        obs, _ = env.reset(seed=seed_offset + ep)
-        episode_reward = 0.0
-        terminated = False
-        truncated = False
-        steps = 0
-
-        while not (terminated or truncated):
-            action = agent.select_action(obs, evaluate=True)
-            obs, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
-            steps += 1
-
-            # Safety timeout to prevent infinite loops
-            if steps >= max_steps_per_episode:
-                print(f"WARNING: Evaluation episode {ep} exceeded {max_steps_per_episode} steps, terminating")
-                break
-
-        total_reward += episode_reward
-
-    return total_reward / num_episodes
 
 
 def setup_logging(log_dir, args):
