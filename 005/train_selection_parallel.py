@@ -562,7 +562,7 @@ def main():
 
                         # Collect evaluation results with timeout
                         eval_rewards = {}
-                        eval_timeout = 120.0  # 2 minutes total timeout for all evaluations
+                        eval_timeout = 600.0  # 10 minutes total timeout for all evaluations
                         eval_start_time = time.time()
 
                         while len(eval_rewards) < args.num_agents:
