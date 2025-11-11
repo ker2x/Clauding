@@ -58,8 +58,10 @@ def parse_args():
                         help='Number of parallel agents (default: 8)')
     parser.add_argument('--selection-frequency', type=int, default=50,
                         help='Select best agent every N episodes (default: 50)')
-    parser.add_argument('--eval-episodes', type=int, default=5,
-                        help='Episodes to evaluate each agent during selection (default: 5)')
+    parser.add_argument('--eval-episodes', type=int, default=10,
+                        help='Episodes to evaluate each agent during selection (default: 10)')
+    parser.add_argument('--elite-count', type=int, default=1,
+                        help='Number of top agents to preserve (1=winner-takes-all, 2+=elite preservation, default: 1)')
     parser.add_argument('--sync-seeds', action='store_true',
                         help='Use synchronized seeds (same track for all agents per episode)')
 
@@ -388,6 +390,13 @@ def main():
     print(f"Seed mode: {'SYNCHRONIZED' if args.sync_seeds else 'UNSYNCHRONIZED'}")
     print(f"Selection frequency: every {args.selection_frequency} episodes")
     print(f"Evaluation episodes: {args.eval_episodes}")
+
+    elite_count = min(args.elite_count, args.num_agents - 1)
+    if elite_count > 1:
+        print(f"Selection strategy: Elite preservation (top {elite_count} agents)")
+    else:
+        print(f"Selection strategy: Winner-takes-all")
+
     print(f"Total episodes: {args.episodes}")
     print(f"Wall-clock speedup: ~{args.num_agents}×")
     print(f"{'='*60}\n")
@@ -585,12 +594,26 @@ def main():
                                 traceback.print_exc()
                                 raise
 
-                        # Select winner
-                        winner_id = max(eval_rewards.keys(), key=lambda k: eval_rewards[k])
-                        winner_reward = eval_rewards[winner_id]
+                        # Sort agents by performance
+                        sorted_agents = sorted(eval_rewards.items(), key=lambda x: x[1], reverse=True)
+
+                        # Determine elite and non-elite agents
+                        elite_count = min(args.elite_count, args.num_agents - 1)  # At least 1 agent must be replaced
+                        elite_agents = sorted_agents[:elite_count]
+                        non_elite_agents = sorted_agents[elite_count:]
+
+                        winner_id, winner_reward = sorted_agents[0]
 
                         print(f"\n  🏆 WINNER: Agent {winner_id} ({winner_reward:.2f})", flush=True)
-                        print(f"  Cloning Agent {winner_id} to all positions...", flush=True)
+
+                        if elite_count > 1:
+                            # Elite preservation mode
+                            elite_str = ", ".join([f"Agent {aid} ({r:.2f})" for aid, r in elite_agents])
+                            print(f"  Elite preserved ({elite_count}): {elite_str}", flush=True)
+                            print(f"  Cloning winner to {len(non_elite_agents)} positions...", flush=True)
+                        else:
+                            # Winner-takes-all mode (default)
+                            print(f"  Cloning Agent {winner_id} to all positions...", flush=True)
 
                         # Get winner's weights
                         try:
@@ -605,14 +628,18 @@ def main():
                                     break
                                 # Ignore other messages while waiting for weights
 
-                            # Broadcast winner's weights to all agents
-                            for aid in range(args.num_agents):
-                                if aid != winner_id:
-                                    state_dict_queues[aid].put(winner_state_dict)
-                                    command_queues[aid].put('LOAD_WEIGHTS')
-                                    print(f"  Sent weights to agent {aid}", flush=True)
+                            # Broadcast winner's weights to non-elite agents only
+                            cloned_count = 0
+                            for loser_id, _ in non_elite_agents:
+                                state_dict_queues[loser_id].put(winner_state_dict)
+                                command_queues[loser_id].put('LOAD_WEIGHTS')
+                                print(f"  Sent weights to agent {loser_id}", flush=True)
+                                cloned_count += 1
 
-                            print(f"  All agents now copies of Agent {winner_id}", flush=True)
+                            if elite_count > 1:
+                                print(f"  Cloned winner to {cloned_count} agents, preserved {elite_count} elite", flush=True)
+                            else:
+                                print(f"  All agents now copies of Agent {winner_id}", flush=True)
                             print(f"{'='*60}\n", flush=True)
                         except Exception as e:
                             print(f"  ERROR during weight cloning: {e}", flush=True)
