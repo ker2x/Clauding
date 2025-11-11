@@ -305,8 +305,8 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     env.close()
 
 
-def evaluate_agent(agent, env, num_episodes, seed_offset=10000):
-    """Evaluate an agent over multiple episodes."""
+def evaluate_agent(agent, env, num_episodes, seed_offset=10000, max_steps_per_episode=2500):
+    """Evaluate an agent over multiple episodes with timeout protection."""
     total_reward = 0.0
 
     for ep in range(num_episodes):
@@ -314,11 +314,18 @@ def evaluate_agent(agent, env, num_episodes, seed_offset=10000):
         episode_reward = 0.0
         terminated = False
         truncated = False
+        steps = 0
 
         while not (terminated or truncated):
             action = agent.select_action(obs, evaluate=True)
             obs, reward, terminated, truncated, _ = env.step(action)
             episode_reward += reward
+            steps += 1
+
+            # Safety timeout to prevent infinite loops
+            if steps >= max_steps_per_episode:
+                print(f"WARNING: Evaluation episode {ep} exceeded {max_steps_per_episode} steps, terminating")
+                break
 
         total_reward += episode_reward
 
@@ -527,56 +534,108 @@ def main():
                         generation += 1
                         tournament_pending = False
 
-                        print(f"\n{'='*60}")
-                        print(f"GENERATION {generation}: Selection Tournament")
-                        print(f"{'='*60}")
+                        print(f"\n{'='*60}", flush=True)
+                        print(f"GENERATION {generation}: Selection Tournament", flush=True)
+                        print(f"{'='*60}", flush=True)
 
                         # Request evaluation from all workers
-                        for aid in range(args.num_agents):
-                            command_queues[aid].put('EVALUATE')
+                        print(f"  Requesting evaluation from all {args.num_agents} agents...", flush=True)
 
-                        # Collect evaluation results
+                        try:
+                            for aid in range(args.num_agents):
+                                command_queues[aid].put('EVALUATE')
+                                print(f"    Sent EVALUATE to agent {aid}", flush=True)
+                        except Exception as e:
+                            print(f"  ERROR sending EVALUATE commands: {e}", flush=True)
+                            raise
+
+                        print(f"  Evaluation commands sent, waiting for results...", flush=True)
+
+                        # Collect evaluation results with timeout
                         eval_rewards = {}
+                        eval_timeout = 120.0  # 2 minutes total timeout for all evaluations
+                        eval_start_time = time.time()
+
                         while len(eval_rewards) < args.num_agents:
-                            msg_type, aid, *data = result_queue.get(timeout=30.0)
-                            if msg_type == 'EVAL_RESULT':
-                                eval_reward = data[0]
-                                eval_rewards[aid] = eval_reward
-                                print(f"  Agent {aid}: {eval_reward:.2f} avg reward")
-                            # Ignore other messages during evaluation
+                            remaining_time = eval_timeout - (time.time() - eval_start_time)
+                            if remaining_time <= 0:
+                                print(f"  ERROR: Evaluation timeout! Only received {len(eval_rewards)}/{args.num_agents} results")
+                                print(f"  Missing agents: {[i for i in range(args.num_agents) if i not in eval_rewards]}")
+                                # Use zero reward for missing agents
+                                for aid in range(args.num_agents):
+                                    if aid not in eval_rewards:
+                                        eval_rewards[aid] = float('-inf')
+                                break
+
+                            try:
+                                msg_type, aid, *data = result_queue.get(timeout=min(10.0, remaining_time))
+                                if msg_type == 'EVAL_RESULT':
+                                    eval_reward = data[0]
+                                    eval_rewards[aid] = eval_reward
+                                    print(f"  Agent {aid}: {eval_reward:.2f} avg reward ({len(eval_rewards)}/{args.num_agents})", flush=True)
+                                else:
+                                    print(f"  Unexpected message during evaluation: {msg_type} from agent {aid}", flush=True)
+                            except queue.Empty:
+                                elapsed = time.time() - eval_start_time
+                                print(f"  Still waiting... {len(eval_rewards)}/{args.num_agents} received (elapsed: {elapsed:.1f}s)", flush=True)
+                                continue
+                            except Exception as e:
+                                print(f"  ERROR during evaluation result collection: {e}", flush=True)
+                                import traceback
+                                traceback.print_exc()
+                                raise
 
                         # Select winner
                         winner_id = max(eval_rewards.keys(), key=lambda k: eval_rewards[k])
                         winner_reward = eval_rewards[winner_id]
 
-                        print(f"\n  🏆 WINNER: Agent {winner_id} ({winner_reward:.2f})")
-                        print(f"  Cloning Agent {winner_id} to all positions...")
+                        print(f"\n  🏆 WINNER: Agent {winner_id} ({winner_reward:.2f})", flush=True)
+                        print(f"  Cloning Agent {winner_id} to all positions...", flush=True)
 
                         # Get winner's weights
-                        command_queues[winner_id].put('GET_WEIGHTS')
-                        while True:
-                            msg_type, aid, *data = result_queue.get(timeout=10.0)
-                            if msg_type == 'WEIGHTS' and aid == winner_id:
-                                winner_state_dict = data[0]
-                                break
-                            # Ignore other messages while waiting for weights
+                        try:
+                            command_queues[winner_id].put('GET_WEIGHTS')
+                            print(f"  Requested weights from agent {winner_id}", flush=True)
 
-                        # Broadcast winner's weights to all agents
-                        for aid in range(args.num_agents):
-                            if aid != winner_id:
-                                state_dict_queues[aid].put(winner_state_dict)
-                                command_queues[aid].put('LOAD_WEIGHTS')
+                            while True:
+                                msg_type, aid, *data = result_queue.get(timeout=10.0)
+                                if msg_type == 'WEIGHTS' and aid == winner_id:
+                                    winner_state_dict = data[0]
+                                    print(f"  Received weights from agent {winner_id}", flush=True)
+                                    break
+                                # Ignore other messages while waiting for weights
 
-                        print(f"  All agents now copies of Agent {winner_id}")
-                        print(f"{'='*60}\n")
+                            # Broadcast winner's weights to all agents
+                            for aid in range(args.num_agents):
+                                if aid != winner_id:
+                                    state_dict_queues[aid].put(winner_state_dict)
+                                    command_queues[aid].put('LOAD_WEIGHTS')
+                                    print(f"  Sent weights to agent {aid}", flush=True)
+
+                            print(f"  All agents now copies of Agent {winner_id}", flush=True)
+                            print(f"{'='*60}\n", flush=True)
+                        except Exception as e:
+                            print(f"  ERROR during weight cloning: {e}", flush=True)
+                            import traceback
+                            traceback.print_exc()
+                            raise
 
                         # Update next tournament checkpoint
                         next_tournament_checkpoint += args.selection_frequency
+                        print(f"  Next tournament at episode {next_tournament_checkpoint}", flush=True)
 
                         # Resume all agents with new checkpoint
-                        for aid in range(args.num_agents):
-                            checkpoint_queues[aid].put(next_tournament_checkpoint)
-                            command_queues[aid].put('RESUME')
+                        try:
+                            for aid in range(args.num_agents):
+                                checkpoint_queues[aid].put(next_tournament_checkpoint)
+                                command_queues[aid].put('RESUME')
+                                print(f"  Resumed agent {aid}", flush=True)
+                            print(f"  All agents resumed successfully", flush=True)
+                        except Exception as e:
+                            print(f"  ERROR during agent resume: {e}", flush=True)
+                            import traceback
+                            traceback.print_exc()
+                            raise
 
                         # Log selection
                         with open(selection_csv, 'a', newline='') as f:
