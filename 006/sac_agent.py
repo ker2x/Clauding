@@ -43,7 +43,7 @@ class VectorActor(nn.Module):
     Note: LayerNorm is disabled on MPS due to numerical instability issues
     that can cause NaN values during training.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=256, use_layer_norm=True):
+    def __init__(self, state_dim, action_dim, hidden_dim=256, use_layer_norm=True, device_type='cpu'):
         super(VectorActor, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.use_layer_norm = use_layer_norm
@@ -55,8 +55,9 @@ class VectorActor(nn.Module):
         self.mean = nn.Linear(hidden_dim, action_dim)
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
-        # Initialize weights for numerical stability
-        self._initialize_weights()
+        # Initialize weights for numerical stability (skip on MPS - use PyTorch defaults)
+        if device_type != 'mps':
+            self._initialize_weights()
 
     def _initialize_weights(self):
         """
@@ -77,15 +78,36 @@ class VectorActor(nn.Module):
         nn.init.uniform_(self.log_std.bias, -3e-3, 3e-3)
 
     def forward(self, state):
+        # Check input for NaN (debugging)
+        if torch.isnan(state).any():
+            raise ValueError(f"NaN in actor input state!")
+
         if self.use_layer_norm:
             x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
         else:
-            x = F.leaky_relu(self.fc1(state), negative_slope=0.01)
+            x = self.fc1(state)
+            if torch.isnan(x).any():
+                raise ValueError(f"NaN after fc1! fc1 weights have NaN: {torch.isnan(self.fc1.weight).any()}, bias: {torch.isnan(self.fc1.bias).any() if self.fc1.bias is not None else False}")
+            x = F.leaky_relu(x, negative_slope=0.01)
+            if torch.isnan(x).any():
+                raise ValueError(f"NaN after leaky_relu on fc1 output!")
+
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        if torch.isnan(x).any():
+            raise ValueError(f"NaN after fc2!")
+
         x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
+        if torch.isnan(x).any():
+            raise ValueError(f"NaN after fc3!")
 
         mean = self.mean(x)
+        if torch.isnan(mean).any():
+            raise ValueError(f"NaN in mean! mean weights have NaN: {torch.isnan(self.mean.weight).any()}")
+
         log_std = self.log_std(x)
+        if torch.isnan(log_std).any():
+            raise ValueError(f"NaN in log_std before clamp! log_std weights have NaN: {torch.isnan(self.log_std.weight).any()}")
+
         log_std = torch.clamp(log_std, min=-20, max=2)  # Prevent numerical instability
 
         return mean, log_std
@@ -105,7 +127,7 @@ class VectorCritic(nn.Module):
     Note: LayerNorm is disabled on MPS due to numerical instability issues
     that can cause NaN values during training.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=512, use_layer_norm=True):
+    def __init__(self, state_dim, action_dim, hidden_dim=512, use_layer_norm=True, device_type='cpu'):
         super(VectorCritic, self).__init__()
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.use_layer_norm = use_layer_norm
@@ -115,8 +137,9 @@ class VectorCritic(nn.Module):
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
         self.fc4 = nn.Linear(hidden_dim, 1)
 
-        # Initialize weights for numerical stability
-        self._initialize_weights()
+        # Initialize weights for numerical stability (skip on MPS - use PyTorch defaults)
+        if device_type != 'mps':
+            self._initialize_weights()
 
     def _initialize_weights(self):
         """
@@ -293,13 +316,22 @@ class SACAgent:
 
         # Disable LayerNorm on MPS due to numerical instability
         use_layer_norm = self.device.type != 'mps'
+        device_type = self.device.type
 
-        # Create networks with explicit float32 dtype for MPS stability
-        self.actor = VectorActor(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
-        self.critic_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
-        self.critic_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
-        self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
-        self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
+        # Create networks on CPU first (MPS has issues with initialization)
+        # Then move to target device after initialization completes
+        self.actor = VectorActor(state_dim, action_dim, use_layer_norm=use_layer_norm, device_type=device_type)
+        self.critic_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm, device_type=device_type)
+        self.critic_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm, device_type=device_type)
+        self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm, device_type=device_type)
+        self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm, device_type=device_type)
+
+        # Move to device after initialization (safer for MPS)
+        self.actor = self.actor.to(self.device)
+        self.critic_1 = self.critic_1.to(self.device)
+        self.critic_2 = self.critic_2.to(self.device)
+        self.critic_target_1 = self.critic_target_1.to(self.device)
+        self.critic_target_2 = self.critic_target_2.to(self.device)
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
