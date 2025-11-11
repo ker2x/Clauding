@@ -55,6 +55,21 @@ class VectorActor(nn.Module):
         self.mean = nn.Linear(hidden_dim, action_dim)
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
+        # Initialize weights for numerical stability
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initialize weights using orthogonal initialization for better stability."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+        # Initialize output layers with smaller weights
+        nn.init.orthogonal_(self.mean.weight, gain=0.01)
+        nn.init.orthogonal_(self.log_std.weight, gain=0.01)
+
     def forward(self, state):
         if self.use_layer_norm:
             x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
@@ -93,6 +108,20 @@ class VectorCritic(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
         self.fc4 = nn.Linear(hidden_dim, 1)
+
+        # Initialize weights for numerical stability
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initialize weights using orthogonal initialization for better stability."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+        # Initialize output layer with smaller weights
+        nn.init.orthogonal_(self.fc4.weight, gain=1.0)
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=1)
@@ -254,12 +283,12 @@ class SACAgent:
         # Disable LayerNorm on MPS due to numerical instability
         use_layer_norm = self.device.type != 'mps'
 
-        # Create networks
-        self.actor = VectorActor(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
-        self.critic_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
-        self.critic_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
-        self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
-        self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
+        # Create networks with explicit float32 dtype for MPS stability
+        self.actor = VectorActor(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
+        self.critic_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
+        self.critic_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
+        self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
+        self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device, dtype=torch.float32)
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
@@ -308,10 +337,26 @@ class SACAgent:
         Returns:
             action: Action to take in native bounds
         """
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        # Ensure float32 dtype for MPS compatibility
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device, dtype=torch.float32)
+
+        # Check for NaN in input state
+        if torch.isnan(state).any():
+            raise ValueError(f"NaN detected in input state! Device: {self.device}")
 
         with torch.no_grad():
             mean, log_std = self.actor(state)
+
+            # Check for NaN in actor output
+            if torch.isnan(mean).any() or torch.isnan(log_std).any():
+                raise ValueError(
+                    f"NaN detected in actor output during select_action!\n"
+                    f"Mean has NaN: {torch.isnan(mean).any()}\n"
+                    f"Log_std has NaN: {torch.isnan(log_std).any()}\n"
+                    f"Device: {self.device}\n"
+                    f"Mean: {mean}\n"
+                    f"Log_std: {log_std}"
+                )
 
             if evaluate:
                 # Deterministic action (mean) - apply bounds
