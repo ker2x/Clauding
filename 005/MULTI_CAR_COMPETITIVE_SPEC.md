@@ -1,7 +1,7 @@
-# Multi-Car Competitive Training Specification (v005)
+# Multi-Car Competitive Training Specification (005)
 
 ## OBJECTIVE
-Modify v005 CarRacing environment to support N cars racing simultaneously on the SAME track with evolutionary selection. Cars are ghost cars (no collision with each other, no awareness of each other). Selection of best performer is the fitness function.
+Modify 005 CarRacing environment to support N cars racing simultaneously on the SAME track with evolutionary selection. Cars are ghost cars (no collision with each other, no awareness of each other). Selection of best performer is the fitness function.
 
 ## CORE REQUIREMENTS
 1. **N cars race on SAME track** (generated once per episode)
@@ -11,7 +11,7 @@ Modify v005 CarRacing environment to support N cars racing simultaneously on the
 5. **Same starting position** for all cars (fair competition)
 6. **Parallel execution** - all cars step simultaneously per environment step
 
-## CURRENT ARCHITECTURE (v005)
+## CURRENT ARCHITECTURE (005)
 
 ### File: `005/env/car_racing.py`
 - **Class**: `CarRacing(gym.Env)`
@@ -558,7 +558,7 @@ Usage:
 
 ## BACKWARD COMPATIBILITY
 
-CRITICAL: When `num_cars=1`, environment must behave EXACTLY as current v005:
+CRITICAL: When `num_cars=1`, environment must behave EXACTLY as current 005:
 - Observation shape: (67,) not (1, 67)
 - Reward: scalar not array
 - Terminated/truncated: bool not array
