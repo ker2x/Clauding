@@ -261,11 +261,6 @@ class SACAgent:
         self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
         self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
 
-        # MPS workaround: Reinitialize ALL weights directly on MPS device
-        # PyTorch's default init + .to(device) seems to produce NaN on MPS
-        if self.device.type == 'mps':
-            self._reinitialize_for_mps()
-
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
         self.critic_target_2.load_state_dict(self.critic_2.state_dict())
@@ -313,7 +308,7 @@ class SACAgent:
         Returns:
             action: Action to take in native bounds
         """
-        state = torch.tensor(state, device=self.device).unsqueeze(0)
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
             mean, log_std = self.actor(state)
@@ -464,35 +459,6 @@ class SACAgent:
             'mean_q2': current_q2.mean().item(),
             'mean_log_prob': log_probs.mean().item()
         }
-
-    def _reinitialize_for_mps(self):
-        """
-        Workaround for MPS bugs: Reinitialize ALL weights directly on MPS device.
-
-        Issues observed:
-        1. .to(device) can corrupt some weights
-        2. Default PyTorch initialization may not be MPS-compatible
-        3. Some init functions (orthogonal_, xavier_) produce NaN on MPS
-
-        Solution: Use only simple, conservative initialization directly on MPS.
-        """
-        networks = [
-            ('actor', self.actor),
-            ('critic_1', self.critic_1),
-            ('critic_2', self.critic_2),
-            ('critic_target_1', self.critic_target_1),
-            ('critic_target_2', self.critic_target_2)
-        ]
-
-        for name, network in networks:
-            for module in network.modules():
-                if isinstance(module, nn.Linear):
-                    # Use simple uniform initialization (most stable on MPS)
-                    nn.init.uniform_(module.weight, -0.1, 0.1)
-                    if module.bias is not None:
-                        nn.init.constant_(module.bias, 0.0)
-
-        print("INFO: Reinitialized all network weights for MPS compatibility")
 
     def _soft_update(self, source, target):
         """Soft update target network parameters."""
