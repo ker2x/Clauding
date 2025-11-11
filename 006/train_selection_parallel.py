@@ -40,11 +40,8 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
-from env.car_racing import (
-    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
-    OFFTRACK_TERMINATION_PENALTY, ONTRACK_REWARD, FORWARD_SPEED_REWARD_SCALE
-)
+from training_utils import evaluate_agent, setup_logging
+from constants import *
 
 
 def parse_args():
@@ -54,42 +51,42 @@ def parse_args():
     )
 
     # Selection parameters
-    parser.add_argument('--num-agents', type=int, default=8,
-                        help='Number of parallel agents (default: 8)')
-    parser.add_argument('--selection-frequency', type=int, default=50,
-                        help='Select best agent every N episodes (default: 50)')
-    parser.add_argument('--eval-episodes', type=int, default=10,
-                        help='Episodes to evaluate each agent during selection (default: 10)')
-    parser.add_argument('--elite-count', type=int, default=1,
-                        help='Number of top agents to preserve (1=winner-takes-all, 2+=elite preservation, default: 1)')
+    parser.add_argument('--num-agents', type=int, default=DEFAULT_NUM_AGENTS,
+                        help=f'Number of parallel agents (default: {DEFAULT_NUM_AGENTS})')
+    parser.add_argument('--selection-frequency', type=int, default=DEFAULT_SELECTION_FREQUENCY,
+                        help=f'Select best agent every N episodes (default: {DEFAULT_SELECTION_FREQUENCY})')
+    parser.add_argument('--eval-episodes', type=int, default=DEFAULT_EVAL_EPISODES,
+                        help=f'Episodes to evaluate each agent during selection (default: {DEFAULT_EVAL_EPISODES})')
+    parser.add_argument('--elite-count', type=int, default=DEFAULT_ELITE_COUNT,
+                        help=f'Number of top agents to preserve (1=winner-takes-all, 2+=elite preservation, default: {DEFAULT_ELITE_COUNT})')
     parser.add_argument('--sync-seeds', action='store_true',
                         help='Use synchronized seeds (same track for all agents per episode)')
 
     # Training parameters
-    parser.add_argument('--episodes', type=int, default=2000,
-                        help='Total training episodes (default: 2000)')
-    parser.add_argument('--learning-starts', type=int, default=5000,
-                        help='Steps before training starts (default: 5000)')
-    parser.add_argument('--checkpoint-frequency', type=int, default=100,
-                        help='Save checkpoint every N episodes (default: 100)')
+    parser.add_argument('--episodes', type=int, default=DEFAULT_EPISODES,
+                        help=f'Total training episodes (default: {DEFAULT_EPISODES})')
+    parser.add_argument('--learning-starts', type=int, default=DEFAULT_LEARNING_STARTS,
+                        help=f'Steps before training starts (default: {DEFAULT_LEARNING_STARTS})')
+    parser.add_argument('--checkpoint-frequency', type=int, default=DEFAULT_CHECKPOINT_FREQUENCY,
+                        help=f'Save checkpoint every N episodes (default: {DEFAULT_CHECKPOINT_FREQUENCY})')
 
     # Agent hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=3e-4,
-                        help='Actor learning rate (default: 3e-4)')
-    parser.add_argument('--lr-critic', type=float, default=3e-4,
-                        help='Critic learning rate (default: 3e-4)')
-    parser.add_argument('--lr-alpha', type=float, default=3e-4,
-                        help='Alpha learning rate (default: 3e-4)')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='Discount factor (default: 0.99)')
-    parser.add_argument('--tau', type=float, default=0.005,
-                        help='Target network update rate (default: 0.005)')
+    parser.add_argument('--lr-actor', type=float, default=DEFAULT_LR_ACTOR,
+                        help=f'Actor learning rate (default: {DEFAULT_LR_ACTOR})')
+    parser.add_argument('--lr-critic', type=float, default=DEFAULT_LR_CRITIC,
+                        help=f'Critic learning rate (default: {DEFAULT_LR_CRITIC})')
+    parser.add_argument('--lr-alpha', type=float, default=DEFAULT_LR_ALPHA,
+                        help=f'Alpha learning rate (default: {DEFAULT_LR_ALPHA})')
+    parser.add_argument('--gamma', type=float, default=DEFAULT_GAMMA,
+                        help=f'Discount factor (default: {DEFAULT_GAMMA})')
+    parser.add_argument('--tau', type=float, default=DEFAULT_TAU,
+                        help=f'Target network update rate (default: {DEFAULT_TAU})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Automatically tune entropy coefficient')
-    parser.add_argument('--buffer-size', type=int, default=1000000,
-                        help='Replay buffer size (default: 1000000)')
-    parser.add_argument('--batch-size', type=int, default=256,
-                        help='Batch size (default: 256)')
+    parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
+                        help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f'Batch size (default: {DEFAULT_BATCH_SIZE})')
 
     # Environment parameters
     parser.add_argument('--device', type=str, default='cpu',
@@ -100,10 +97,10 @@ def parse_args():
                         help='Enable verbose output')
     parser.add_argument('--resume', type=str, default=None,
                         help='Path to checkpoint to resume from')
-    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints_selection_parallel',
-                        help='Directory to save checkpoints')
-    parser.add_argument('--log-dir', type=str, default='logs_selection_parallel',
-                        help='Directory to save logs')
+    parser.add_argument('--checkpoint-dir', type=str, default=DEFAULT_SELECTION_CHECKPOINT_DIR,
+                        help=f'Directory to save checkpoints (default: {DEFAULT_SELECTION_CHECKPOINT_DIR})')
+    parser.add_argument('--log-dir', type=str, default=DEFAULT_SELECTION_LOG_DIR,
+                        help=f'Directory to save logs (default: {DEFAULT_SELECTION_LOG_DIR})')
 
     return parser.parse_args()
 
@@ -136,7 +133,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
 
     # Create environment
     env = make_carracing_env(
-        state_mode='vector',
         max_episode_steps=MAX_EPISODE_STEPS,
         terminate_stationary=True,
         stationary_patience=STATIONARY_PATIENCE,
@@ -147,15 +143,14 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         verbose=args.verbose
     )
 
-    state_shape = env.observation_space.shape
+    state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     device = torch.device('cpu')  # Force CPU for multiprocessing
 
     # Create agent
     agent = SACAgent(
-        state_shape=state_shape,
+        state_dim=state_dim,
         action_dim=action_dim,
-        state_mode='vector',
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
         lr_alpha=args.lr_alpha,
@@ -172,7 +167,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     # Create replay buffer
     buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=state_shape,
+        state_shape=state_dim,
         action_dim=action_dim,
         device=device
     )
@@ -196,13 +191,13 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 # Clear replay buffer on selection (fresh start with new weights)
                 buffer = ReplayBuffer(
                     capacity=args.buffer_size,
-                    state_shape=state_shape,
+                    state_shape=state_dim,
                     action_dim=action_dim,
                     device=device
                 )
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
-                eval_reward = evaluate_agent(agent, env, args.eval_episodes, seed_offset=10000 + episode_offset)
+                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
                 result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 continue
             elif command == 'GET_WEIGHTS':
@@ -289,12 +284,12 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                     agent.load_state_dict(new_state_dict)
                     buffer = ReplayBuffer(
                         capacity=args.buffer_size,
-                        state_shape=state_shape,
+                        state_shape=state_dim,
                         action_dim=action_dim,
                         device=device
                     )
                 elif command == 'EVALUATE':
-                    eval_reward = evaluate_agent(agent, env, args.eval_episodes, seed_offset=10000 + episode_offset)
+                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
                     result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 elif command == 'GET_WEIGHTS':
                     state_dict = agent.get_state_dict()
@@ -305,58 +300,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                     break
 
     env.close()
-
-
-def evaluate_agent(agent, env, num_episodes, seed_offset=10000, max_steps_per_episode=2500):
-    """Evaluate an agent over multiple episodes with timeout protection."""
-    total_reward = 0.0
-
-    for ep in range(num_episodes):
-        obs, _ = env.reset(seed=seed_offset + ep)
-        episode_reward = 0.0
-        terminated = False
-        truncated = False
-        steps = 0
-
-        while not (terminated or truncated):
-            action = agent.select_action(obs, evaluate=True)
-            obs, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
-            steps += 1
-
-            # Safety timeout to prevent infinite loops
-            if steps >= max_steps_per_episode:
-                print(f"WARNING: Evaluation episode {ep} exceeded {max_steps_per_episode} steps, terminating")
-                break
-
-        total_reward += episode_reward
-
-    return total_reward / num_episodes
-
-
-def setup_logging(log_dir, args):
-    """Set up logging files."""
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    # Training log
-    training_csv = os.path.join(log_dir, f'training_{timestamp}.csv')
-    with open(training_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'generation', 'agent_id', 'reward',
-            'best_agent_id', 'best_avg_reward'
-        ])
-
-    # Selection log
-    selection_csv = os.path.join(log_dir, f'selection_{timestamp}.csv')
-    with open(selection_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'generation', 'episode', 'winner_id', 'winner_eval_reward',
-            'avg_eval_reward', 'min_eval_reward', 'max_eval_reward'
-        ])
-
-    return training_csv, selection_csv
 
 
 def main():
@@ -402,7 +345,7 @@ def main():
     print(f"{'='*60}\n")
 
     # Initialize logging
-    training_csv, selection_csv = setup_logging(args.log_dir, args)
+    training_csv, selection_csv = setup_logging(args.log_dir, args, mode='selection')
 
     # Create communication queues
     result_queue = mp.Queue()

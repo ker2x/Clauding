@@ -1,4 +1,4 @@
-# CarRacing-v3 SAC Agent (Project 006)
+# CarRacing-v3 SAC Agent (Project 006 - Streamlined)
 
 Soft Actor-Critic (SAC) implementation for CarRacing-v3 with **continuous action space**, **custom 2D physics engine**, and **parallel selection training**.
 
@@ -10,7 +10,7 @@ This project implements state-of-the-art reinforcement learning for racing using
 - **Custom 2D Physics**: Clean, interpretable simulation with Magic Formula tires
 - **Continuous Actions**: Native `[steering, acceleration]` without discretization
 - **Vector Mode**: Fast 67D state representation (car + track + lookahead)
-- **Visual Mode**: 96×96 RGB frames for visualization
+- **Streamlined Codebase**: Focused on vector mode for optimal performance
 
 ## Quick Start
 
@@ -96,21 +96,11 @@ python train_selection_parallel.py --num-agents 8 --episodes 2000
 - `latest_generation.pt`: Most recent (for easy resume)
 - `best_model.pt`: Best reward ever (only updated on improvement)
 
-### Alternative Training Methods
+### Alternative Training Method
 
 **Standard single-agent:**
 ```bash
 python train.py --episodes 2000
-```
-
-**Multi-car ghost racing:**
-```bash
-python train_multicar.py --num-cars 4
-```
-
-**Vectorized environments:**
-```bash
-python train_vectorenv.py --num-envs 4
 ```
 
 See `TRAINING_COMPARISON.md` for detailed comparison.
@@ -146,17 +136,17 @@ SAC is an off-policy, maximum entropy RL algorithm that:
 
 ### State Representation
 
-**Vector Mode (67D - Default):**
+**Vector Mode (67D):**
 - Car state (11D): position, velocity, angle, wheel contacts, progress
 - Track segment (5D): distance to center, angle, curvature
 - Lookahead waypoints (40D): 20 future waypoints in car coordinates
 - Opponent info (11D): nearest competitor (for multi-agent)
 
 **Why vector mode?**
-- 10-50× faster training than visual mode
+- Fast, efficient training
 - No rendering overhead
 - Full track geometry information
-- Works perfectly for this task
+- Proven to work well for racing tasks
 
 ### Network Architecture
 
@@ -234,13 +224,11 @@ Uses LayerNorm for stability, LeakyReLU to prevent dead neurons.
 │   ├── car_racing.py       # Custom CarRacing environment
 │   └── car_dynamics.py     # 2D physics with Magic Formula
 │
-├── sac_agent.py            # SAC implementation
-├── preprocessing.py         # Environment wrappers
+├── sac_agent.py            # SAC implementation (vector mode only)
+├── preprocessing.py         # Environment factory function
 │
 ├── train_selection_parallel.py  # PRIMARY training method
 ├── train.py                     # Single-agent training
-├── train_multicar.py            # Ghost car racing
-├── train_vectorenv.py           # Vectorized environments
 │
 ├── watch_agent.py          # Visualize trained agent
 ├── watch_random_agent.py   # Baseline comparison
@@ -305,7 +293,6 @@ PROGRESS_REWARD_SCALE = 6000.0
 - `CLAUDE.md`: Technical guide for Claude Code
 - `SAC_EXPLAINED.md`: Deep dive into SAC algorithm
 - `TRAINING_COMPARISON.md`: Comparison of training methods
-- `MULTICAR_USAGE.md`: Ghost car racing guide
 - `PERFORMANCE_ANALYSIS.md`: Performance optimization analysis
 
 ## References
@@ -313,6 +300,19 @@ PROGRESS_REWARD_SCALE = 6000.0
 - **SAC Paper**: [Soft Actor-Critic (Haarnoja et al., 2018)](https://arxiv.org/abs/1801.01290)
 - **Automatic Tuning**: [SAC Algorithms and Applications (Haarnoja et al., 2019)](https://arxiv.org/abs/1812.05905)
 - **Environment**: [Gymnasium CarRacing-v3](https://gymnasium.farama.org/environments/box2d/car_racing/)
+
+## Project 006 Cleanup
+
+This version has been streamlined to focus on vector mode training:
+- **Removed**: Visual mode training support (image-based observations)
+- **Removed**: Non-parallel selection training variants
+- **Removed**: Multi-car training scripts
+- **Removed**: VectorEnv training scripts
+- **Kept**: Vector mode (67D state) for optimal performance
+- **Kept**: Parallel selection training and standard training
+- **Result**: Cleaner, more maintainable codebase focused on what works best
+
+The environment still supports visual mode for visualization purposes (watching trained agents), but all training code uses vector mode exclusively.
 
 ## License
 
@@ -327,4 +327,4 @@ Built with:
 
 ---
 
-*Project 006 - 2025*
+*Project 006 - 2025 - Streamlined Vector Mode*

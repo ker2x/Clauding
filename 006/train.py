@@ -58,11 +58,8 @@ except (ImportError, RuntimeError) as e:
 
 from preprocessing import make_carracing_env
 from sac_agent import SACAgent, ReplayBuffer
-from env.car_racing import (
-    PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD,
-    STEP_PENALTY, OFFTRACK_PENALTY, OFFTRACK_THRESHOLD,
-    OFFTRACK_TERMINATION_PENALTY, ONTRACK_REWARD, FORWARD_SPEED_REWARD_SCALE
-)
+from training_utils import get_device, configure_cpu_threading, evaluate_agent, setup_logging
+from constants import *
 
 
 def parse_args():
@@ -70,261 +67,54 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train SAC agent on CarRacing-v3')
 
     # Training parameters
-    parser.add_argument('--episodes', type=int, default=2000,
-                        help='Number of episodes to train (default: 2000)')
-    parser.add_argument('--learning-starts', type=int, default=5000,
-                        help='Steps before training starts (default: 5000)')
-    parser.add_argument('--eval-frequency', type=int, default=100,
-                        help='Evaluate every N episodes (default: 100)')
-    parser.add_argument('--checkpoint-frequency', type=int, default=100,
-                        help='Save checkpoint every N episodes (default: 100)')
+    parser.add_argument('--episodes', type=int, default=DEFAULT_EPISODES,
+                        help=f'Number of episodes to train (default: {DEFAULT_EPISODES})')
+    parser.add_argument('--learning-starts', type=int, default=DEFAULT_LEARNING_STARTS,
+                        help=f'Steps before training starts (default: {DEFAULT_LEARNING_STARTS})')
+    parser.add_argument('--eval-frequency', type=int, default=DEFAULT_EVAL_FREQUENCY,
+                        help=f'Evaluate every N episodes (default: {DEFAULT_EVAL_FREQUENCY})')
+    parser.add_argument('--checkpoint-frequency', type=int, default=DEFAULT_CHECKPOINT_FREQUENCY,
+                        help=f'Save checkpoint every N episodes (default: {DEFAULT_CHECKPOINT_FREQUENCY})')
 
     # Agent hyperparameters
-    parser.add_argument('--lr-actor', type=float, default=3e-4,
-                        help='Actor learning rate (default: 3e-4)')
-    parser.add_argument('--lr-critic', type=float, default=3e-4,
-                        help='Critic learning rate (default: 3e-4)')
-    parser.add_argument('--lr-alpha', type=float, default=3e-4,
-                        help='Alpha learning rate (default: 3e-4)')
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='Discount factor (default: 0.99)')
-    parser.add_argument('--tau', type=float, default=0.005,
-                        help='Soft update coefficient (default: 0.005)')
-    parser.add_argument('--buffer-size', type=int, default=100000,
-                        help='Replay buffer size (default: 100000)')
-    parser.add_argument('--batch-size', type=int, default=256,
-                        help='Training batch size (default: 256)')
+    parser.add_argument('--lr-actor', type=float, default=DEFAULT_LR_ACTOR,
+                        help=f'Actor learning rate (default: {DEFAULT_LR_ACTOR})')
+    parser.add_argument('--lr-critic', type=float, default=DEFAULT_LR_CRITIC,
+                        help=f'Critic learning rate (default: {DEFAULT_LR_CRITIC})')
+    parser.add_argument('--lr-alpha', type=float, default=DEFAULT_LR_ALPHA,
+                        help=f'Alpha learning rate (default: {DEFAULT_LR_ALPHA})')
+    parser.add_argument('--gamma', type=float, default=DEFAULT_GAMMA,
+                        help=f'Discount factor (default: {DEFAULT_GAMMA})')
+    parser.add_argument('--tau', type=float, default=DEFAULT_TAU,
+                        help=f'Soft update coefficient (default: {DEFAULT_TAU})')
+    parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
+                        help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f'Training batch size (default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Use automatic entropy tuning (default: True)')
 
-    # Environment parameters
-    parser.add_argument('--state-mode', type=str, default='vector', choices=['visual', 'vector'],
-                        help='State representation: visual (images) or vector (track geometry with lookahead) - vector is fastest (default: vector)')
+    # Environment parameters (vector mode only)
 
     # Resume training
     parser.add_argument('--resume', type=str, default=None,
                         help='Path to checkpoint to resume from')
 
     # Paths
-    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints',
-                        help='Directory to save checkpoints (default: checkpoints)')
-    parser.add_argument('--log-dir', type=str, default='logs',
-                        help='Directory to save logs (default: logs)')
+    parser.add_argument('--checkpoint-dir', type=str, default=DEFAULT_CHECKPOINT_DIR,
+                        help=f'Directory to save checkpoints (default: {DEFAULT_CHECKPOINT_DIR})')
+    parser.add_argument('--log-dir', type=str, default=DEFAULT_LOG_DIR,
+                        help=f'Directory to save logs (default: {DEFAULT_LOG_DIR})')
 
     # Device selection
-    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda', 'mps'],
-                        help='Device to use for training: auto (default), cpu, cuda, or mps')
+    parser.add_argument('--device', type=str, default=DEFAULT_DEVICE, choices=['auto', 'cpu', 'cuda', 'mps'],
+                        help=f'Device to use for training: auto (default), cpu, cuda, or mps')
 
     # Debugging
     parser.add_argument('--verbose', action='store_true', default=False,
                         help='Enable verbose mode from environment for debugging (default: False)')
 
     return parser.parse_args()
-
-
-def get_device(device_arg):
-    """Determine which device to use for training."""
-    if device_arg == 'auto':
-        if torch.cuda.is_available():
-            return torch.device('cuda')
-        elif torch.backends.mps.is_available():
-            return torch.device('mps')
-        else:
-            return torch.device('cpu')
-    else:
-        return torch.device(device_arg)
-
-
-def configure_cpu_threading(device):
-    """
-    Configure PyTorch CPU threading for optimal performance.
-
-    Critical for CPU training performance! Without this, PyTorch defaults to using
-    only 1-2 threads, resulting in ~100-120% CPU usage instead of utilizing all cores.
-
-    Args:
-        device: torch device (cuda/mps/cpu)
-    """
-    if device.type == 'cpu':
-        # Get number of physical CPU cores (not hyperthreads)
-        num_cores = multiprocessing.cpu_count()
-
-        # For CPU training, use all available cores
-        # Set intra-op parallelism (within a single operation like matrix multiply)
-        torch.set_num_threads(num_cores)
-
-        # Set inter-op parallelism (across independent operations)
-        # Using num_cores // 2 to balance with intra-op threads
-        torch.set_num_interop_threads(max(1, num_cores // 2))
-
-        print(f"\nCPU Threading Configuration:")
-        print(f"  Physical cores detected: {num_cores}")
-        print(f"  PyTorch intra-op threads: {torch.get_num_threads()}")
-        print(f"  PyTorch inter-op threads: {torch.get_num_interop_threads()}")
-    else:
-        print(f"\nDevice is {device.type}, skipping CPU threading configuration\n")
-
-
-def setup_logging(log_dir, args, env, agent, config):
-    """
-    Setup logging infrastructure: CSV files, log file, system info.
-
-    Args:
-        log_dir: Directory to save log files
-        args: Training arguments
-        env: CarRacing environment
-        agent: SAC agent
-        config: Dict with environment configuration values
-
-    Returns:
-        Tuple of (training_csv_path, eval_csv_path, log_file_handle)
-    """
-    # Create CSV for training metrics
-    training_csv = os.path.join(log_dir, 'training_metrics.csv')
-    with open(training_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'total_steps', 'episode_steps', 'reward',
-            'actor_loss', 'critic_1_loss', 'critic_2_loss', 'alpha_loss',
-            'alpha', 'mean_q1', 'mean_q2', 'mean_log_prob',
-            'elapsed_time_sec', 'avg_reward_100', 'timestamp'
-        ])
-
-    # Create CSV for evaluation metrics
-    eval_csv = os.path.join(log_dir, 'evaluation_metrics.csv')
-    with open(eval_csv, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'episode', 'total_steps', 'eval_mean_reward', 'eval_std_reward',
-            'eval_rewards', 'is_best', 'elapsed_time_sec', 'timestamp'
-        ])
-
-    # Create human-readable log file
-    log_file = os.path.join(log_dir, 'training.log')
-    log_handle = open(log_file, 'w', buffering=1)  # Line buffering for real-time updates
-
-    # Write header to log file
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_handle.write("=" * 70 + "\n")
-    log_handle.write("SAC Training Session Started\n")
-    log_handle.write("=" * 70 + "\n")
-    log_handle.write(f"Timestamp: {timestamp}\n")
-    log_handle.write(f"Device: {agent.device}\n")
-    log_handle.write(f"State mode: {args.state_mode}\n")
-    log_handle.write(f"State shape: {env.observation_space.shape}\n")
-    log_handle.write(f"Action space: Continuous (3D)\n")
-    log_handle.write(f"Episodes: {args.episodes}\n")
-    log_handle.write(f"Learning starts: {args.learning_starts} steps\n")
-    log_handle.write(f"Auto entropy tuning: {args.auto_entropy_tuning}\n")
-    log_handle.write(f"Early termination: enabled (patience={config['stationary_patience']})\n")
-    log_handle.write(f"Reward shaping: enabled (penalty {config['short_episode_penalty']} for episodes < {config['min_episode_steps']} steps)\n")
-    if args.resume:
-        log_handle.write(f"Resumed from: {args.resume}\n")
-    log_handle.write("=" * 70 + "\n\n")
-
-    # Create system info file
-    system_info_path = os.path.join(log_dir, 'system_info.txt')
-    with open(system_info_path, 'w') as f:
-        f.write("Training Configuration\n")
-        f.write("=" * 70 + "\n")
-        f.write(f"Date: {timestamp}\n")
-        f.write(f"Device: {agent.device}\n")
-        f.write(f"State mode: {args.state_mode}\n")
-        f.write(f"State shape: {env.observation_space.shape}\n\n")
-
-        f.write("Environment:\n")
-        f.write(f"  Name: CarRacing-v3\n")
-        f.write(f"  Actions: Continuous [steering, gas, brake]\n")
-        f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
-        f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
-
-        f.write("Reward Structure (from env/car_racing.py):\n")
-        f.write(f"  Progress reward: {PROGRESS_REWARD_SCALE} points for full lap (continuous/dense)\n")
-        f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
-        f.write(f"  On-track reward: {ONTRACK_REWARD} per frame (encourages staying on track)\n")
-        f.write(f"  Forward speed reward: {FORWARD_SPEED_REWARD_SCALE}×speed per frame (encourages racing, capped at +2.0)\n")
-        f.write(f"  Step penalty: {STEP_PENALTY} per frame (time pressure)\n")
-        f.write(f"  Off-track penalty: {OFFTRACK_PENALTY} per wheel (>{OFFTRACK_THRESHOLD} wheels)\n")
-        f.write(f"  Off-track termination: {OFFTRACK_TERMINATION_PENALTY} (all wheels off)\n\n")
-
-        f.write("Agent Hyperparameters:\n")
-        f.write(f"  Actor learning rate: {args.lr_actor}\n")
-        f.write(f"  Critic learning rate: {args.lr_critic}\n")
-        f.write(f"  Alpha learning rate: {args.lr_alpha}\n")
-        f.write(f"  Gamma: {args.gamma}\n")
-        f.write(f"  Tau: {args.tau}\n")
-        f.write(f"  Buffer size: {args.buffer_size}\n")
-        f.write(f"  Batch size: {args.batch_size}\n")
-        f.write(f"  Auto entropy tuning: {args.auto_entropy_tuning}\n")
-        f.write(f"  Learning starts: {args.learning_starts} steps\n\n")
-
-        f.write("Training Parameters:\n")
-        f.write(f"  Episodes: {args.episodes}\n")
-        f.write(f"  Eval frequency: {args.eval_frequency} episodes\n")
-        f.write(f"  Checkpoint frequency: {args.checkpoint_frequency} episodes\n\n")
-
-        f.write("Resume Settings:\n")
-        f.write(f"  Resumed from: {args.resume if args.resume else 'None'}\n")
-
-    print(f"Logging initialized:")
-    print(f"  Training metrics: {training_csv}")
-    print(f"  Evaluation metrics: {eval_csv}")
-    print(f"  Training log: {log_file}")
-    print(f"  System info: {system_info_path}")
-
-    return training_csv, eval_csv, log_handle
-
-
-def evaluate_agent(agent, env, n_episodes=5, log_handle=None):
-    """
-    Evaluate agent performance over multiple episodes.
-
-    Args:
-        agent: SAC agent
-        env: CarRacing environment
-        n_episodes: Number of episodes to evaluate
-        log_handle: Optional file handle for logging
-
-    Returns:
-        Tuple of (mean_reward, std_reward, all_rewards)
-    """
-    total_rewards = []
-    total_steps = []
-
-    for ep in range(n_episodes):
-        state, _ = env.reset()
-        episode_reward = 0
-        episode_steps = 0
-        done = False
-
-        while not done:
-            # Use deterministic policy (mean action)
-            action = agent.select_action(state, evaluate=True)
-            state, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
-            episode_steps += 1
-            done = terminated or truncated
-
-        total_rewards.append(episode_reward)
-        total_steps.append(episode_steps)
-        msg = f"  Eval episode {ep + 1}/{n_episodes}: reward = {episode_reward:.2f}, steps = {episode_steps}"
-        print(msg)
-        if log_handle:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            log_handle.write(f"[{timestamp}] {msg}\n")
-
-    mean_reward = np.mean(total_rewards)
-    std_reward = np.std(total_rewards)
-    mean_steps = np.mean(total_steps)
-
-    # Add summary with average steps
-    summary_msg = f"  Average steps per eval episode: {mean_steps:.1f}"
-    print(summary_msg)
-    if log_handle:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_handle.write(f"[{timestamp}] {summary_msg}\n")
-
-    return mean_reward, std_reward, total_rewards
 
 
 def plot_training_progress(episode_rewards, metrics, save_path):
@@ -413,7 +203,6 @@ def plot_training_progress(episode_rewards, metrics, save_path):
 def train(args):
     """Main training loop."""
     # Environment configuration (single source of truth)
-    STACK_SIZE = 4
     TERMINATE_STATIONARY = True
     STATIONARY_PATIENCE = 50
     REWARD_SHAPING = True
@@ -435,11 +224,9 @@ def train(args):
     # Create training environment
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
-        stack_size=STACK_SIZE,
         terminate_stationary=TERMINATE_STATIONARY,
         stationary_patience=STATIONARY_PATIENCE,
         render_mode=None,
-        state_mode=args.state_mode,
         reward_shaping=REWARD_SHAPING,
         min_episode_steps=MIN_EPISODE_STEPS,
         short_episode_penalty=SHORT_EPISODE_PENALTY,
@@ -448,11 +235,11 @@ def train(args):
     )
 
     action_dim = env.action_space.shape[0]
-    state_shape = env.observation_space.shape
+    state_dim = env.observation_space.shape[0]
 
     print(f"Environment created:")
-    print(f"  State mode: {args.state_mode}")
-    print(f"  State shape: {state_shape}")
+    print(f"  State mode: vector (67D state vector)")
+    print(f"  State dimension: {state_dim}")
     print(f"  Action space: Continuous (3D)")
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
@@ -461,9 +248,8 @@ def train(args):
     # Create agent
     print("\nCreating SAC agent...")
     agent = SACAgent(
-        state_shape=state_shape,
+        state_dim=state_dim,
         action_dim=action_dim,
-        state_mode=args.state_mode,
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
         lr_alpha=args.lr_alpha,
@@ -473,16 +259,11 @@ def train(args):
         device=device
     )
 
-    # Enable verbose mode if requested
-    if args.verbose:
-        agent.verbose = True
-        print("  Verbose mode enabled for agent (timing will be printed every 100 updates)")
-
     # Create replay buffer
     print("Creating replay buffer...")
     replay_buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=state_shape,
+        state_shape=state_dim,
         action_dim=action_dim,
         device=device
     )
@@ -503,7 +284,7 @@ def train(args):
         'short_episode_penalty': SHORT_EPISODE_PENALTY,
         'max_episode_steps': MAX_EPISODE_STEPS
     }
-    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, env, agent, config)
+    training_csv, eval_csv, log_handle = setup_logging(args.log_dir, args, mode='standard', env=env, agent=agent, config=config)
 
     # Training metrics
     episode_rewards = []
@@ -641,7 +422,7 @@ def train(args):
             log_handle.write(f"[{eval_timestamp}] {'=' * 50}\n")
             log_handle.write(f"[{eval_timestamp}] Evaluation at episode {episode + 1}\n")
 
-            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=5, log_handle=log_handle)
+            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=5, log_handle=log_handle, return_details=True)
             print(f"Evaluation reward (5 episodes): {eval_mean:.2f} (±{eval_std:.2f})")
             print("-" * 60 + "\n")
 
@@ -698,7 +479,7 @@ def train(args):
     log_handle.write(f"[{final_timestamp}] {'=' * 50}\n")
     log_handle.write(f"[{final_timestamp}] Final evaluation (10 episodes)\n")
 
-    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=10, log_handle=log_handle)
+    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=10, log_handle=log_handle, return_details=True)
     print(f"Final evaluation reward (10 episodes): {final_eval_mean:.2f} (±{final_eval_std:.2f})")
     print("=" * 60)
 

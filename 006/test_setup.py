@@ -103,7 +103,7 @@ def test_environment():
 
         # Create base environment using local CarRacing class
         print("Creating base CarRacing-v3 environment...")
-        env = CarRacing(render_mode=None, continuous=True, state_mode='vector')
+        env = CarRacing(render_mode=None, continuous=True)
 
         print(f"✓ Environment created successfully")
         print(f"  Observation space: {env.observation_space.shape}")
@@ -148,13 +148,12 @@ def test_preprocessing():
         # Test vector mode (default, recommended)
         print("Creating preprocessed environment (vector mode)...")
         env = make_carracing_env(
-            state_mode='vector',
             render_mode=None
         )
 
         print(f"✓ Vector mode environment created")
         print(f"  Observation space: {env.observation_space.shape}")
-        print(f"  Expected: (36,) for 36D vector state")
+        print(f"  Expected: (67,) for 67D vector state")
         print(f"  Action space: {env.action_space}")
         print(f"  Action bounds: {env.action_space.low} to {env.action_space.high}")
 
@@ -198,9 +197,8 @@ def test_agent():
         # Create agent for vector mode
         print("Creating SAC agent (vector mode)...")
         agent = SACAgent(
-            state_shape=36,  # 36D vector state
+            state_dim=67,  # 67D vector state
             action_dim=3,  # [steering, gas, brake]
-            state_mode='vector',
             lr_actor=3e-4,
             lr_critic=3e-4,
             device=torch.device('cpu')  # Use CPU for testing
@@ -213,7 +211,7 @@ def test_agent():
 
         # Test action selection
         print("\nTesting action selection...")
-        dummy_state = np.random.rand(36).astype(np.float32)
+        dummy_state = np.random.rand(67).astype(np.float32)
         action = agent.select_action(dummy_state, evaluate=False)
         print(f"✓ Action selection works")
         print(f"  Selected action shape: {action.shape}")
@@ -221,7 +219,7 @@ def test_agent():
 
         # Test replay buffer
         print("\nTesting replay buffer...")
-        buffer = ReplayBuffer(capacity=1000, state_shape=(36,), action_dim=3, device=agent.device)
+        buffer = ReplayBuffer(capacity=1000, state_shape=(67,), action_dim=3, device=agent.device)
         buffer.push(dummy_state, action, 1.0, dummy_state, False)
         print(f"✓ Replay buffer works")
         print(f"  Buffer size: {len(buffer)}")
