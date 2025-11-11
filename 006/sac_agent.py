@@ -39,11 +39,16 @@ class VectorActor(nn.Module):
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
+
+    Note: LayerNorm is disabled on MPS due to numerical instability issues
+    that can cause NaN values during training.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=256):
+    def __init__(self, state_dim, action_dim, hidden_dim=256, use_layer_norm=True):
         super(VectorActor, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
-        self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
+        self.use_layer_norm = use_layer_norm
+        if use_layer_norm:
+            self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
 
@@ -51,7 +56,10 @@ class VectorActor(nn.Module):
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, state):
-        x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
+        if self.use_layer_norm:
+            x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
+        else:
+            x = F.leaky_relu(self.fc1(state), negative_slope=0.01)
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
 
@@ -72,18 +80,26 @@ class VectorCritic(nn.Module):
 
     Hidden dimension increased to 512 (from 256) to handle the expanded
     state space (36D → 67D) with better capacity.
+
+    Note: LayerNorm is disabled on MPS due to numerical instability issues
+    that can cause NaN values during training.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=512):
+    def __init__(self, state_dim, action_dim, hidden_dim=512, use_layer_norm=True):
         super(VectorCritic, self).__init__()
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
-        self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
+        self.use_layer_norm = use_layer_norm
+        if use_layer_norm:
+            self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
         self.fc4 = nn.Linear(hidden_dim, 1)
 
     def forward(self, state, action):
         x = torch.cat([state, action], dim=1)
-        x = F.leaky_relu(self.ln1(self.fc1(x)), negative_slope=0.01)
+        if self.use_layer_norm:
+            x = F.leaky_relu(self.ln1(self.fc1(x)), negative_slope=0.01)
+        else:
+            x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
         q_value = self.fc4(x)
@@ -235,12 +251,15 @@ class SACAgent:
         self.tau = tau
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # Disable LayerNorm on MPS due to numerical instability
+        use_layer_norm = self.device.type != 'mps'
+
         # Create networks
-        self.actor = VectorActor(state_dim, action_dim).to(self.device)
-        self.critic_1 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_2 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_target_1 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_target_2 = VectorCritic(state_dim, action_dim).to(self.device)
+        self.actor = VectorActor(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
+        self.critic_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
+        self.critic_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
+        self.critic_target_1 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
+        self.critic_target_2 = VectorCritic(state_dim, action_dim, use_layer_norm=use_layer_norm).to(self.device)
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
@@ -316,6 +335,17 @@ class SACAgent:
         - Acceleration (dim 1): tanh → [-1 (brake), +1 (gas)]
         """
         mean, log_std = self.actor(state)
+
+        # Check for NaN values (especially important for MPS)
+        if torch.isnan(mean).any() or torch.isnan(log_std).any():
+            raise ValueError(
+                f"NaN detected in actor output!\n"
+                f"Mean has NaN: {torch.isnan(mean).any()}\n"
+                f"Log_std has NaN: {torch.isnan(log_std).any()}\n"
+                f"Device: {self.device}\n"
+                f"This is a known issue with MPS backend. Try training on CPU instead."
+            )
+
         std = log_std.exp()
 
         normal = Normal(mean, std)
@@ -368,6 +398,7 @@ class SACAgent:
         critic_1_loss = F.mse_loss(current_q1, target_q)
         self.critic_1_optimizer.zero_grad()
         critic_1_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=1.0)
         self.critic_1_optimizer.step()
 
         # Update critic 2
@@ -375,6 +406,7 @@ class SACAgent:
         critic_2_loss = F.mse_loss(current_q2, target_q)
         self.critic_2_optimizer.zero_grad()
         critic_2_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_2.parameters(), max_norm=1.0)
         self.critic_2_optimizer.step()
 
         # ===========================
@@ -395,6 +427,7 @@ class SACAgent:
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
 
         # ===========================
