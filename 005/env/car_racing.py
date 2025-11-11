@@ -65,11 +65,13 @@ MAX_SHAPE_DIM = (
 PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
 LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
 STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+STATIONARY_PENALTY = 1.0        # Penalty per frame for being stationary (speed < 0.5 m/s)
 ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track (encourages staying on track)
 OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies - set to 0 so ANY wheel off is penalized
 OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
 FORWARD_SPEED_REWARD_SCALE = 0.0
+STATIONARY_SPEED_THRESHOLD = 0.5  # Speed threshold (m/s) below which car is considered stationary
 
 
 class FrictionDetector:
@@ -302,7 +304,7 @@ class CarRacing(gym.Env, EzPickle):
 
     ## Rewards
     The reward structure uses continuous progress tracking with safe driving incentives.
-    All reward parameters are configurable at the top of this file (lines 64-72).
+    All reward parameters are configurable at the top of this file (lines 64-74).
 
     **Dense rewards (main objective and safe driving):**
     - Progress reward: +progress_delta × PROGRESS_REWARD_SCALE points for forward movement
@@ -314,7 +316,9 @@ class CarRacing(gym.Env, EzPickle):
     - On-track reward: +ONTRACK_REWARD per frame when all wheels on track (default: +0.5)
 
     **Dense penalties (constraints and safety):**
-    - Per-step penalty: -STEP_PENALTY every frame (default: -0.1, mild time pressure)
+    - Per-step penalty: -STEP_PENALTY every frame (default: -0.5, mild time pressure)
+    - Stationary penalty: -STATIONARY_PENALTY every frame when speed < STATIONARY_SPEED_THRESHOLD
+      (default: -1.0 when speed < 0.5 m/s, discourages staying still)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when ANY wheels off
       (default: -5.0 per wheel, strongly discourages off-track driving)
     - Off-track termination: -OFFTRACK_TERMINATION_PENALTY when all wheels go off track (default: -100, strongly discourages crashes)
@@ -323,11 +327,17 @@ class CarRacing(gym.Env, EzPickle):
     The agent learns the optimal racing line (which uses the full width of the track) through
     progress rewards alone. No center-line reward is used, as this would penalize proper racing lines.
 
-    Example with defaults: Reaching 50% progress in 500 frames:
+    Example with defaults: Reaching 50% progress in 500 frames while moving:
     - Progress reward: 0.5 × 2000 = +1000
-    - Step penalty: -0.1 × 500 = -50
+    - Step penalty: -0.5 × 500 = -250
     - On-track reward: +0.5 × 500 = +250
-    - Total: ~+1200 points (rewards safe, progressive driving!)
+    - Total: ~+1000 points (rewards safe, progressive driving!)
+
+    Example with stationary car for 100 frames:
+    - Progress reward: 0
+    - Step penalty: -0.5 × 100 = -50
+    - Stationary penalty: -1.0 × 100 = -100
+    - Total: -150 points (strongly discourages staying still!)
 
     ## Starting State
     The car starts at rest in the center of the road.
@@ -980,6 +990,10 @@ class CarRacing(gym.Env, EzPickle):
             if wheels_off_track > OFFTRACK_THRESHOLD:
                 self.reward -= OFFTRACK_PENALTY * wheels_off_track
 
+            # Stationary penalty (discourages staying still)
+            if speed < STATIONARY_SPEED_THRESHOLD:
+                self.reward -= STATIONARY_PENALTY
+
             # Continuous progress reward (dense signal for forward movement)
             current_progress = self.furthest_tile_idx / len(self.track)
             progress_delta = max(0, current_progress - self.last_progress)  # Only forward progress
@@ -1169,6 +1183,14 @@ class CarRacing(gym.Env, EzPickle):
                 wheels_off = sum(1 for wheel in car.wheels if len(wheel.tiles) == 0)
                 if wheels_off > OFFTRACK_THRESHOLD:
                     self.car_rewards[car_idx] -= OFFTRACK_PENALTY * wheels_off
+
+                # Stationary penalty (discourages staying still)
+                speed = np.sqrt(
+                    car.hull.linearVelocity[0] ** 2 +
+                    car.hull.linearVelocity[1] ** 2
+                )
+                if speed < STATIONARY_SPEED_THRESHOLD:
+                    self.car_rewards[car_idx] -= STATIONARY_PENALTY
 
                 # Check termination conditions for this car
                 all_wheels_off = all(len(wheel.tiles) == 0 for wheel in car.wheels)
