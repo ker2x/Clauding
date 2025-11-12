@@ -434,10 +434,11 @@ def watch_agent(args):
     print("=" * 60)
 
     # Create agent with same state mode as training
+    # Extract state_dim from state_shape (for vector mode: (67,) -> 67)
+    state_dim = state_shape[0] if len(state_shape) == 1 else state_shape
     agent = SACAgent(
-        state_shape=state_shape,
-        action_dim=action_dim,
-        state_mode=state_mode  # Use detected state mode from checkpoint
+        state_dim=state_dim,
+        action_dim=action_dim
     )
     agent.load(args.checkpoint)
 
