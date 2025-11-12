@@ -368,9 +368,6 @@ class SACAgent:
         critic_1_loss = F.mse_loss(current_q1, target_q)
         self.critic_1_optimizer.zero_grad()
         critic_1_loss.backward()
-        # Gradient clipping for MPS stability
-        if self.device.type == 'mps':
-            torch.nn.utils.clip_grad_norm_(self.critic_1.parameters(), max_norm=1.0)
         self.critic_1_optimizer.step()
 
         # Update critic 2
@@ -378,9 +375,6 @@ class SACAgent:
         critic_2_loss = F.mse_loss(current_q2, target_q)
         self.critic_2_optimizer.zero_grad()
         critic_2_loss.backward()
-        # Gradient clipping for MPS stability
-        if self.device.type == 'mps':
-            torch.nn.utils.clip_grad_norm_(self.critic_2.parameters(), max_norm=1.0)
         self.critic_2_optimizer.step()
 
         # ===========================
@@ -401,9 +395,6 @@ class SACAgent:
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
-        # Gradient clipping for MPS stability
-        if self.device.type == 'mps':
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
 
         # ===========================
