@@ -120,11 +120,11 @@ class ReplayBuffer:
 
         # Pre-allocate tensors on CPU for memory efficiency
         # Pinned memory enables faster async transfers to GPU
-        self.states = torch.zeros((capacity, *self.state_shape), device='cpu')
-        self.actions = torch.zeros((capacity, action_dim), device='cpu')
-        self.rewards = torch.zeros((capacity, 1), device='cpu')
-        self.next_states = torch.zeros((capacity, *self.state_shape), device='cpu')
-        self.dones = torch.zeros((capacity, 1), device='cpu')
+        self.states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
+        self.actions = torch.zeros((capacity, action_dim), dtype=torch.float32, device='cpu')
+        self.rewards = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
+        self.next_states = torch.zeros((capacity, *self.state_shape), dtype=torch.float32, device='cpu')
+        self.dones = torch.zeros((capacity, 1), dtype=torch.float32, device='cpu')
 
         if self.use_pinned_memory:
             self.states = self.states.pin_memory()
@@ -146,11 +146,11 @@ class ReplayBuffer:
         """
         # Convert inputs to torch tensors if they aren't already
         if not isinstance(state, torch.Tensor):
-            state = torch.from_numpy(np.array(state))
+            state = torch.from_numpy(np.array(state)).float()
         if not isinstance(action, torch.Tensor):
-            action = torch.from_numpy(np.array(action))
+            action = torch.from_numpy(np.array(action)).float()
         if not isinstance(next_state, torch.Tensor):
-            next_state = torch.from_numpy(np.array(next_state))
+            next_state = torch.from_numpy(np.array(next_state)).float()
 
         # Store in pre-allocated CPU tensors (no device transfer on push)
         self.states[self.ptr] = state
