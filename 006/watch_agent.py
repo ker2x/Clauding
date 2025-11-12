@@ -404,14 +404,13 @@ def watch_agent(args):
             print("Auto-detected state mode: vector (no conv layers)")
 
     # Use same state mode as training (agent architecture must match checkpoint)
+    # 006/ only supports vector mode
     # But use rendering for visualization
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
-        stack_size=4,
         terminate_stationary=True,
         stationary_patience=100,
-        render_mode=render_mode,
-        state_mode=state_mode  # Use detected state mode from checkpoint
+        render_mode=render_mode
     )
 
     action_dim = env.action_space.shape[0]
