@@ -70,10 +70,10 @@ class VectorCritic(nn.Module):
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
 
-    Hidden dimension increased to 512 (from 256) to handle the expanded
-    state space (36D → 67D) with better capacity.
+    Hidden dimension set to 256 for efficiency - sufficient capacity for 67D
+    state space without overfitting.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=512):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
         super(VectorCritic, self).__init__()
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
