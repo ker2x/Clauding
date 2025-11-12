@@ -168,20 +168,19 @@ class ReplayBuffer:
         Sample a batch of experiences.
 
         Samples on CPU (fast indexing), then transfers batch to target device.
-        Uses non-blocking transfers for better throughput when pinned memory is enabled.
         This is ~5-8x faster than the old numpy conversion approach.
         """
         # Generate random indices on CPU (avoid cross-device operations)
         indices = torch.randint(0, self.size, (batch_size,), device='cpu')
 
         # Index on CPU, then transfer batch to device
-        # non_blocking=True enables async transfer when using pinned memory
+        # Use blocking transfers to ensure data is ready before use (critical for MPS)
         return (
-            self.states[indices].to(self.device, non_blocking=True),
-            self.actions[indices].to(self.device, non_blocking=True),
-            self.rewards[indices].to(self.device, non_blocking=True),
-            self.next_states[indices].to(self.device, non_blocking=True),
-            self.dones[indices].to(self.device, non_blocking=True)
+            self.states[indices].to(self.device),
+            self.actions[indices].to(self.device),
+            self.rewards[indices].to(self.device),
+            self.next_states[indices].to(self.device),
+            self.dones[indices].to(self.device)
         )
 
     def __len__(self):
