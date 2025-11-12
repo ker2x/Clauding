@@ -327,8 +327,7 @@ class SACAgent:
         log_prob = normal.log_prob(z)
 
         # Apply tanh Jacobian correction for all dimensions
-        # Clamp before log to prevent NaN when action.pow(2) >= 1.0 (MPS precision issues)
-        log_prob -= torch.log((1 - action.pow(2)).clamp(min=1e-6))
+        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
 
         # Sum over action dimensions
         log_prob = log_prob.sum(1, keepdim=True)
