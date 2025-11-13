@@ -1,4 +1,4 @@
-__credits__ = ["Andrea PIERRÉ"]
+__credits__ = ["Laurent Laborde"]
 
 import math
 import time
