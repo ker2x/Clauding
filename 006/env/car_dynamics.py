@@ -225,12 +225,14 @@ class Car:
     STARTUP_ACCEL = 1250.0  # Angular acceleration (rad/s^2) for startup
 
     # Brake torque: Direct torque applied by brake calipers to wheel
-    # Race car brakes: ~3000-5000 N·m per wheel
-    # Road car brakes: ~1500-2500 N·m per wheel
-    # Must be strong enough to overcome peak tire torque (~3100 N·m) to lock wheels
-    # Physics will naturally determine resulting deceleration based on:
-    # angular_accel = (brake_torque + tire_torque) / INERTIA
-    MAX_BRAKE_TORQUE = 3500.0  # Maximum brake torque per wheel (N·m)
+    # MX5 braking performance: ~1.0-1.05g (37m from 100-0 km/h)
+    # At 1.0g with 1100kg car and 65/35 brake bias:
+    #   Front: 3500 N per wheel * 0.31m = 1087 N·m
+    #   Rear: 1900 N per wheel * 0.31m = 586 N·m
+    # Peak tire torque (before slip): ~3300 N * 0.31m = 1023 N·m
+    # Brake torque must exceed tire torque to lock wheels
+    # Using same torque for all wheels (no front/rear split in code)
+    MAX_BRAKE_TORQUE = 1300.0  # Maximum brake torque per wheel (N·m) - MX5 spec
 
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
