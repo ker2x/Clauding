@@ -552,19 +552,11 @@ class Car:
             z = self.suspension_travel[i]       # Compression (positive = compressed)
             z_dot = self.suspension_velocity[i]  # Compression velocity
 
-            # Get current normal force from previous timestep
-            # (Use equilibrium for first timestep)
-            if self.last_tire_forces is not None:
-                current_normal_force = self.last_tire_forces[i]['normal_force']
-            else:
-                current_normal_force = (self.MASS * 9.81) / 4.0
-
             # Spring force (Hooke's law)
-            # F = -k * (z - z_equilibrium)
-            # At equilibrium, spring force balances wheel load
+            # F = -k * z (simple spring, zero at z=0)
+            # The equilibrium is implicitly determined by the balance of forces
             spring_rate = self.suspension_config['spring_rate']
-            z_equilibrium = current_normal_force / spring_rate
-            F_spring = -spring_rate * (z - z_equilibrium)
+            F_spring = -spring_rate * z
 
             # Damper force (proportional to velocity)
             damping = self.suspension_config['damping']
@@ -583,13 +575,16 @@ class Car:
                 # Extended beyond limit
                 F_bump = -bump_stiffness * (z + max_ext)
 
+            # Weight force on suspension (sprung mass)
+            sprung_mass = self.MASS / 4.0
+            F_weight = -sprung_mass * 9.81  # Downward (negative)
+
             # Total force on suspension
-            F_total = F_spring + F_damper + F_bump + arb_forces[i]
+            # Weight pulls down, spring/damper push up
+            F_total = F_weight + F_spring + F_damper + F_bump + arb_forces[i]
 
             # Suspension dynamics
-            # Simplified: Assume force accelerates 1/4 of car mass
-            # (More accurate would model unsprung mass separately)
-            sprung_mass = self.MASS / 4.0
+            # Force accelerates the sprung mass (1/4 of car body)
             accel = F_total / sprung_mass
 
             # Integrate (Forward Euler)
