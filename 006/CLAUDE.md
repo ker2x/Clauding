@@ -34,7 +34,10 @@ The physics engine now includes a **realistic suspension system** using independ
 
 **For Details:** See `SUSPENSION_FIX_SUMMARY.md`
 
-**Testing:** Use `python play_human_gui.py --log-telemetry` then `python analyze_telemetry.py telemetry_*.csv`
+**Testing:**
+1. Record telemetry: `python play_human_gui.py --log-telemetry`
+2. Text analysis: `python analyze_telemetry.py telemetry_*.csv`
+3. Interactive visualization: `python telemetry_viewer.py telemetry_*.csv`
 
 ### Current Reward Structure
 
@@ -126,7 +129,46 @@ python watch_agent.py --checkpoint checkpoints_selection_parallel/best_model.pt 
 
 # Play as human
 python play_human.py
+
+# Play as human with telemetry GUI
+python play_human_gui.py
 ```
+
+### Telemetry Analysis
+```bash
+# Record telemetry while driving
+python play_human_gui.py --log-telemetry
+python play_human_gui.py --log-telemetry --log-file my_session.csv --log-interval 5
+
+# Text-based analysis (statistics and summaries)
+python analyze_telemetry.py telemetry_20250113_123456.csv
+python analyze_telemetry.py --all telemetry_*.csv          # All analyses
+python analyze_telemetry.py --wheels --suspension file.csv # Specific sections
+
+# Interactive professional telemetry viewer
+python telemetry_viewer.py telemetry_20250113_123456.csv
+
+# Telemetry viewer controls:
+#   - Left/Right arrows : Navigate through time
+#   - Space            : Play/Pause animation
+#   - Click on plot    : Jump to that time
+#   - Mouse wheel      : Zoom
+#   - R                : Reset zoom
+#   - Q                : Quit
+```
+
+**Telemetry Viewer Features:**
+- Track map with speed-colored trajectory
+- Real-time car position and orientation marker
+- Synchronized time-series plots:
+  - Speed (km/h)
+  - Driver inputs (steering, acceleration/brake)
+  - Wheel slip angles (all 4 wheels)
+  - Wheel slip ratios (all 4 wheels)
+  - Normal forces / tire loads (all 4 wheels)
+- Interactive cursor with click-to-jump navigation
+- Animation playback mode
+- Professional motorsport color scheme
 
 ## Architecture Overview
 
@@ -173,7 +215,12 @@ python play_human.py
 ├── watch_agent.py          # Visualize trained agent
 ├── watch_random_agent.py   # Baseline random agent
 ├── play_human.py           # Human playable mode
+├── play_human_gui.py       # Human playable with telemetry display
 ├── test_setup.py           # Verify installation
+│
+├── analyze_telemetry.py    # Text-based telemetry analysis
+├── telemetry_viewer.py     # Interactive telemetry visualization
+├── magic_formula_visualizer.py  # Tire model parameter tuning
 │
 ├── checkpoints_selection_parallel/  # Saved models (parallel selection)
 ├── logs_selection_parallel/         # Training logs
