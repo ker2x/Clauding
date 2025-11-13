@@ -423,11 +423,10 @@ class CarRacing(gym.Env, EzPickle):
         self.short_episode_penalty = short_episode_penalty
         self.num_cars = num_cars
 
-        # Suspension configuration
-        # BREAKING CHANGE: Default to quarter-car mode (physical suspension)
+        # Suspension configuration (simplified independent per-wheel springs)
         if suspension_config is None:
-            from .suspension_config import SuspensionConfig
-            suspension_config = SuspensionConfig.get_quarter_car('sport')
+            from .suspension_config import get_suspension_config
+            suspension_config = get_suspension_config()
         self.suspension_config = suspension_config
 
         self._init_colors()

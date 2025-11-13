@@ -1,27 +1,35 @@
 """
-Human-controlled CarRacing-v3 with Magic Formula Parameter GUI.
+Human-controlled CarRacing-v3 with Real-time Telemetry GUI.
 
-This script provides an interactive GUI for tuning Pacejka Magic Formula parameters
+This script provides an interactive GUI showing real-time vehicle dynamics
 while playing the game. It includes:
-- Real-time parameter adjustment sliders
-- Live tire force curve visualization
 - Real-time wheel slip display (slip angle and slip ratio for all 4 wheels)
+- Normal force (tire load) visualization per wheel
+- Suspension travel display per wheel
+- Optional CSV telemetry logging for analysis
 - Standard keyboard controls for gameplay
 
 Usage:
+    # Basic usage with GUI
     python play_human_gui.py
+
+    # With telemetry logging (every frame)
+    python play_human_gui.py --log-telemetry
+
+    # Custom log file and interval (every 5 frames)
+    python play_human_gui.py --log-telemetry --log-file my_session.csv --log-interval 5
 
 Controls:
     - Steering:   Q/D, Left/Right (AZERTY: Q/D)
     - Gas:        Z, Up Arrow
     - Brake:      S, Down Arrow
     - Reset:      R
-    - Quit:       ESC only
+    - Quit:       ESC
 
-GUI Controls:
-    - Sliders adjust Pacejka parameters in real-time
-    - Graphs show lateral and longitudinal force curves
-    - Wheel slip bars show real-time SA (slip angle) and SR (slip ratio) for FL, FR, RL, RR
+CSV Format:
+    The telemetry log includes: timestamp, episode, step, speed, steering,
+    acceleration, rewards, car state (x, y, angle, velocities), and per-wheel
+    data (slip angle, slip ratio, normal force, suspension travel).
 """
 
 import argparse
@@ -29,272 +37,160 @@ import numpy as np
 import time
 import pygame
 import sys
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg
+import csv
+from datetime import datetime
 from preprocessing import make_carracing_env
 
 
-class PacejkaGUI:
-    """GUI for controlling Pacejka Magic Formula parameters."""
+class TelemetryLogger:
+    """Log vehicle telemetry data to CSV file."""
 
-    def __init__(self, width=380, height=520):
+    def __init__(self, filename=None, log_interval=1):
+        """
+        Initialize telemetry logger.
+
+        Args:
+            filename: Output CSV filename (None = auto-generate)
+            log_interval: Log every N frames (default: 1 = every frame)
+        """
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"telemetry_{timestamp}.csv"
+
+        self.filename = filename
+        self.log_interval = log_interval
+        self.frame_count = 0
+        self.file = None
+        self.writer = None
+
+        # CSV columns
+        self.fieldnames = [
+            'timestamp', 'episode', 'step', 'speed_kmh',
+            'steering', 'acceleration', 'reward', 'total_reward',
+            'car_x', 'car_y', 'car_angle', 'car_vx', 'car_vy', 'car_yaw_rate',
+            # Wheel data: FL, FR, RL, RR
+            'fl_slip_angle', 'fl_slip_ratio', 'fl_normal_force', 'fl_suspension',
+            'fr_slip_angle', 'fr_slip_ratio', 'fr_normal_force', 'fr_suspension',
+            'rl_slip_angle', 'rl_slip_ratio', 'rl_normal_force', 'rl_suspension',
+            'rr_slip_angle', 'rr_slip_ratio', 'rr_normal_force', 'rr_suspension',
+        ]
+
+        self._open_file()
+
+    def _open_file(self):
+        """Open CSV file and write header."""
+        self.file = open(self.filename, 'w', newline='')
+        self.writer = csv.DictWriter(self.file, fieldnames=self.fieldnames)
+        self.writer.writeheader()
+        self.file.flush()
+
+    def log_frame(self, episode, step, speed_kmh, action, reward, total_reward,
+                  wheel_data, car_state=None):
+        """
+        Log a single frame of telemetry data.
+
+        Args:
+            episode: Current episode number
+            step: Current step number
+            speed_kmh: Car speed in km/h
+            action: [steering, acceleration]
+            reward: Current frame reward
+            total_reward: Cumulative episode reward
+            wheel_data: Dict with wheel telemetry [FL, FR, RL, RR]
+            car_state: Optional dict with car state (x, y, angle, vx, vy, yaw_rate)
+        """
+        self.frame_count += 1
+
+        # Only log every N frames
+        if self.frame_count % self.log_interval != 0:
+            return
+
+        # Default car state
+        if car_state is None:
+            car_state = {
+                'x': 0.0, 'y': 0.0, 'angle': 0.0,
+                'vx': 0.0, 'vy': 0.0, 'yaw_rate': 0.0
+            }
+
+        # Build row
+        row = {
+            'timestamp': datetime.now().isoformat(),
+            'episode': episode,
+            'step': step,
+            'speed_kmh': f"{speed_kmh:.2f}",
+            'steering': f"{action[0]:.4f}",
+            'acceleration': f"{action[1]:.4f}",
+            'reward': f"{reward:.4f}",
+            'total_reward': f"{total_reward:.2f}",
+            'car_x': f"{car_state['x']:.4f}",
+            'car_y': f"{car_state['y']:.4f}",
+            'car_angle': f"{car_state['angle']:.4f}",
+            'car_vx': f"{car_state['vx']:.4f}",
+            'car_vy': f"{car_state['vy']:.4f}",
+            'car_yaw_rate': f"{car_state['yaw_rate']:.4f}",
+        }
+
+        # Add wheel data
+        wheel_names = ['fl', 'fr', 'rl', 'rr']
+        for i, name in enumerate(wheel_names):
+            row[f'{name}_slip_angle'] = f"{wheel_data[i]['slip_angle']:.6f}"
+            row[f'{name}_slip_ratio'] = f"{wheel_data[i]['slip_ratio']:.6f}"
+            row[f'{name}_normal_force'] = f"{wheel_data[i]['normal_force']:.2f}"
+            row[f'{name}_suspension'] = f"{wheel_data[i]['suspension_travel']:.6f}"
+
+        # Write to file
+        self.writer.writerow(row)
+        self.file.flush()  # Ensure data is written immediately
+
+    def close(self):
+        """Close the log file."""
+        if self.file:
+            self.file.close()
+            print(f"\n✓ Telemetry logged to: {self.filename}")
+
+
+class TelemetryGUI:
+    """GUI for displaying real-time vehicle telemetry."""
+
+    def __init__(self, width=420, height=300):
         self.width = width
         self.height = height
         self.font = pygame.font.Font(None, 18)
         self.font_small = pygame.font.Font(None, 14)
 
-        # Default Pacejka parameters (from car_dynamics.py)
-        # Tuned for MX-5 on street tires (195/50R16)
-        self.params = {
-            'B_lat': 8.5,   # Lateral stiffness
-            'C_lat': 1.9,   # Lateral shape
-            'D_lat': 0.95,  # Lateral peak (~0.90g cornering)
-            'E_lat': 0.97,  # Lateral curvature
-            'B_lon': 8.0,   # Longitudinal stiffness
-            'C_lon': 1.9,   # Longitudinal shape
-            'D_lon': 1.15,  # Longitudinal peak (~1.10g braking, ~0.60g accel)
-            'E_lon': 0.97,  # Longitudinal curvature
+        # Wheel telemetry data (updated each frame)
+        self.wheel_data = {
+            0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # FL
+            1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # FR
+            2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # RL
+            3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # RR
         }
 
-        # Parameter ranges for sliders
-        self.param_ranges = {
-            'B_lat': (5.0, 20.0),   # Stiffness factor
-            'C_lat': (1.0, 2.5),    # Shape factor
-            'D_lat': (0.8, 1.5),    # Peak friction
-            'E_lat': (0.5, 1.5),    # Curvature factor
-            'B_lon': (5.0, 20.0),
-            'C_lon': (1.0, 2.5),
-            'D_lon': (0.8, 1.5),
-            'E_lon': (0.5, 1.5),
-        }
+    def update_data(self, wheel_data):
+        """Update wheel telemetry data from the environment."""
+        if wheel_data:
+            self.wheel_data = wheel_data
 
-        # Slider definitions (y position, parameter name, label)
-        y_start = 35
-        y_spacing = 45
-        self.sliders = []
-        param_names = ['B_lat', 'C_lat', 'D_lat', 'E_lat', 'B_lon', 'C_lon', 'D_lon', 'E_lon']
-        labels = [
-            'B_lat (Lateral Stiffness)',
-            'C_lat (Lateral Shape)',
-            'D_lat (Lateral Peak)',
-            'E_lat (Lateral Curve)',
-            'B_lon (Longitudinal Stiffness)',
-            'C_lon (Longitudinal Shape)',
-            'D_lon (Longitudinal Peak)',
-            'E_lon (Longitudinal Curve)',
-        ]
-
-        for i, (param, label) in enumerate(zip(param_names, labels)):
-            y = y_start + i * y_spacing
-            slider = {
-                'param': param,
-                'label': label,
-                'y': y,
-                'x': 20,
-                'width': self.width - 40,
-                'height': 10,
-                'dragging': False,
-            }
-            self.sliders.append(slider)
-
-        # Create matplotlib figure for tire curves (stacked vertically)
-        self.fig, (self.ax_lat, self.ax_lon) = plt.subplots(2, 1, figsize=(4.5, 6))
-        self.fig.tight_layout(pad=1.2)
-        self.canvas = FigureCanvasAgg(self.fig)
-
-        # Wheel slip data (updated each frame)
-        self.wheel_slip_data = {
-            0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FL
-            1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FR
-            2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RL
-            3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RR
-        }
-
-        self.update_graphs()
-
-    def get_slider_value(self, slider):
-        """Get normalized value (0-1) for a slider based on current parameter."""
-        param_name = slider['param']
-        value = self.params[param_name]
-        min_val, max_val = self.param_ranges[param_name]
-        return (value - min_val) / (max_val - min_val)
-
-    def set_slider_value(self, slider, normalized_value):
-        """Set parameter value from normalized slider position (0-1)."""
-        param_name = slider['param']
-        min_val, max_val = self.param_ranges[param_name]
-        self.params[param_name] = min_val + normalized_value * (max_val - min_val)
-        self.update_graphs()
-
-    def handle_event(self, event, offset_x=0, offset_y=0):
-        """Handle mouse events for sliders. Returns True if event was handled."""
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            mouse_x, mouse_y = event.pos
-            mouse_x -= offset_x
-            mouse_y -= offset_y
-
-            for slider in self.sliders:
-                if (slider['x'] <= mouse_x <= slider['x'] + slider['width'] and
-                    slider['y'] - 5 <= mouse_y <= slider['y'] + slider['height'] + 5):
-                    slider['dragging'] = True
-                    # Set value based on click position
-                    normalized_x = (mouse_x - slider['x']) / slider['width']
-                    normalized_x = max(0.0, min(1.0, normalized_x))
-                    self.set_slider_value(slider, normalized_x)
-                    return True
-
-        elif event.type == pygame.MOUSEBUTTONUP:
-            for slider in self.sliders:
-                slider['dragging'] = False
-
-        elif event.type == pygame.MOUSEMOTION:
-            mouse_x, mouse_y = event.pos
-            mouse_x -= offset_x
-            mouse_y -= offset_y
-
-            for slider in self.sliders:
-                if slider['dragging']:
-                    normalized_x = (mouse_x - slider['x']) / slider['width']
-                    normalized_x = max(0.0, min(1.0, normalized_x))
-                    self.set_slider_value(slider, normalized_x)
-                    return True
-
-        return False
-
-    def update_graphs(self):
-        """Update tire force curve graphs with consistent Y-axis scaling."""
-        # Clear axes
-        self.ax_lat.clear()
-        self.ax_lon.clear()
-
-        normal_force = 2600  # N (approx weight per wheel)
-        max_friction = 1.0
-
-        # Compute LATERAL force curve (vs slip angle in degrees)
-        slip_angles = np.linspace(-20, 20, 200) * np.pi / 180  # -20 to 20 degrees
-        lateral_forces = []
-
-        for sa in slip_angles:
-            sa_clip = np.clip(sa, -np.pi / 2, np.pi / 2)
-            arg = self.params['B_lat'] * sa_clip
-            F = (self.params['D_lat'] * normal_force * max_friction *
-                 np.sin(self.params['C_lat'] * np.arctan(
-                     arg - self.params['E_lat'] * (arg - np.arctan(arg)))))
-            lateral_forces.append(F)
-
-        # Compute LONGITUDINAL force curve (vs slip ratio)
-        slip_ratios = np.linspace(-1, 1, 200)
-        longitudinal_forces = []
-
-        for sr in slip_ratios:
-            sr_clip = np.clip(sr, -1.0, 1.0)
-            arg = self.params['B_lon'] * sr_clip
-            F = (self.params['D_lon'] * normal_force * max_friction *
-                 np.sin(self.params['C_lon'] * np.arctan(
-                     arg - self.params['E_lon'] * (arg - np.arctan(arg)))))
-            longitudinal_forces.append(F)
-
-        # Calculate common Y-axis scale (symmetric around 0)
-        max_force = max(max(abs(f) for f in lateral_forces),
-                       max(abs(f) for f in longitudinal_forces))
-        y_limit = max_force * 1.1  # Add 10% margin
-
-        # Plot LATERAL curve
-        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2)
-        self.ax_lat.set_xlabel('Slip Angle (degrees)')
-        self.ax_lat.set_ylabel('Force (N)')
-        self.ax_lat.set_title('Lateral Grip Curve')
-        self.ax_lat.grid(True, alpha=0.3)
-        self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lat.set_ylim(-y_limit, y_limit)  # Same scale as longitudinal
-
-        # Plot LONGITUDINAL curve
-        self.ax_lon.plot(slip_ratios, longitudinal_forces, 'r-', linewidth=2)
-        self.ax_lon.set_xlabel('Slip Ratio')
-        self.ax_lon.set_ylabel('Force (N)')
-        self.ax_lon.set_title('Longitudinal Grip Curve')
-        self.ax_lon.grid(True, alpha=0.3)
-        self.ax_lon.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lon.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax_lon.set_ylim(-y_limit, y_limit)  # Same scale as lateral
-
-        self.fig.tight_layout()
-        self.canvas.draw()
-
-    def get_graph_surface(self):
-        """Get pygame surface of the current graphs."""
-        # Convert matplotlib canvas to pygame surface
-        canvas = self.canvas
-        renderer = canvas.get_renderer()
-        raw_data = renderer.buffer_rgba()
-        size = canvas.get_width_height()
-        return pygame.image.frombuffer(raw_data, size, "RGBA")
-
-    def draw(self, surface):
-        """Draw the GUI panel on the given surface."""
+    def draw(self, surface, speed_kmh=0.0):
+        """Draw telemetry panel."""
         # Background
-        surface.fill((40, 40, 40))
+        surface.fill((25, 25, 30))
+        pygame.draw.rect(surface, (60, 60, 70), (0, 0, self.width, self.height), 2)
 
         # Title
-        title = self.font.render("Magic Formula Parameters", True, (255, 255, 255))
-        surface.blit(title, (10, 10))
-
-        # Draw sliders
-        for slider in self.sliders:
-            # Label
-            label_surf = self.font_small.render(slider['label'], True, (200, 200, 200))
-            surface.blit(label_surf, (slider['x'], slider['y'] - 20))
-
-            # Value
-            param_value = self.params[slider['param']]
-            value_text = f"{param_value:.2f}"
-            value_surf = self.font_small.render(value_text, True, (255, 255, 100))
-            surface.blit(value_surf, (slider['x'] + slider['width'] - 50, slider['y'] - 20))
-
-            # Slider track
-            track_rect = pygame.Rect(slider['x'], slider['y'], slider['width'], slider['height'])
-            pygame.draw.rect(surface, (80, 80, 80), track_rect)
-            pygame.draw.rect(surface, (120, 120, 120), track_rect, 1)
-
-            # Slider thumb
-            normalized_pos = self.get_slider_value(slider)
-            thumb_x = slider['x'] + int(normalized_pos * slider['width'])
-            thumb_rect = pygame.Rect(thumb_x - 5, slider['y'] - 5, 10, slider['height'] + 10)
-            color = (100, 200, 255) if slider['dragging'] else (150, 150, 255)
-            pygame.draw.rect(surface, color, thumb_rect)
-            pygame.draw.rect(surface, (200, 200, 200), thumb_rect, 2)
-
-    def update_slip_data(self, slip_data):
-        """Update wheel slip data from the environment."""
-        if slip_data:
-            self.wheel_slip_data = slip_data
-
-    def draw_slip_panel(self, surface, y_offset=0, speed_kmh=0.0):
-        """Draw real-time wheel slip visualization."""
-        panel_width = self.width
-        panel_height = 210  # Increased to accommodate normal force display
-
-        # Background
-        pygame.draw.rect(surface, (25, 25, 30), (0, y_offset, panel_width, panel_height))
-        pygame.draw.rect(surface, (60, 60, 70), (0, y_offset, panel_width, panel_height), 2)
-
-        # Title
-        title = self.font.render("Wheel Slip & Load", True, (255, 200, 100))
-        surface.blit(title, (10, y_offset + 5))
+        title = self.font.render("Vehicle Telemetry", True, (255, 200, 100))
+        surface.blit(title, (10, 5))
 
         # Speed display (right-aligned)
         speed_text = self.font.render(f"{speed_kmh:.1f} km/h", True, (255, 255, 100))
-        surface.blit(speed_text, (panel_width - speed_text.get_width() - 10, y_offset + 5))
+        surface.blit(speed_text, (self.width - speed_text.get_width() - 10, 5))
 
         # Wheel labels and positions
         wheel_names = ['FL', 'FR', 'RL', 'RR']
         wheel_colors = [(100, 150, 255), (100, 255, 150), (255, 150, 100), (255, 100, 150)]
 
-        y_start = y_offset + 28
-        row_height = 45  # Increased to fit normal force display
+        y_start = 28
+        row_height = 68  # Height per wheel row
 
         for i, (name, color) in enumerate(zip(wheel_names, wheel_colors)):
             y = y_start + i * row_height
@@ -303,25 +199,24 @@ class PacejkaGUI:
             label = self.font_small.render(name, True, color)
             surface.blit(label, (10, y))
 
-            # Get slip data
-            slip_angle = self.wheel_slip_data[i]['slip_angle'] * 180 / np.pi  # Convert to degrees
-            slip_ratio = self.wheel_slip_data[i]['slip_ratio']
-            normal_force = self.wheel_slip_data[i]['normal_force']
+            # Get telemetry data
+            slip_angle = self.wheel_data[i]['slip_angle'] * 180 / np.pi  # Convert to degrees
+            slip_ratio = self.wheel_data[i]['slip_ratio']
+            normal_force = self.wheel_data[i]['normal_force']
+            suspension = self.wheel_data[i]['suspension_travel'] * 1000  # Convert to mm
 
-            # Slip angle bar (range: -25 to +25 degrees)
+            # === LINE 1: Slip Angle ===
             angle_text = self.font_small.render(f"SA:{slip_angle:+.1f}°", True, (200, 200, 200))
             surface.blit(angle_text, (40, y))
 
-            # Slip angle bar
+            # Slip angle bar (range: -25 to +25 degrees)
             bar_x = 115
-            bar_width = 90
-            bar_height = 10
+            bar_width = 120
+            bar_height = 8
             max_angle = 25.0
 
-            # Draw bar background
             pygame.draw.rect(surface, (40, 40, 45), (bar_x, y, bar_width, bar_height))
 
-            # Draw bar fill (centered at middle)
             center_x = bar_x + bar_width // 2
             fill_width = int((slip_angle / max_angle) * (bar_width // 2))
             fill_width = max(-bar_width // 2, min(bar_width // 2, fill_width))
@@ -331,22 +226,18 @@ class PacejkaGUI:
             elif fill_width < 0:
                 pygame.draw.rect(surface, (255, 150, 100), (center_x + fill_width, y, -fill_width, bar_height))
 
-            # Center line
             pygame.draw.line(surface, (100, 100, 100), (center_x, y), (center_x, y + bar_height), 1)
             pygame.draw.rect(surface, (80, 80, 85), (bar_x, y, bar_width, bar_height), 1)
 
-            # Slip ratio bar (range: -1 to +1)
+            # Slip ratio
             ratio_text = self.font_small.render(f"SR:{slip_ratio:+.2f}", True, (200, 200, 200))
             surface.blit(ratio_text, (bar_x + bar_width + 8, y))
 
-            # Slip ratio bar
             ratio_bar_x = bar_x + bar_width + 65
-            ratio_bar_width = 70
+            ratio_bar_width = 80
 
-            # Draw bar background
             pygame.draw.rect(surface, (40, 40, 45), (ratio_bar_x, y, ratio_bar_width, bar_height))
 
-            # Draw bar fill (centered at middle)
             ratio_center_x = ratio_bar_x + ratio_bar_width // 2
             ratio_fill_width = int(slip_ratio * (ratio_bar_width // 2))
             ratio_fill_width = max(-ratio_bar_width // 2, min(ratio_bar_width // 2, ratio_fill_width))
@@ -356,46 +247,85 @@ class PacejkaGUI:
             elif ratio_fill_width < 0:
                 pygame.draw.rect(surface, (255, 100, 100), (ratio_center_x + ratio_fill_width, y, -ratio_fill_width, bar_height))
 
-            # Center line
             pygame.draw.line(surface, (100, 100, 100), (ratio_center_x, y), (ratio_center_x, y + bar_height), 1)
             pygame.draw.rect(surface, (80, 80, 85), (ratio_bar_x, y, ratio_bar_width, bar_height), 1)
 
-            # Normal force display (on second line)
+            # === LINE 2: Normal Force ===
             y_load = y + 15
-            load_text = self.font_small.render(f"Load: {normal_force:.0f}N", True, (255, 255, 150))
+            # Fix force scale - show in kN for readability
+            load_kn = normal_force / 1000.0
+            load_text = self.font_small.render(f"Load: {load_kn:.2f}kN", True, (255, 255, 150))
             surface.blit(load_text, (40, y_load))
 
             # Normal force bar (relative to nominal load)
-            nominal_load = 2600.0  # N (approx weight per wheel for 1060kg car)
+            nominal_load = 2.6  # kN (2600 N for 1060kg car)
             load_bar_x = 115
-            load_bar_width = 220
+            load_bar_width = 265
             load_bar_height = 8
 
-            # Draw bar background
             pygame.draw.rect(surface, (40, 40, 45), (load_bar_x, y_load, load_bar_width, load_bar_height))
 
-            # Draw bar fill (proportional to load, max scale at 1.5x nominal)
-            max_display_load = nominal_load * 1.5
-            fill_ratio = min(normal_force / max_display_load, 1.0)
+            # Scale: 0 to 2x nominal (0-5.2kN)
+            max_display_load = nominal_load * 2.0
+            fill_ratio = min(load_kn / max_display_load, 1.0)
             fill_width = int(fill_ratio * load_bar_width)
 
-            # Color gradient: green at nominal, yellow above, red near max
-            if normal_force < nominal_load * 0.8:
-                bar_color = (100, 100, 255)  # Blue (underloaded)
-            elif normal_force < nominal_load * 1.1:
+            # Color based on load
+            if load_kn < nominal_load * 0.7:
+                bar_color = (100, 100, 255)  # Blue (light)
+            elif load_kn < nominal_load * 1.2:
                 bar_color = (100, 255, 100)  # Green (nominal)
-            elif normal_force < nominal_load * 1.3:
-                bar_color = (255, 255, 100)  # Yellow (overloaded)
+            elif load_kn < nominal_load * 1.5:
+                bar_color = (255, 255, 100)  # Yellow (heavy)
             else:
-                bar_color = (255, 100, 100)  # Red (heavily overloaded)
+                bar_color = (255, 100, 100)  # Red (very heavy)
 
             pygame.draw.rect(surface, bar_color, (load_bar_x, y_load, fill_width, load_bar_height))
 
-            # Nominal load marker (vertical line at nominal position)
+            # Nominal load marker
             nominal_x = load_bar_x + int((nominal_load / max_display_load) * load_bar_width)
             pygame.draw.line(surface, (150, 150, 150), (nominal_x, y_load), (nominal_x, y_load + load_bar_height), 2)
 
             pygame.draw.rect(surface, (80, 80, 85), (load_bar_x, y_load, load_bar_width, load_bar_height), 1)
+
+            # === LINE 3: Suspension Travel ===
+            y_susp = y + 30
+            susp_text = self.font_small.render(f"Susp: {suspension:+.1f}mm", True, (200, 255, 200))
+            surface.blit(susp_text, (40, y_susp))
+
+            # Suspension travel bar (range: -120mm to +80mm)
+            susp_bar_x = 115
+            susp_bar_width = 265
+            susp_bar_height = 8
+
+            max_extension = -120.0  # mm (negative = droop)
+            max_compression = 80.0  # mm (positive = bump)
+            equilibrium = 58.0  # mm (static compression)
+
+            pygame.draw.rect(surface, (40, 40, 45), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height))
+
+            # Calculate bar position (0 = max extension, 1 = max compression)
+            susp_range = max_compression - max_extension
+            susp_norm = (suspension - max_extension) / susp_range
+            susp_fill_x = int(susp_norm * susp_bar_width)
+
+            # Color: green near equilibrium, yellow/red at extremes
+            deviation = abs(suspension - equilibrium)
+            if deviation < 10:
+                susp_color = (100, 255, 100)  # Green (normal)
+            elif deviation < 30:
+                susp_color = (255, 255, 100)  # Yellow (moderate)
+            else:
+                susp_color = (255, 100, 100)  # Red (extreme)
+
+            pygame.draw.rect(surface, susp_color, (susp_bar_x, y_susp, susp_fill_x, susp_bar_height))
+
+            # Equilibrium marker
+            eq_norm = (equilibrium - max_extension) / susp_range
+            eq_x = susp_bar_x + int(eq_norm * susp_bar_width)
+            pygame.draw.line(surface, (200, 200, 200), (eq_x, y_susp), (eq_x, y_susp + susp_bar_height), 2)
+
+            pygame.draw.rect(surface, (80, 80, 85), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height), 1)
 
 
 def format_action(action):
@@ -462,23 +392,6 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     draw_text_right(f"Speed: {speed_kmh:.1f} km/h", y_base + 50, (255, 255, 100))
 
 
-def update_car_parameters(env, params):
-    """Update the car's Pacejka parameters in the environment."""
-    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
-        car = env.unwrapped.car
-        if car is not None and hasattr(car, 'tire'):
-            car.tire.B_lat = params['B_lat']
-            car.tire.C_lat = params['C_lat']
-            car.tire.D_lat = params['D_lat']
-            car.tire.E_lat = params['E_lat']
-            car.tire.B_lon = params['B_lon']
-            car.tire.C_lon = params['C_lon']
-            car.tire.D_lon = params['D_lon']
-            car.tire.E_lon = params['E_lon']
-            return True
-    return False
-
-
 def get_car_speed(env):
     """Extract car speed from the environment and convert to km/h."""
     speed_kmh = 0.0
@@ -494,34 +407,58 @@ def get_car_speed(env):
     return speed_kmh
 
 
-def get_wheel_slip_data(env):
-    """Extract wheel slip data from the environment."""
-    slip_data = {
-        0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
-        1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
-        2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
-        3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+def get_wheel_data(env):
+    """Extract wheel telemetry data from the environment."""
+    wheel_data = {
+        0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
+        1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
+        2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
+        3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
     }
 
     if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
         car = env.unwrapped.car
         if car is not None:
-            # Use stored tire forces from last step (avoids double computation)
-            # This prevents oscillating display values caused by feedback loop
+            # Use stored tire forces from last step
             forces = car.last_tire_forces if hasattr(car, 'last_tire_forces') else None
 
             if forces:
                 for i in range(4):
                     if i in forces:
-                        slip_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
-                        slip_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
-                        slip_data[i]['normal_force'] = forces[i].get('normal_force', 0.0)
+                        wheel_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
+                        wheel_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
+                        wheel_data[i]['normal_force'] = forces[i].get('normal_force', 0.0)
 
-    return slip_data
+            # Get suspension travel
+            if hasattr(car, 'suspension_travel'):
+                for i in range(4):
+                    wheel_data[i]['suspension_travel'] = car.suspension_travel[i]
+
+    return wheel_data
+
+
+def get_car_state(env):
+    """Extract detailed car state for logging."""
+    car_state = {
+        'x': 0.0, 'y': 0.0, 'angle': 0.0,
+        'vx': 0.0, 'vy': 0.0, 'yaw_rate': 0.0
+    }
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None:
+            car_state['x'] = getattr(car, 'x', 0.0)
+            car_state['y'] = getattr(car, 'y', 0.0)
+            car_state['angle'] = getattr(car, 'angle', 0.0)
+            car_state['vx'] = getattr(car, 'vx', 0.0)
+            car_state['vy'] = getattr(car, 'vy', 0.0)
+            car_state['yaw_rate'] = getattr(car, 'yaw_rate', 0.0)
+
+    return car_state
 
 
 def play_human_gui(args):
-    """Play episodes with Magic Formula parameter GUI."""
+    """Play episodes with real-time telemetry GUI."""
 
     # Initialize Pygame
     pygame.init()
@@ -529,7 +466,17 @@ def play_human_gui(args):
     font = pygame.font.Font(None, 24)
 
     # Create GUI
-    gui = PacejkaGUI(width=400, height=550)
+    gui = TelemetryGUI(width=420, height=300)
+
+    # Create telemetry logger if requested
+    logger = None
+    if args.log_telemetry:
+        logger = TelemetryLogger(
+            filename=args.log_file,
+            log_interval=args.log_interval
+        )
+        print(f"✓ Telemetry logging enabled: {logger.filename}")
+        print(f"  Log interval: every {args.log_interval} frame(s)")
 
     # Create environment
     render_mode = None if args.no_render else 'rgb_array'
@@ -543,33 +490,36 @@ def play_human_gui(args):
     state_shape = env.observation_space.shape
 
     print("=" * 80)
-    print(f"CarRacing-v3 - HUMAN PLAYER with Magic Formula GUI")
+    print(f"CarRacing-v3 - HUMAN PLAYER with Telemetry GUI")
     print("=" * 80)
     print(f"Episodes: {args.episodes}")
     print(f"State shape: {state_shape}")
+    if logger:
+        print(f"Telemetry logging: ENABLED")
+        print(f"  File: {logger.filename}")
+        print(f"  Interval: every {args.log_interval} frame(s)")
+    else:
+        print(f"Telemetry logging: DISABLED (use --log-telemetry to enable)")
     print("=" * 80)
     print("\nKEYBOARD CONTROLS (AZERTY):")
     print("  - Steering:   Q / D or Left / Right Arrow")
     print("  - Gas:        Z or Up Arrow")
     print("  - Brake:      S or Down Arrow")
     print("  - Reset:      R")
-    print("  - Quit:       ESC only")
-    print("\nGUI CONTROLS:")
-    print("  - Use mouse to drag sliders and adjust Pacejka parameters")
-    print("  - Graphs show real-time tire force curves")
+    print("  - Quit:       ESC")
+    print("\nTELEMETRY DISPLAY:")
+    print("  - Slip angle (SA) and slip ratio (SR) per wheel")
+    print("  - Normal force (tire load) per wheel")
+    print("  - Suspension travel per wheel")
     print("=" * 80)
 
     episode_rewards = []
     target_frame_time = 1.0 / args.fps
     screen = None
-    game_frame_width = None  # Store the game frame width for GUI offset calculation
 
     try:
         for episode in range(args.episodes):
             state, _ = env.reset()
-
-            # Update car parameters from GUI
-            update_car_parameters(env, gui.params)
 
             total_reward = 0
             step = 0
@@ -581,7 +531,7 @@ def play_human_gui(args):
             print(f"\n{'-' * 80}")
             print(f"Episode {episode + 1}/{args.episodes}")
             print(f"{'-' * 80}")
-            print("Ready! Use keyboard to control, mouse to adjust parameters")
+            print("Ready! Use keyboard to control the car")
 
             while not done:
                 frame_start = time.time()
@@ -603,12 +553,6 @@ def play_human_gui(args):
                             env.close()
                             pygame.quit()
                             sys.exit()
-
-                    # Handle GUI events (pass offset for GUI panel location)
-                    if not args.no_render and screen is not None and game_frame_width is not None:
-                        if gui.handle_event(event, offset_x=game_frame_width, offset_y=0):
-                            # Parameters changed, update car
-                            update_car_parameters(env, gui.params)
 
                 # --- Keyboard Input ---
                 keys = pygame.key.get_pressed()
@@ -638,10 +582,24 @@ def play_human_gui(args):
                 total_reward += reward
                 step += 1
 
-                # --- Get wheel slip data and car speed ---
-                slip_data = get_wheel_slip_data(env)
-                gui.update_slip_data(slip_data)
+                # --- Get wheel data and car speed ---
+                wheel_data = get_wheel_data(env)
+                gui.update_data(wheel_data)
                 speed_kmh = get_car_speed(env)
+
+                # --- Log telemetry if enabled ---
+                if logger:
+                    car_state = get_car_state(env)
+                    logger.log_frame(
+                        episode=episode + 1,
+                        step=step,
+                        speed_kmh=speed_kmh,
+                        action=action,
+                        reward=reward,
+                        total_reward=total_reward,
+                        wheel_data=wheel_data,
+                        car_state=car_state
+                    )
 
                 # --- Render ---
                 if not args.no_render:
@@ -651,15 +609,12 @@ def play_human_gui(args):
 
                     # Create screen on first frame
                     if screen is None:
-                        # Layout: Game | Sliders+Slip | Graphs (all in one row)
-                        graph_width = 450
-                        total_width = frame_w + gui.width + graph_width
+                        # Layout: Game | Telemetry Panel
+                        total_width = frame_w + gui.width
                         game_area_height = frame_h + info_area_height
-                        right_panel_height = gui.height + 210  # sliders + slip panel (210 for wheel load display)
-                        total_height = max(game_area_height, right_panel_height)
+                        total_height = max(game_area_height, gui.height)
                         screen = pygame.display.set_mode((total_width, total_height))
-                        pygame.display.set_caption("CarRacing-v3 - Magic Formula GUI")
-                        game_frame_width = frame_w  # Store for GUI event offset calculation
+                        pygame.display.set_caption("CarRacing-v3 - Telemetry Display")
 
                     # Clear screen
                     screen.fill((0, 0, 0))
@@ -672,19 +627,10 @@ def play_human_gui(args):
                     # Draw info overlay
                     render_info(screen, font, episode + 1, step, reward, total_reward, action, speed_kmh, info_y_offset=0)
 
-                    # Draw GUI panel (right of game, top)
+                    # Draw telemetry GUI (right of game)
                     gui_surface = pygame.Surface((gui.width, gui.height))
-                    gui.draw(gui_surface)
+                    gui.draw(gui_surface, speed_kmh=speed_kmh)
                     screen.blit(gui_surface, (frame_w, 0))
-
-                    # Draw slip panel (right of game, below parameter sliders)
-                    slip_surface = pygame.Surface((gui.width, 210))
-                    gui.draw_slip_panel(slip_surface, y_offset=0, speed_kmh=speed_kmh)
-                    screen.blit(slip_surface, (frame_w, gui.height))
-
-                    # Draw graphs (right of sliders+slip panel, vertically stacked)
-                    graph_surface = gui.get_graph_surface()
-                    screen.blit(graph_surface, (frame_w + gui.width, 0))
 
                     pygame.display.flip()
 
@@ -705,6 +651,8 @@ def play_human_gui(args):
     except KeyboardInterrupt:
         print("\nInterrupted by user")
     finally:
+        if logger:
+            logger.close()
         env.close()
         pygame.quit()
 
@@ -724,7 +672,7 @@ def play_human_gui(args):
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Play CarRacing-v3 with Magic Formula parameter GUI'
+        description='Play CarRacing-v3 with real-time telemetry display'
     )
     parser.add_argument('--episodes', type=int, default=5,
                         help='Number of episodes to play (default: 5)')
@@ -732,6 +680,15 @@ def parse_args():
                         help='Display FPS (default: 50)')
     parser.add_argument('--no-render', action='store_true',
                         help='Disable rendering (just compute rewards)')
+
+    # Telemetry logging options
+    parser.add_argument('--log-telemetry', action='store_true',
+                        help='Enable telemetry logging to CSV file')
+    parser.add_argument('--log-file', type=str, default=None,
+                        help='Output CSV filename (default: auto-generated with timestamp)')
+    parser.add_argument('--log-interval', type=int, default=1,
+                        help='Log every N frames (default: 1 = every frame)')
+
     return parser.parse_args()
 
 
