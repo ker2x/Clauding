@@ -29,6 +29,7 @@ def make_carracing_env(
     max_episode_steps=1500,
     verbose=False,
     num_cars=1,
+    suspension_config=None,
 ) -> gym.Env:
     """
     Creates a CarRacing-v3 environment for SAC training in vector mode.
@@ -48,6 +49,7 @@ def make_carracing_env(
         max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
         num_cars: Number of cars racing simultaneously (default: 1)
+        suspension_config: Suspension configuration dict (default: quarter-car sport mode)
 
     Returns:
         Environment ready for SAC training with continuous actions.
@@ -68,6 +70,7 @@ def make_carracing_env(
         min_episode_steps=min_episode_steps,
         short_episode_penalty=short_episode_penalty,
         num_cars=num_cars,
+        suspension_config=suspension_config,
     )
     return env
 
