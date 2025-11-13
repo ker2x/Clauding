@@ -442,9 +442,18 @@ class Car:
                 # Brake torque (negative)
                 brake_torque = -self.BRAKE_ANG_DECEL * self.INERTIA * self._brake
 
-                # Net torque includes tire force feedback
-                # During braking, tire force opposes wheel (helps slow it down)
-                net_torque = brake_torque - tire_force_torque
+                # FIX: Prevent tire force feedback from overpowering brake input
+                # At low speeds with locked wheels, tire force feedback can create
+                # positive net torque, causing wheel to accelerate while braking!
+                # Solution: Only apply feedback if it assists braking (doesn't oppose it)
+                if tire_force_torque > 0:
+                    # Feedback is positive (would accelerate wheel) - skip it during braking
+                    net_torque = brake_torque
+                else:
+                    # Feedback is negative (helps braking) - apply it
+                    # Cap feedback to prevent overpowering brake torque
+                    effective_feedback = max(tire_force_torque, brake_torque)
+                    net_torque = brake_torque - effective_feedback
 
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
@@ -462,9 +471,16 @@ class Car:
                 else:
                     engine_torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
 
-                # Net torque includes tire force feedback
-                # During acceleration, tire force opposes wheel spin
-                net_torque = engine_torque - tire_force_torque
+                # Apply tire force feedback to prevent unrealistic wheel spin
+                # Feedback should resist acceleration, not assist it
+                if tire_force_torque < 0:
+                    # Feedback is negative (resists wheel spin) - apply it
+                    # Cap feedback to prevent complete lockup of driven wheels
+                    effective_feedback = min(abs(tire_force_torque), abs(engine_torque) * 0.9)
+                    net_torque = engine_torque - (-effective_feedback)
+                else:
+                    # Feedback is positive (would assist) - skip it
+                    net_torque = engine_torque
 
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
