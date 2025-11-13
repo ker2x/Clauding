@@ -237,6 +237,13 @@ class Car:
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
 
+    # Aerodynamics (ND MX-5 RF)
+    RHO_AIR = 1.225  # Air density (kg/m^3)
+    FRONTAL_AREA = 1.8  # Frontal area (m^2)
+    CD_CAR = 0.33  # Drag coefficient
+    C_ROLL_RESISTANCE = 0.015  # Coefficient of rolling resistance (tires on asphalt)
+
+
     # Steering
     MAX_STEER_ANGLE = 0.4  # Max steering angle (rad) (~23 degrees)
     STEER_RATE = 3.0  # Steering response rate (rad/s)
@@ -337,6 +344,10 @@ class Car:
 
         # Store last computed tire forces for GUI/debugging (avoids recomputation)
         self.last_tire_forces = None
+
+        # Store last computed accelerations for suspension
+        self.ax = 0.0  # Longitudinal acceleration (body frame)
+        self.ay = 0.0  # Lateral acceleration (body frame)
 
         self.fuel_spent = 0.0
         self.drawlist = self.wheels + [self.hull]
@@ -555,19 +566,13 @@ class Car:
         # This prevents positive feedback loops by using driver inputs
         # rather than actual tire forces to estimate acceleration
 
-        # Lateral acceleration from steering demand (no lag from yaw dynamics)
-        # Uses bicycle model: a_y = v² * tan(δ) / L
-        # This makes suspension respond to DRIVER INPUT, not delayed yaw rate
-        # Prevents suspension "sticking" compressed when steering straightens
-        # but yaw rate hasn't decayed yet
-        lateral_accel = (self.vx ** 2) * np.tan(self.steering_angle) / wheelbase
+        lateral_accel = self.ay  # Use actual lateral accel from previous step
 
         # Longitudinal acceleration from driver inputs (feedforward)
         # Estimate based on gas/brake commands to avoid feedback loop
         # Max acceleration ~0.3g, max braking ~1.2g (strong but not locking)
-        MAX_ACCEL = 3.0   # m/s² (~0.3g)
-        MAX_BRAKE = 12.0  # m/s² (~1.2g) - updated to match new brake force
-        longitudinal_accel = self._gas * MAX_ACCEL - self._brake * MAX_BRAKE
+        longitudinal_accel = self.ax  # Use actual longitudinal accel from previous step
+
 
         # Load transfer bias scaling (tuned for realistic suspension dynamics)
         # Available travel from equilibrium: ~22mm (80mm max - 58mm equilibrium)
@@ -784,12 +789,18 @@ class Car:
             # τ = r × F = (x, y) × (fx, fy) = x*fy - y*fx
             torque += dist_cg * fy - y_pos * fx
 
-        # Add drag and rolling resistance
-        C_drag = 0.003
-        fx_drag = -C_drag * self.vx * abs(self.vx)
-        C_roll = 0.05
-        fx_roll = -C_roll * self.vx
+        # === REAL PHYSICS FIX ===
+        # Add physically-based drag and rolling resistance
+        # 1. Aerodynamic Drag (opposes forward velocity)
+        fx_drag = -0.5 * self.RHO_AIR * self.FRONTAL_AREA * self.CD_CAR * self.vx * abs(self.vx)
+
+        # 2. Rolling Resistance (constant force opposing motion)
+        # Use total static normal force
+        total_normal_force = self.MASS * 9.81
+        fx_roll = -self.C_ROLL_RESISTANCE * total_normal_force * np.sign(self.vx)
+
         fx_total += fx_drag + fx_roll
+        # === END FIX ===
 
         # Compute accelerations
         ax = fx_total / self.MASS
@@ -815,17 +826,16 @@ class Car:
         # The Centripetal Term: self.vx * self.yaw_rate
         self.vx += (ax + self.vy * self.yaw_rate) * dt  # Forward
         self.vy += (ay - self.vx * self.yaw_rate) * dt  # Lateral
-                                                        # If the operator was a "+" This meant turning left would magically
-                                                        # pull the car into the turn (a positive ay),
-                                                        # which is the opposite of reality.
-                                                        # It's like having anti-centrifugal force.
+        # If the operator was a "+" This meant turning left would magically
+        # pull the car into the turn (a positive ay),
+        # which is the opposite of reality.
+        # It's like having anti-centrifugal force.
 
-        # Limit velocity (drag effect)
-        v_mag = np.sqrt(self.vx**2 + self.vy**2)
-        if v_mag > 30.0:
-            scale = 30.0 / v_mag
-            self.vx *= scale
-            self.vy *= scale
+        # === REAL PHYSICS FIX ===
+        # Removed the artificial velocity clamp that was here
+        # (if v_mag > 30.0: ...)
+        # Top speed is now an emergent property of P_engine vs F_drag
+        # === END FIX ===
 
         # Update rotation
         self.yaw_rate += ang_accel * dt
@@ -837,6 +847,10 @@ class Car:
 
         self.x += (self.vx * cos_yaw - self.vy * sin_yaw) * dt
         self.y += (self.vx * sin_yaw + self.vy * cos_yaw) * dt
+
+        # Store accelerations for next step's suspension calculation
+        self.ax = ax
+        self.ay = ay
 
         return {
             'fx_total': fx_total, 'fy_total': fy_total, 'torque': torque,
