@@ -122,6 +122,12 @@ class SuspensionConfig:
             # CG height for load transfer
             'cg_height': 0.45,                        # m
 
+            # Body dynamics parameters (for physical load transfer)
+            'track_width': 1.50,                      # m (MX-5 front track)
+            'wheelbase': 2.310,                       # m (MX-5 wheelbase)
+            'roll_center_height_front': 0.05,         # m (typical for double wishbone)
+            'roll_center_height_rear': 0.05,          # m (typical for multi-link)
+
             # Metadata
             'preset': preset,
             'description': params['description']
@@ -278,14 +284,28 @@ class SuspensionConfig:
         config['longitudinal_factor'] = cg_height / wheelbase
 
         if config['mode'] in [SuspensionMode.QUARTER_CAR, SuspensionMode.FULL]:
-            # Compute damping ratio
+            # Compute damping ratio (NOTE: This uses unsprung mass - reported values will be incorrect)
             k = config['spring_rate']
             c = config['damping']
             m = config.get('unsprung_mass', 17.0)
             config['damping_ratio'] = c / (2 * np.sqrt(k * m))
 
-            # Compute natural frequency
+            # Compute natural frequency (NOTE: This uses unsprung mass - reported values will be incorrect)
             config['natural_frequency'] = np.sqrt(k / m) / (2 * np.pi)  # Hz
+
+            # Compute body moment of inertia for roll/pitch dynamics
+            # These are rough approximations for an MX-5-sized car
+            mass = 1062.0  # kg (MX-5 curb weight)
+            track_width = config.get('track_width', 1.50)
+            wheelbase = config.get('wheelbase', 2.310)
+            cg_height = config.get('cg_height', 0.45)
+
+            # Roll inertia: I_xx ≈ m * ((track/2)^2 + (height/2)^2)
+            # Simplified approximation for a rectangular body
+            config['roll_inertia'] = mass * ((track_width/2)**2 + (cg_height/2)**2)
+
+            # Pitch inertia: I_yy ≈ m * ((wheelbase/2)^2 + (height/2)^2)
+            config['pitch_inertia'] = mass * ((wheelbase/2)**2 + (cg_height/2)**2)
 
         return config
 

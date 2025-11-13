@@ -377,13 +377,12 @@ class Car:
             spring_rate = self.suspension_config['spring_rate']
             self.suspension_travel[:] = static_load / spring_rate  # Static compression
 
-        if mode == SuspensionMode.FULL:
-            # Additional state for body roll/pitch (optional, for visualization)
-            if self.suspension_config.get('track_body_roll', False):
-                self.body_roll = 0.0
-                self.body_roll_rate = 0.0
-                self.body_pitch = 0.0
-                self.body_pitch_rate = 0.0
+            # Body dynamics state (roll and pitch)
+            # These create load transfer through geometric coupling with suspension
+            self.body_roll = 0.0           # Roll angle [rad] (positive = right side compresses)
+            self.body_roll_rate = 0.0      # Roll angular velocity [rad/s]
+            self.body_pitch = 0.0          # Pitch angle [rad] (positive = nose up)
+            self.body_pitch_rate = 0.0     # Pitch angular velocity [rad/s]
 
     def step(self, dt):
         """
@@ -400,6 +399,9 @@ class Car:
 
         # Update suspension dynamics (if applicable)
         if self.suspension_mode in [SuspensionMode.QUARTER_CAR, SuspensionMode.FULL]:
+            # Update body roll/pitch dynamics (uses tire forces from previous step)
+            self._update_body_dynamics(dt)
+            # Update suspension (now coupled to body motion)
             self._update_suspension(dt)
 
         # Compute tire forces
@@ -534,6 +536,139 @@ class Car:
 
         return friction
 
+    def _update_body_dynamics(self, dt):
+        """
+        Update body roll and pitch dynamics.
+
+        Body motion is driven by tire forces acting at a moment arm (CG height - roll/pitch center).
+        Body motion is resisted by suspension forces (spring/damper/ARB) acting through geometry.
+
+        This creates natural load transfer: body tries to roll, suspension resists,
+        resulting in compression differences between left/right (roll) or front/rear (pitch).
+        """
+        if self.last_tire_forces is None:
+            return  # No forces yet (first step)
+
+        # Extract configuration parameters
+        track_width = self.suspension_config.get('track_width', 1.50)
+        wheelbase = self.suspension_config.get('wheelbase', 2.310)
+        cg_height = self.suspension_config.get('cg_height', 0.45)
+        roll_center_front = self.suspension_config.get('roll_center_height_front', 0.05)
+        roll_center_rear = self.suspension_config.get('roll_center_height_rear', 0.05)
+        roll_inertia = self.suspension_config['roll_inertia']
+        pitch_inertia = self.suspension_config['pitch_inertia']
+
+        # Average roll center height (simplified - could weight by load distribution)
+        roll_center_height = (roll_center_front + roll_center_rear) / 2.0
+
+        # === ROLL DYNAMICS ===
+        # Lateral forces create roll moment about roll center
+        # M_roll = Σ(F_lat) * (CG_height - roll_center_height)
+
+        total_lateral_force = 0.0
+        for i in range(4):
+            total_lateral_force += self.last_tire_forces[i]['fy']
+
+        # Roll moment arm (distance from roll center to CG)
+        roll_moment_arm = cg_height - roll_center_height
+        M_roll_external = total_lateral_force * roll_moment_arm
+
+        # Suspension resisting moments from springs/dampers/ARBs
+        # These come from compression differences caused by roll angle
+        # For small angles: Δz_left = -(track_width/2) * φ, Δz_right = +(track_width/2) * φ
+        # Spring forces: F = -k * z, creating moment: M = F * (track_width/2)
+
+        spring_rate = self.suspension_config['spring_rate']
+        damping = self.suspension_config['damping']
+
+        # Spring resisting moment (from all 4 wheels)
+        # Roll compresses right, extends left (for positive roll angle)
+        # Moment = Σ(F_spring * arm)
+        M_roll_springs = 0.0
+        M_roll_dampers = 0.0
+
+        # Front axle contribution
+        z_left_front = self.suspension_travel[0]
+        z_right_front = self.suspension_travel[1]
+        F_spring_left_front = -spring_rate * z_left_front
+        F_spring_right_front = -spring_rate * z_right_front
+        M_roll_springs += (F_spring_right_front - F_spring_left_front) * (track_width / 2)
+
+        v_left_front = self.suspension_velocity[0]
+        v_right_front = self.suspension_velocity[1]
+        F_damper_left_front = -damping * v_left_front
+        F_damper_right_front = -damping * v_right_front
+        M_roll_dampers += (F_damper_right_front - F_damper_left_front) * (track_width / 2)
+
+        # Rear axle contribution
+        z_left_rear = self.suspension_travel[2]
+        z_right_rear = self.suspension_travel[3]
+        F_spring_left_rear = -spring_rate * z_left_rear
+        F_spring_right_rear = -spring_rate * z_right_rear
+        M_roll_springs += (F_spring_right_rear - F_spring_left_rear) * (track_width / 2)
+
+        v_left_rear = self.suspension_velocity[2]
+        v_right_rear = self.suspension_velocity[3]
+        F_damper_left_rear = -damping * v_left_rear
+        F_damper_right_rear = -damping * v_right_rear
+        M_roll_dampers += (F_damper_right_rear - F_damper_left_rear) * (track_width / 2)
+
+        # Anti-roll bar contribution (if full mode)
+        M_roll_arb = 0.0
+        if self.suspension_mode == SuspensionMode.FULL:
+            arb_front = self.suspension_config['arb_front']
+            arb_rear = self.suspension_config['arb_rear']
+
+            # ARB moment is proportional to roll angle
+            # M_arb = -K_arb * φ
+            M_roll_arb = -(arb_front + arb_rear) * self.body_roll
+
+        # Net roll moment and angular acceleration
+        M_roll_net = M_roll_external - M_roll_springs - M_roll_dampers - M_roll_arb
+        roll_accel = M_roll_net / roll_inertia
+
+        # Integrate roll dynamics (Forward Euler)
+        self.body_roll_rate += roll_accel * dt
+        self.body_roll += self.body_roll_rate * dt
+
+        # === PITCH DYNAMICS ===
+        # Longitudinal forces create pitch moment
+        # M_pitch = Σ(F_long) * (CG_height - ground)
+        # (Pitch center is approximately at ground level for this simplified model)
+
+        total_longitudinal_force = 0.0
+        for i in range(4):
+            total_longitudinal_force += self.last_tire_forces[i]['fx']
+
+        pitch_moment_arm = cg_height
+        M_pitch_external = total_longitudinal_force * pitch_moment_arm
+
+        # Spring/damper resisting moments (similar to roll, but front/rear)
+        M_pitch_springs = 0.0
+        M_pitch_dampers = 0.0
+
+        # Front wheels
+        F_spring_front = F_spring_left_front + F_spring_right_front
+        M_pitch_springs += F_spring_front * (wheelbase / 2)
+
+        F_damper_front = F_damper_left_front + F_damper_right_front
+        M_pitch_dampers += F_damper_front * (wheelbase / 2)
+
+        # Rear wheels
+        F_spring_rear = F_spring_left_rear + F_spring_right_rear
+        M_pitch_springs -= F_spring_rear * (wheelbase / 2)
+
+        F_damper_rear = F_damper_left_rear + F_damper_right_rear
+        M_pitch_dampers -= F_damper_rear * (wheelbase / 2)
+
+        # Net pitch moment and angular acceleration
+        M_pitch_net = M_pitch_external - M_pitch_springs - M_pitch_dampers
+        pitch_accel = M_pitch_net / pitch_inertia
+
+        # Integrate pitch dynamics (Forward Euler)
+        self.body_pitch_rate += pitch_accel * dt
+        self.body_pitch += self.body_pitch_rate * dt
+
     def _update_suspension(self, dt):
         """
         Update suspension dynamics for quarter-car or full suspension modes.
@@ -592,7 +727,43 @@ class Car:
             self.suspension_velocity[i] += accel * dt
             self.suspension_travel[i] += self.suspension_velocity[i] * dt
 
-            # Limit travel (backup constraint, should not trigger with bump stops)
+        # Add geometric coupling from body roll and pitch
+        # Body roll/pitch change wheel heights relative to ground
+        track_width = self.suspension_config.get('track_width', 1.50)
+        wheelbase = self.suspension_config.get('wheelbase', 2.310)
+
+        # Roll contribution (positive roll = right side compresses, left extends)
+        # For small angles: Δz ≈ ±(track_width/2) * φ
+        z_roll_left = -(track_width / 2) * self.body_roll   # Left extends when roll positive
+        z_roll_right = +(track_width / 2) * self.body_roll  # Right compresses when roll positive
+
+        # Pitch contribution (positive pitch = nose up = front compresses, rear extends)
+        # For small angles: Δz ≈ ±(wheelbase/2) * θ
+        z_pitch_front = +(wheelbase / 2) * self.body_pitch  # Front compresses when pitch positive
+        z_pitch_rear = -(wheelbase / 2) * self.body_pitch   # Rear extends when pitch positive
+
+        # Apply geometric displacements to each wheel
+        self.suspension_travel[0] += z_roll_left + z_pitch_front   # FL
+        self.suspension_travel[1] += z_roll_right + z_pitch_front  # FR
+        self.suspension_travel[2] += z_roll_left + z_pitch_rear    # RL
+        self.suspension_travel[3] += z_roll_right + z_pitch_rear   # RR
+
+        # Apply velocity from body motion (for damper forces next step)
+        # v_geom = (track_width/2) * φ̇ or (wheelbase/2) * θ̇
+        v_roll_left = -(track_width / 2) * self.body_roll_rate
+        v_roll_right = +(track_width / 2) * self.body_roll_rate
+        v_pitch_front = +(wheelbase / 2) * self.body_pitch_rate
+        v_pitch_rear = -(wheelbase / 2) * self.body_pitch_rate
+
+        self.suspension_velocity[0] += v_roll_left + v_pitch_front   # FL
+        self.suspension_velocity[1] += v_roll_right + v_pitch_front  # FR
+        self.suspension_velocity[2] += v_roll_left + v_pitch_rear    # RL
+        self.suspension_velocity[3] += v_roll_right + v_pitch_rear   # RR
+
+        # Limit travel (backup constraint, should not trigger with bump stops)
+        max_comp = self.suspension_config['max_compression']
+        max_ext = self.suspension_config['max_extension']
+        for i in range(4):
             self.suspension_travel[i] = np.clip(
                 self.suspension_travel[i],
                 -max_ext,
