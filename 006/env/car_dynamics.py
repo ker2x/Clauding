@@ -225,14 +225,14 @@ class Car:
     STARTUP_ACCEL = 1250.0  # Angular acceleration (rad/s^2) for startup
 
     # Brake torque: Direct torque applied by brake calipers to wheel
-    # MX5 braking performance: ~1.0-1.05g (37m from 100-0 km/h)
-    # At 1.0g with 1100kg car and 65/35 brake bias:
-    #   Front: 3500 N per wheel * 0.31m = 1087 N·m
-    #   Rear: 1900 N per wheel * 0.31m = 586 N·m
-    # Peak tire torque (before slip): ~3300 N * 0.31m = 1023 N·m
-    # Brake torque must exceed tire torque to lock wheels
-    # Using same torque for all wheels (no front/rear split in code)
-    MAX_BRAKE_TORQUE = 1300.0  # Maximum brake torque per wheel (N·m) - MX5 spec
+    # MX5 braking performance: ~0.93g with proper 60/40 brake bias
+    # Real-world MX-5 brake torque values:
+    #   Front: 930 N·m per wheel (60% of braking force)
+    #   Rear: 620 N·m per wheel (40% of braking force)
+    #   Total: 3100 N·m (all 4 wheels)
+    # This gives realistic weight transfer and prevents rear lockup
+    MAX_BRAKE_TORQUE_FRONT = 930.0  # Maximum brake torque per front wheel (N·m)
+    MAX_BRAKE_TORQUE_REAR = 620.0   # Maximum brake torque per rear wheel (N·m)
 
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
@@ -443,8 +443,11 @@ class Car:
 
             # 1. Apply Brakes
             if self._brake > 0:
-                # Apply brake torque directly (negative to slow wheel)
-                brake_torque = -self.MAX_BRAKE_TORQUE * self._brake
+                # Apply brake torque with proper front/rear bias (60/40)
+                if i < 2:  # Front wheels (higher braking force)
+                    brake_torque = -self.MAX_BRAKE_TORQUE_FRONT * self._brake
+                else:  # Rear wheels (lower braking force to prevent lockup)
+                    brake_torque = -self.MAX_BRAKE_TORQUE_REAR * self._brake
 
                 # Physics naturally balances brake torque vs tire resistance
                 # No special cases needed - the forces work themselves out!
