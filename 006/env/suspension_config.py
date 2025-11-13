@@ -79,18 +79,18 @@ class SuspensionConfig:
         """
         presets = {
             'stock': {
-                'spring_rate': 18000.0,      # N/m per wheel (soft, comfortable)
-                'damping': 1800.0,            # N·s/m per wheel
+                'spring_rate': 40000.0,      # N/m per wheel (realistic stock)
+                'damping': 2500.0,            # N·s/m per wheel
                 'description': 'Stock MX-5 suspension (comfortable street)'
             },
             'sport': {
-                'spring_rate': 22000.0,      # N/m per wheel (firmer)
-                'damping': 2200.0,            # N·s/m per wheel
+                'spring_rate': 50000.0,      # N/m per wheel (firmer)
+                'damping': 3000.0,            # N·s/m per wheel
                 'description': 'Sport suspension (balanced street/track)'
             },
             'track': {
-                'spring_rate': 28000.0,      # N/m per wheel (stiff)
-                'damping': 2500.0,            # N·s/m per wheel
+                'spring_rate': 65000.0,      # N/m per wheel (stiff)
+                'damping': 3500.0,            # N·s/m per wheel
                 'description': 'Track suspension (maximum performance)'
             }
         }
@@ -143,29 +143,29 @@ class SuspensionConfig:
         """
         presets = {
             'stock': {
-                'spring_rate': 18000.0,
-                'damping': 1800.0,
+                'spring_rate': 40000.0,
+                'damping': 2500.0,
                 'arb_front': 25000.0,        # N·m/rad (moderate)
                 'arb_rear': 20000.0,         # N·m/rad (softer rear for RWD)
                 'description': 'Stock MX-5 (balanced, slight understeer bias)'
             },
             'sport': {
-                'spring_rate': 22000.0,
-                'damping': 2200.0,
+                'spring_rate': 50000.0,
+                'damping': 3000.0,
                 'arb_front': 32000.0,        # N·m/rad (stiffer)
                 'arb_rear': 28000.0,         # N·m/rad
                 'description': 'Sport setup (neutral handling)'
             },
             'track': {
-                'spring_rate': 28000.0,
-                'damping': 2500.0,
+                'spring_rate': 65000.0,
+                'damping': 3500.0,
                 'arb_front': 40000.0,        # N·m/rad (very stiff)
                 'arb_rear': 35000.0,         # N·m/rad
                 'description': 'Track setup (maximum grip, slight understeer)'
             },
             'drift': {
-                'spring_rate': 25000.0,
-                'damping': 2300.0,
+                'spring_rate': 55000.0,
+                'damping': 3200.0,
                 'arb_front': 28000.0,        # N·m/rad (stiffer front)
                 'arb_rear': 35000.0,         # N·m/rad (stiffer rear = oversteer)
                 'description': 'Drift setup (oversteer bias, rear-limited)'

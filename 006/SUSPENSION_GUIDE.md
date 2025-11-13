@@ -160,9 +160,11 @@ SuspensionPresets.FULL_DRIFT  # Drift (oversteer bias)
 - Better on smooth tracks
 
 **Recommended ranges for MX-5:**
-- Street comfort: 15000-18000 N/m
-- Street sport: 20000-23000 N/m
-- Track: 25000-30000 N/m
+- Street comfort: 35000-42000 N/m (stock: 40000 N/m)
+- Street sport: 45000-55000 N/m (sport: 50000 N/m)
+- Track: 60000-70000 N/m (track: 65000 N/m)
+
+**Note:** These values provide realistic static sag (40-65mm) while maintaining adequate bump/droop travel.
 
 ### Damping Coefficient
 
@@ -191,10 +193,16 @@ SuspensionPresets.FULL_DRIFT  # Drift (oversteer bias)
 
 **Calculate damping for target ζ:**
 ```python
-m = 1062.0 / 4  # Sprung mass per wheel (kg)
-k = 22000.0     # Spring rate (N/m)
+from math import sqrt
+m = 1062.0 / 4  # Sprung mass per wheel (kg) = 265.5 kg
+k = 50000.0     # Spring rate (N/m)
 zeta = 0.7      # Target damping ratio
-c = zeta * 2 * sqrt(k * m)  # = 2216 N·s/m
+c = zeta * 2 * sqrt(k * m)  # = 5089 N·s/m
+
+# For optimal damping ratio of 0.6-0.7:
+# Stock (k=40000): c = 2200-2600 N·s/m
+# Sport (k=50000): c = 2500-2900 N·s/m
+# Track (k=65000): c = 2900-3300 N·s/m
 ```
 
 ### Anti-Roll Bars (ARB)
@@ -264,9 +272,10 @@ ratio = 0.70
 ```
 f_n = sqrt(k / m) / (2π)
 
-Example:
-k = 22000 N/m, m = 265.5 kg
-f_n = sqrt(22000 / 265.5) / (2π) = 1.45 Hz
+Examples:
+Stock:  k = 40000 N/m, m = 265.5 kg → f_n = 1.95 Hz
+Sport:  k = 50000 N/m, m = 265.5 kg → f_n = 2.18 Hz
+Track:  k = 65000 N/m, m = 265.5 kg → f_n = 2.49 Hz
 ```
 
 ---
