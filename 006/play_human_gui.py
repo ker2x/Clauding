@@ -5,7 +5,6 @@ This script provides an interactive GUI showing real-time vehicle dynamics
 while playing the game. It includes:
 - Real-time wheel slip display (slip angle and slip ratio for all 4 wheels)
 - Normal force (tire load) visualization per wheel
-- Suspension travel display per wheel
 - Optional CSV telemetry logging for analysis
 - Standard keyboard controls for gameplay
 
@@ -29,7 +28,7 @@ Controls:
 CSV Format:
     The telemetry log includes: timestamp, episode, step, speed, steering,
     acceleration, rewards, car state (x, y, angle, velocities), and per-wheel
-    data (slip angle, slip ratio, normal force, suspension travel).
+    data (slip angle, slip ratio, normal force).
 """
 
 import argparse
@@ -69,10 +68,10 @@ class TelemetryLogger:
             'steering', 'acceleration', 'reward', 'total_reward',
             'car_x', 'car_y', 'car_angle', 'car_vx', 'car_vy', 'car_yaw_rate',
             # Wheel data: FL, FR, RL, RR
-            'fl_slip_angle', 'fl_slip_ratio', 'fl_normal_force', 'fl_suspension',
-            'fr_slip_angle', 'fr_slip_ratio', 'fr_normal_force', 'fr_suspension',
-            'rl_slip_angle', 'rl_slip_ratio', 'rl_normal_force', 'rl_suspension',
-            'rr_slip_angle', 'rr_slip_ratio', 'rr_normal_force', 'rr_suspension',
+            'fl_slip_angle', 'fl_slip_ratio', 'fl_normal_force',
+            'fr_slip_angle', 'fr_slip_ratio', 'fr_normal_force',
+            'rl_slip_angle', 'rl_slip_ratio', 'rl_normal_force',
+            'rr_slip_angle', 'rr_slip_ratio', 'rr_normal_force',
         ]
 
         self._open_file()
@@ -136,7 +135,6 @@ class TelemetryLogger:
             row[f'{name}_slip_angle'] = f"{wheel_data[i]['slip_angle']:.6f}"
             row[f'{name}_slip_ratio'] = f"{wheel_data[i]['slip_ratio']:.6f}"
             row[f'{name}_normal_force'] = f"{wheel_data[i]['normal_force']:.2f}"
-            row[f'{name}_suspension'] = f"{wheel_data[i]['suspension_travel']:.6f}"
 
         # Write to file
         self.writer.writerow(row)
@@ -152,7 +150,7 @@ class TelemetryLogger:
 class TelemetryGUI:
     """GUI for displaying real-time vehicle telemetry."""
 
-    def __init__(self, width=420, height=300):
+    def __init__(self, width=420, height=240):
         self.width = width
         self.height = height
         self.font = pygame.font.Font(None, 18)
@@ -160,10 +158,10 @@ class TelemetryGUI:
 
         # Wheel telemetry data (updated each frame)
         self.wheel_data = {
-            0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # FL
-            1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # FR
-            2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # RL
-            3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},  # RR
+            0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FL
+            1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # FR
+            2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RL
+            3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RR
         }
 
     def update_data(self, wheel_data):
@@ -190,7 +188,7 @@ class TelemetryGUI:
         wheel_colors = [(100, 150, 255), (100, 255, 150), (255, 150, 100), (255, 100, 150)]
 
         y_start = 28
-        row_height = 68  # Height per wheel row
+        row_height = 50  # Height per wheel row (2 lines: slip angle/ratio + normal force)
 
         for i, (name, color) in enumerate(zip(wheel_names, wheel_colors)):
             y = y_start + i * row_height
@@ -203,7 +201,6 @@ class TelemetryGUI:
             slip_angle = self.wheel_data[i]['slip_angle'] * 180 / np.pi  # Convert to degrees
             slip_ratio = self.wheel_data[i]['slip_ratio']
             normal_force = self.wheel_data[i]['normal_force']
-            suspension = self.wheel_data[i]['suspension_travel'] * 1000  # Convert to mm
 
             # === LINE 1: Slip Angle ===
             angle_text = self.font_small.render(f"SA:{slip_angle:+.1f}°", True, (200, 200, 200))
@@ -288,45 +285,6 @@ class TelemetryGUI:
 
             pygame.draw.rect(surface, (80, 80, 85), (load_bar_x, y_load, load_bar_width, load_bar_height), 1)
 
-            # === LINE 3: Suspension Travel ===
-            y_susp = y + 30
-            susp_text = self.font_small.render(f"Susp: {suspension:+.1f}mm", True, (200, 255, 200))
-            surface.blit(susp_text, (40, y_susp))
-
-            # Suspension travel bar (range: -120mm to +80mm)
-            susp_bar_x = 115
-            susp_bar_width = 265
-            susp_bar_height = 8
-
-            max_extension = -120.0  # mm (negative = droop)
-            max_compression = 80.0  # mm (positive = bump)
-            equilibrium = 58.0  # mm (static compression)
-
-            pygame.draw.rect(surface, (40, 40, 45), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height))
-
-            # Calculate bar position (0 = max extension, 1 = max compression)
-            susp_range = max_compression - max_extension
-            susp_norm = (suspension - max_extension) / susp_range
-            susp_fill_x = int(susp_norm * susp_bar_width)
-
-            # Color: green near equilibrium, yellow/red at extremes
-            deviation = abs(suspension - equilibrium)
-            if deviation < 10:
-                susp_color = (100, 255, 100)  # Green (normal)
-            elif deviation < 30:
-                susp_color = (255, 255, 100)  # Yellow (moderate)
-            else:
-                susp_color = (255, 100, 100)  # Red (extreme)
-
-            pygame.draw.rect(surface, susp_color, (susp_bar_x, y_susp, susp_fill_x, susp_bar_height))
-
-            # Equilibrium marker
-            eq_norm = (equilibrium - max_extension) / susp_range
-            eq_x = susp_bar_x + int(eq_norm * susp_bar_width)
-            pygame.draw.line(surface, (200, 200, 200), (eq_x, y_susp), (eq_x, y_susp + susp_bar_height), 2)
-
-            pygame.draw.rect(surface, (80, 80, 85), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height), 1)
-
 
 def format_action(action):
     """Format continuous action for display."""
@@ -410,10 +368,10 @@ def get_car_speed(env):
 def get_wheel_data(env):
     """Extract wheel telemetry data from the environment."""
     wheel_data = {
-        0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
-        1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
-        2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
-        3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0, 'suspension_travel': 0.0},
+        0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        1: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        2: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
+        3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
     }
 
     if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
@@ -428,11 +386,6 @@ def get_wheel_data(env):
                         wheel_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
                         wheel_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
                         wheel_data[i]['normal_force'] = forces[i].get('normal_force', 0.0)
-
-            # Get suspension travel
-            if hasattr(car, 'suspension_travel'):
-                for i in range(4):
-                    wheel_data[i]['suspension_travel'] = car.last_tire_forces[i]['normal_force'] #car.suspension_travel[i]
 
     return wheel_data
 
@@ -466,7 +419,7 @@ def play_human_gui(args):
     font = pygame.font.Font(None, 24)
 
     # Create GUI
-    gui = TelemetryGUI(width=420, height=300)
+    gui = TelemetryGUI(width=420, height=240)
 
     # Create telemetry logger if requested
     logger = None
@@ -510,7 +463,6 @@ def play_human_gui(args):
     print("\nTELEMETRY DISPLAY:")
     print("  - Slip angle (SA) and slip ratio (SR) per wheel")
     print("  - Normal force (tire load) per wheel")
-    print("  - Suspension travel per wheel")
     print("=" * 80)
 
     episode_rewards = []
