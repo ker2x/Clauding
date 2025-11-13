@@ -555,8 +555,12 @@ class Car:
         # This prevents positive feedback loops by using driver inputs
         # rather than actual tire forces to estimate acceleration
 
-        # Lateral acceleration (geometric - no feedback)
-        lateral_accel = self.vx * self.yaw_rate
+        # Lateral acceleration from steering demand (no lag from yaw dynamics)
+        # Uses bicycle model: a_y = v² * tan(δ) / L
+        # This makes suspension respond to DRIVER INPUT, not delayed yaw rate
+        # Prevents suspension "sticking" compressed when steering straightens
+        # but yaw rate hasn't decayed yet
+        lateral_accel = (self.vx ** 2) * np.tan(self.steering_angle) / wheelbase
 
         # Longitudinal acceleration from driver inputs (feedforward)
         # Estimate based on gas/brake commands to avoid feedback loop
@@ -565,17 +569,17 @@ class Car:
         MAX_BRAKE = 12.0  # m/s² (~1.2g) - updated to match new brake force
         longitudinal_accel = self._gas * MAX_ACCEL - self._brake * MAX_BRAKE
 
-        # Load transfer bias (very conservative scaling)
-        # Units: m/s² → mm compression
-        # Scale: 1g lateral = ~10mm compression difference (gentle)
-        LATERAL_SCALE = 0.01  # m/(m/s²) ... 10mm per 1g
-        LONGITUDINAL_SCALE = 0.008  # m/(m/s²) ... 8mm per 1g
+        # Load transfer bias scaling (tuned for realistic suspension dynamics)
+        # Available travel from equilibrium: ~22mm (80mm max - 58mm equilibrium)
+        # Target: Allow near-bottoming at 1.0g lateral/longitudinal
+        # At 1.0g (9.81 m/s²): bias should be ~18-20mm (leaving small margin)
+        LATERAL_SCALE = 0.002  # m/(m/s²) ... ~20mm per 1g
+        LONGITUDINAL_SCALE = 0.0016  # m/(m/s²) ... ~16mm per 1g
 
-        # Compute geometric bias (limited to ±15mm for safety margin)
-        # Equilibrium is 57.9mm, max is 80mm → only 22mm headroom
-        # Using ±15mm caps leaves 7mm margin for transients/bump stops
-        roll_bias = np.clip(lateral_accel * LATERAL_SCALE, -0.015, 0.015)  # m
-        pitch_bias = np.clip(longitudinal_accel * LONGITUDINAL_SCALE, -0.015, 0.015)  # m
+        # Compute load transfer bias (NO artificial caps - let physics work!)
+        # The suspension travel limits and bump stops will naturally prevent damage
+        roll_bias = lateral_accel * LATERAL_SCALE  # m
+        pitch_bias = longitudinal_accel * LONGITUDINAL_SCALE  # m
 
         # Apply bias to each wheel's equilibrium target
         z_bias = np.zeros(4)
@@ -584,9 +588,8 @@ class Car:
         z_bias[2] = -roll_bias + pitch_bias  # RL: extend on right turn, compress on accel
         z_bias[3] = +roll_bias + pitch_bias  # RR: compress on right turn, compress on accel
 
-        # Cap COMBINED bias to prevent exceeding suspension travel limits
-        # With equilibrium at 57.9mm and max at 80mm, cap combined bias at ±15mm
-        z_bias = np.clip(z_bias, -0.015, 0.015)
+        # NO caps on bias! Let the suspension use its full travel range.
+        # The hard limits (line 623-628) and bump stops already prevent damage.
 
         # Update each wheel independently
         for i in range(4):
