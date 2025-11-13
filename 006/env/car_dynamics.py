@@ -577,10 +577,11 @@ class Car:
 
             # Weight force on suspension (sprung mass)
             sprung_mass = self.MASS / 4.0
-            F_weight = -sprung_mass * 9.81  # Downward (negative)
+            F_weight = sprung_mass * 9.81  # Downward = positive (compressing force)
 
             # Total force on suspension
-            # Weight pulls down, spring/damper push up
+            # Sign convention: positive = compressing, negative = extending
+            # Weight (positive) tries to compress, spring (negative when z>0) tries to extend
             F_total = F_weight + F_spring + F_damper + F_bump + arb_forces[i]
 
             # Suspension dynamics
