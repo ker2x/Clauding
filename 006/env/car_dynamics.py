@@ -224,11 +224,15 @@ class Car:
     # Alpha = Torque / Inertia = 1500 / 1.2 = ~1250 rad/s^2
     STARTUP_ACCEL = 1250.0  # Angular acceleration (rad/s^2) for startup
 
-    # Derived from max braking (1.5 G race car)
-    # Alpha = a / r = (1.5 * 9.81) / 0.3 = 49 rad/s^2
-    # This allows strong braking without easy wheel lockup
-    # Previous value (780) was 15× too high and caused constant wheel locking
-    BRAKE_ANG_DECEL = 50.0  # Max angular deceleration from brakes (rad/s^2)
+    # Brake torque: Direct torque applied by brake calipers to wheel
+    # MX5 braking performance: ~1.0-1.05g (37m from 100-0 km/h)
+    # At 1.0g with 1100kg car and 65/35 brake bias:
+    #   Front: 3500 N per wheel * 0.31m = 1087 N·m
+    #   Rear: 1900 N per wheel * 0.31m = 586 N·m
+    # Peak tire torque (before slip): ~3300 N * 0.31m = 1023 N·m
+    # Brake torque must exceed tire torque to lock wheels
+    # Using same torque for all wheels (no front/rear split in code)
+    MAX_BRAKE_TORQUE = 1300.0  # Maximum brake torque per wheel (N·m) - MX5 spec
 
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
@@ -439,22 +443,12 @@ class Car:
 
             # 1. Apply Brakes
             if self._brake > 0:
-                # Brake torque (negative)
-                brake_torque = -self.BRAKE_ANG_DECEL * self.INERTIA * self._brake
+                # Apply brake torque directly (negative to slow wheel)
+                brake_torque = -self.MAX_BRAKE_TORQUE * self._brake
 
-                # FIX: Prevent tire force feedback from overpowering brake input
-                # At low speeds with locked wheels, tire force feedback can create
-                # positive net torque, causing wheel to accelerate while braking!
-                # Solution: Only apply feedback if it assists braking (doesn't oppose it)
-                if tire_force_torque > 0:
-                    # Feedback is positive (would accelerate wheel) - skip it during braking
-                    net_torque = brake_torque
-                else:
-                    # Feedback is negative (helps braking) - apply it
-                    # Cap feedback to prevent overpowering brake torque
-                    effective_feedback = max(tire_force_torque, brake_torque)
-                    net_torque = brake_torque - effective_feedback
-
+                # Physics naturally balances brake torque vs tire resistance
+                # No special cases needed - the forces work themselves out!
+                net_torque = brake_torque + tire_force_torque
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
 
