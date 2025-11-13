@@ -224,11 +224,12 @@ class Car:
     # Alpha = Torque / Inertia = 1500 / 1.2 = ~1250 rad/s^2
     STARTUP_ACCEL = 1250.0  # Angular acceleration (rad/s^2) for startup
 
-    # Derived from max braking (1.5 G race car)
-    # Alpha = a / r = (1.5 * 9.81) / 0.3 = 49 rad/s^2
-    # This allows strong braking without easy wheel lockup
-    # Previous value (780) was 15× too high and caused constant wheel locking
-    BRAKE_ANG_DECEL = 50.0  # Max angular deceleration from brakes (rad/s^2)
+    # Brake torque must be strong enough to lock wheels for effective braking
+    # At 100 km/h (27.8 m/s), wheel speed = v/r = 27.8/0.31 = 89.7 rad/s
+    # To achieve slip ratio of -0.15 (good braking), wheel needs to decelerate faster than car
+    # Modern brakes can lock wheels in ~0.3s: alpha = 89.7 / 0.3 = 299 rad/s^2
+    # With improved feedback system (lines 445-456), higher values no longer cause oscillations
+    BRAKE_ANG_DECEL = 250.0  # Max angular deceleration from brakes (rad/s^2)
 
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
