@@ -16,6 +16,7 @@ load; the amount of force pressing down on the tire. Typically each wheel carrie
 """
 
 import numpy as np
+from env.suspension_config import SuspensionConfig, SuspensionMode
 
 class PacejkaTire:
     """
@@ -241,7 +242,7 @@ class Car:
     BASE_FRICTION = 1.0  # Asphalt (Pacejka D already handles peak friction)
     GRASS_FRICTION = 0.5  # Grass
 
-    def __init__(self, world, init_angle, init_x, init_y):
+    def __init__(self, world, init_angle, init_x, init_y, suspension_config=None):
         """
         Initialize car at position with given heading.
 
@@ -249,7 +250,17 @@ class Car:
             world: Box2D world (kept for compatibility, not used)
             init_angle: Initial heading angle (rad)
             init_x, init_y: Initial position
+            suspension_config: Suspension configuration dict (default: virtual mode)
         """
+        # Setup suspension configuration
+        if suspension_config is None:
+            # Default to virtual suspension (backward compatible)
+            suspension_config = SuspensionConfig.get_virtual()
+
+        # Validate and compute derived parameters
+        SuspensionConfig.validate_config(suspension_config)
+        self.suspension_config = SuspensionConfig.compute_derived_params(suspension_config)
+        self.suspension_mode = self.suspension_config['mode']
         # State variables
         self.x = init_x
         self.y = init_y
@@ -316,8 +327,8 @@ class Car:
         self.hull.angularVelocity = 0.0
         self.hull.color = (0.8, 0.0, 0.0)
 
-        # ADDED: State for virtual suspension (smoothed load transfer)
-        self.smoothed_lateral_accel = 0.0
+        # Initialize suspension state based on mode
+        self._init_suspension_state()
 
         # Store previous tire forces for wheel dynamics feedback
         # This prevents unrealistic wheel spin/lock by applying tire force torque
@@ -345,6 +356,35 @@ class Car:
         """
         self.steer_input = np.clip(steer_input, -1, 1)
 
+    def _init_suspension_state(self):
+        """
+        Initialize suspension state variables based on suspension mode.
+        """
+        mode = self.suspension_mode
+
+        if mode == SuspensionMode.VIRTUAL:
+            # Virtual suspension (original smoothed acceleration model)
+            self.smoothed_lateral_accel = 0.0
+            self.smoothed_longitudinal_accel = 0.0
+
+        elif mode in [SuspensionMode.QUARTER_CAR, SuspensionMode.FULL]:
+            # Physical suspension state (per-wheel)
+            self.suspension_travel = np.zeros(4)      # Compression [m] - [FL, FR, RL, RR]
+            self.suspension_velocity = np.zeros(4)    # Compression velocity [m/s]
+
+            # Initialize at equilibrium (springs support static weight)
+            static_load = (self.MASS * 9.81) / 4.0  # Weight per wheel
+            spring_rate = self.suspension_config['spring_rate']
+            self.suspension_travel[:] = static_load / spring_rate  # Static compression
+
+        if mode == SuspensionMode.FULL:
+            # Additional state for body roll/pitch (optional, for visualization)
+            if self.suspension_config.get('track_body_roll', False):
+                self.body_roll = 0.0
+                self.body_roll_rate = 0.0
+                self.body_pitch = 0.0
+                self.body_pitch_rate = 0.0
+
     def step(self, dt):
         """
         Integrate dynamics forward by dt seconds using RK4.
@@ -357,6 +397,10 @@ class Car:
 
         # Update wheel angular velocities (uses previous tire forces)
         self._update_wheel_dynamics(dt)
+
+        # Update suspension dynamics (if applicable)
+        if self.suspension_mode in [SuspensionMode.QUARTER_CAR, SuspensionMode.FULL]:
+            self._update_suspension(dt)
 
         # Compute tire forces
         tire_friction = self._get_surface_friction()
@@ -490,49 +534,220 @@ class Car:
 
         return friction
 
+    def _update_suspension(self, dt):
+        """
+        Update suspension dynamics for quarter-car or full suspension modes.
+
+        Implements spring-damper physics for each wheel using quarter-car model.
+        For full mode, includes anti-roll bar coupling between left/right wheels.
+        """
+        # Get anti-roll bar forces (if full mode)
+        arb_forces = np.zeros(4)
+        if self.suspension_mode == SuspensionMode.FULL:
+            arb_forces = self._compute_antiroll_forces()
+
+        # Update each wheel's suspension
+        for i in range(4):
+            # Current suspension state
+            z = self.suspension_travel[i]       # Compression (positive = compressed)
+            z_dot = self.suspension_velocity[i]  # Compression velocity
+
+            # Get current normal force from previous timestep
+            # (Use equilibrium for first timestep)
+            if self.last_tire_forces is not None:
+                current_normal_force = self.last_tire_forces[i]['normal_force']
+            else:
+                current_normal_force = (self.MASS * 9.81) / 4.0
+
+            # Spring force (Hooke's law)
+            # F = -k * (z - z_equilibrium)
+            # At equilibrium, spring force balances wheel load
+            spring_rate = self.suspension_config['spring_rate']
+            z_equilibrium = current_normal_force / spring_rate
+            F_spring = -spring_rate * (z - z_equilibrium)
+
+            # Damper force (proportional to velocity)
+            damping = self.suspension_config['damping']
+            F_damper = -damping * z_dot
+
+            # Bump stops (progressive spring at travel limits)
+            F_bump = 0.0
+            max_comp = self.suspension_config['max_compression']
+            max_ext = self.suspension_config['max_extension']
+            bump_stiffness = self.suspension_config['bump_stop_stiffness']
+
+            if z > max_comp:
+                # Compressed beyond limit
+                F_bump = -bump_stiffness * (z - max_comp)
+            elif z < -max_ext:
+                # Extended beyond limit
+                F_bump = -bump_stiffness * (z + max_ext)
+
+            # Total force on suspension
+            F_total = F_spring + F_damper + F_bump + arb_forces[i]
+
+            # Suspension dynamics
+            # Simplified: Assume force accelerates 1/4 of car mass
+            # (More accurate would model unsprung mass separately)
+            sprung_mass = self.MASS / 4.0
+            accel = F_total / sprung_mass
+
+            # Integrate (Forward Euler)
+            self.suspension_velocity[i] += accel * dt
+            self.suspension_travel[i] += self.suspension_velocity[i] * dt
+
+            # Limit travel (backup constraint, should not trigger with bump stops)
+            self.suspension_travel[i] = np.clip(
+                self.suspension_travel[i],
+                -max_ext,
+                max_comp
+            )
+
+    def _compute_antiroll_forces(self):
+        """
+        Compute forces from anti-roll bars (sway bars).
+
+        Anti-roll bars couple left/right suspension, resisting body roll.
+        When one wheel compresses more than the other, the bar applies
+        a torque that transfers load to the opposite wheel.
+
+        Returns:
+            np.ndarray: Additional normal forces [FL, FR, RL, RR] from ARB (N)
+        """
+        arb_forces = np.zeros(4)
+
+        # FRONT axle
+        # Roll angle from suspension travel difference
+        front_roll = (self.suspension_travel[1] - self.suspension_travel[0]) / self.WIDTH
+
+        # ARB torque resists roll
+        arb_front = self.suspension_config['arb_front']  # N·m/rad
+        front_torque = -arb_front * front_roll
+
+        # Convert torque to vertical forces on wheels
+        # T = F * (track_width/2) => F = T / (track_width/2)
+        front_force = front_torque / (self.WIDTH / 2)
+
+        arb_forces[0] -= front_force  # FL (left wheel)
+        arb_forces[1] += front_force  # FR (right wheel)
+
+        # REAR axle (same logic)
+        rear_roll = (self.suspension_travel[3] - self.suspension_travel[2]) / self.WIDTH
+        arb_rear = self.suspension_config['arb_rear']
+        rear_torque = -arb_rear * rear_roll
+        rear_force = rear_torque / (self.WIDTH / 2)
+
+        arb_forces[2] -= rear_force  # RL
+        arb_forces[3] += rear_force  # RR
+
+        return arb_forces
+
+    def _compute_load_transfer_virtual(self, weight_per_wheel):
+        """
+        Compute load transfer using virtual suspension (original smoothed acceleration method).
+
+        Args:
+            weight_per_wheel: Static load per wheel (N)
+
+        Returns:
+            tuple: (lateral_load_transfer, longitudinal_load_transfer) in Newtons
+        """
+        # LATERAL Load Transfer (cornering)
+        target_lateral_accel = self.vx * self.yaw_rate
+
+        # Smooth the lateral acceleration (prevents abrupt load changes)
+        lerp_factor = self.suspension_config['lerp_factor']
+        self.smoothed_lateral_accel += (target_lateral_accel - self.smoothed_lateral_accel) * lerp_factor
+
+        # Calculate lateral load transfer
+        lateral_factor = self.suspension_config['lateral_factor']
+        lateral_load_transfer = lateral_factor * self.MASS * self.smoothed_lateral_accel
+
+        # LONGITUDINAL Load Transfer (acceleration/braking)
+        total_fx = sum(self.prev_tire_forces)
+        longitudinal_accel = total_fx / self.MASS
+
+        # Smooth longitudinal acceleration (improved from original)
+        self.smoothed_longitudinal_accel += (longitudinal_accel - self.smoothed_longitudinal_accel) * lerp_factor
+
+        # Calculate longitudinal load transfer
+        longitudinal_factor = self.suspension_config['longitudinal_factor']
+        longitudinal_load_transfer = longitudinal_factor * self.MASS * 9.81 * self.smoothed_longitudinal_accel / 9.81
+
+        # Clamp to prevent excessive transfer
+        longitudinal_load_transfer = np.clip(
+            longitudinal_load_transfer,
+            -weight_per_wheel * 1.5,
+            weight_per_wheel * 1.5
+        )
+
+        return lateral_load_transfer, longitudinal_load_transfer
+
+    def _compute_load_transfer_physical(self):
+        """
+        Compute per-wheel normal forces using physical suspension model.
+
+        For quarter-car and full suspension modes, normal force comes from:
+        - Static weight (M*g/4)
+        - Spring force (k * z)
+        - Damper force (c * z_dot)
+        - Anti-roll bar forces (if full mode)
+
+        Returns:
+            np.ndarray: Normal force for each wheel [FL, FR, RL, RR] in Newtons
+        """
+        normal_forces = np.zeros(4)
+        weight_per_wheel = (self.MASS * 9.81) / 4.0
+
+        spring_rate = self.suspension_config['spring_rate']
+        damping = self.suspension_config['damping']
+
+        for i in range(4):
+            # Base weight
+            normal_forces[i] = weight_per_wheel
+
+            # Add suspension forces
+            z = self.suspension_travel[i]
+            z_dot = self.suspension_velocity[i]
+
+            # Spring force (positive compression = positive force)
+            F_spring = spring_rate * z
+
+            # Damper force
+            F_damper = damping * z_dot
+
+            # Total normal force
+            normal_forces[i] += F_spring + F_damper
+
+            # Clamp to prevent negative forces (wheel liftoff)
+            normal_forces[i] = max(50.0, normal_forces[i])
+
+        return normal_forces
+
     def _compute_tire_forces(self, friction):
         """
         Compute tire forces using Pacejka model with load transfer.
+
+        Load transfer calculation depends on suspension mode:
+        - Virtual: Smoothed acceleration method (original)
+        - Quarter-car/Full: Physical spring-damper forces
 
         Returns dict with forces for each wheel.
         """
         # Base load distribution (equal weight per wheel)
         weight_per_wheel = (self.MASS * 9.81) / 4.0  # Force in Newtons
 
-        # --- Load Transfer Calculation ---
-        # Simulate weight shift during acceleration, braking, and cornering
-
-        # LATERAL Load Transfer (cornering)
-        # When turning, centrifugal effect shifts weight to outside wheels
-        target_lateral_accel = self.vx * self.yaw_rate
-
-        # Smooth the lateral acceleration (prevents abrupt load changes)
-        lerp_factor = 0.15  # Suspension response rate
-        self.smoothed_lateral_accel += (target_lateral_accel - self.smoothed_lateral_accel) * lerp_factor
-
-        # Calculate lateral load transfer
-        # CG height / track width ratio affects transfer magnitude
-        # Lower factor = less transfer (stiffer anti-roll bars)
-        lateral_factor = 0.3  # Reduced from 0.5 to reduce oscillations
-        lateral_load_transfer = lateral_factor * self.MASS * self.smoothed_lateral_accel
-
-        # LONGITUDINAL Load Transfer (acceleration/braking)
-        # Calculate longitudinal acceleration from previous timestep tire forces
-        # Sum of all longitudinal tire forces divided by mass
-        total_fx = sum(self.prev_tire_forces)
-        longitudinal_accel = total_fx / self.MASS
-
-        # Calculate longitudinal load transfer
-        # CG height / wheelbase ratio affects transfer magnitude
-        # Positive accel = weight shifts back (more load on rear)
-        # Negative accel (braking) = weight shifts forward (more load on front)
-        cg_height = 0.45  # Estimated CG height for MX-5 (meters)
-        longitudinal_factor = cg_height / self.LENGTH
-        longitudinal_load_transfer = longitudinal_factor * self.MASS * 9.81 * longitudinal_accel / 9.81
-        # Clamp to prevent excessive transfer
-        longitudinal_load_transfer = np.clip(longitudinal_load_transfer,
-                                             -weight_per_wheel * 1.5,
-                                             weight_per_wheel * 1.5)
+        # Compute load transfer based on suspension mode
+        if self.suspension_mode == SuspensionMode.VIRTUAL:
+            # Virtual suspension: Use smoothed acceleration
+            lateral_load_transfer, longitudinal_load_transfer = self._compute_load_transfer_virtual(weight_per_wheel)
+        else:
+            # Physical suspension: Get normal forces from suspension state
+            # (lateral and longitudinal transfer are implicit in suspension dynamics)
+            normal_forces_from_suspension = self._compute_load_transfer_physical()
+            # Set to zero - will use suspension-derived forces directly
+            lateral_load_transfer = 0.0
+            longitudinal_load_transfer = 0.0
 
         # Compute longitudinal and lateral slip for each wheel
         forces = {}
@@ -577,25 +792,31 @@ class Car:
                 # Standard slip ratio definition
                 slip_ratio = (wheel_linear_vel - wheel_vx) / denom
 
-            # Calculate normal force with lateral AND longitudinal load transfer
-            normal_force = weight_per_wheel
+            # Calculate normal force based on suspension mode
+            if self.suspension_mode == SuspensionMode.VIRTUAL:
+                # Virtual suspension: Apply load transfer
+                normal_force = weight_per_wheel
 
-            # Apply LATERAL load transfer (left/right weight shift during cornering)
-            if i == 0 or i == 2:  # Left wheels (FL, RL)
-                normal_force -= lateral_load_transfer / 2
-            else:  # Right wheels (FR, RR)
-                normal_force += lateral_load_transfer / 2
+                # Apply LATERAL load transfer (left/right weight shift during cornering)
+                if i == 0 or i == 2:  # Left wheels (FL, RL)
+                    normal_force -= lateral_load_transfer / 2
+                else:  # Right wheels (FR, RR)
+                    normal_force += lateral_load_transfer / 2
 
-            # Apply LONGITUDINAL load transfer (front/back weight shift during accel/brake)
-            if i < 2:  # Front wheels (FL, FR)
-                # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = LESS load on front
-                normal_force -= longitudinal_load_transfer / 2
-            else:  # Rear wheels (RL, RR)
-                # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = MORE load on rear
-                normal_force += longitudinal_load_transfer / 2
+                # Apply LONGITUDINAL load transfer (front/back weight shift during accel/brake)
+                if i < 2:  # Front wheels (FL, FR)
+                    # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = LESS load on front
+                    normal_force -= longitudinal_load_transfer / 2
+                else:  # Rear wheels (RL, RR)
+                    # Positive longitudinal_load_transfer = accelerating = weight shifts BACK = MORE load on rear
+                    normal_force += longitudinal_load_transfer / 2
 
-            # Prevent negative/zero load (wheels lifting off ground)
-            normal_force = max(50.0, normal_force)
+                # Prevent negative/zero load (wheels lifting off ground)
+                normal_force = max(50.0, normal_force)
+
+            else:
+                # Physical suspension: Use suspension-derived forces directly
+                normal_force = normal_forces_from_suspension[i]
 
             # Tire forces
             # Note: Negate lateral force because positive slip angle (velocity left of wheel heading)
