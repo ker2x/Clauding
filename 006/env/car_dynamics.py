@@ -681,34 +681,64 @@ class Car:
         if self.suspension_mode == SuspensionMode.FULL:
             arb_forces = self._compute_antiroll_forces()
 
+        # Geometric parameters for coupling body motion to suspension
+        track_width = self.suspension_config.get('track_width', 1.50)
+        wheelbase = self.suspension_config.get('wheelbase', 2.310)
+
+        # Geometric compression from body roll/pitch (small angle approximation)
+        # These represent additional compression due to body attitude
+        z_geom = np.zeros(4)
+        v_geom = np.zeros(4)
+
+        # Roll: positive roll = right side lower = more compressed
+        z_geom[0] -= (track_width / 2) * self.body_roll  # FL: extends when roll positive
+        z_geom[1] += (track_width / 2) * self.body_roll  # FR: compresses when roll positive
+        z_geom[2] -= (track_width / 2) * self.body_roll  # RL: extends when roll positive
+        z_geom[3] += (track_width / 2) * self.body_roll  # RR: compresses when roll positive
+
+        # Pitch: positive pitch = nose up = front extends, rear compresses
+        z_geom[0] -= (wheelbase / 2) * self.body_pitch  # FL: extends when pitch positive
+        z_geom[1] -= (wheelbase / 2) * self.body_pitch  # FR: extends when pitch positive
+        z_geom[2] += (wheelbase / 2) * self.body_pitch  # RL: compresses when pitch positive
+        z_geom[3] += (wheelbase / 2) * self.body_pitch  # RR: compresses when pitch positive
+
+        # Geometric velocities from body motion
+        v_geom[0] = -(track_width / 2) * self.body_roll_rate - (wheelbase / 2) * self.body_pitch_rate  # FL
+        v_geom[1] = +(track_width / 2) * self.body_roll_rate - (wheelbase / 2) * self.body_pitch_rate  # FR
+        v_geom[2] = -(track_width / 2) * self.body_roll_rate + (wheelbase / 2) * self.body_pitch_rate  # RL
+        v_geom[3] = +(track_width / 2) * self.body_roll_rate + (wheelbase / 2) * self.body_pitch_rate  # RR
+
         # Update each wheel's suspension
         for i in range(4):
-            # Current suspension state
-            z = self.suspension_travel[i]       # Compression (positive = compressed)
-            z_dot = self.suspension_velocity[i]  # Compression velocity
+            # Current suspension state (local, body-frame)
+            z_local = self.suspension_travel[i]       # Local compression
+            z_dot_local = self.suspension_velocity[i]  # Local velocity
 
-            # Spring force (Hooke's law)
-            # F = -k * z (simple spring, zero at z=0)
-            # The equilibrium is implicitly determined by the balance of forces
+            # Effective compression including geometric coupling from body attitude
+            z_eff = z_local + z_geom[i]
+            z_dot_eff = z_dot_local + v_geom[i]
+
+            # Spring force (Hooke's law on effective compression)
             spring_rate = self.suspension_config['spring_rate']
-            F_spring = -spring_rate * z
+            F_spring = -spring_rate * z_eff
 
-            # Damper force (proportional to velocity)
+            # Damper force (proportional to effective velocity)
             damping = self.suspension_config['damping']
-            F_damper = -damping * z_dot
+            F_damper = -damping * z_dot_eff
 
             # Bump stops (progressive spring at travel limits)
+            # Based on effective travel (local + geometric)
             F_bump = 0.0
             max_comp = self.suspension_config['max_compression']
             max_ext = self.suspension_config['max_extension']
             bump_stiffness = self.suspension_config['bump_stop_stiffness']
 
-            if z > max_comp:
+            if z_eff > max_comp:
                 # Compressed beyond limit
-                F_bump = -bump_stiffness * (z - max_comp)
-            elif z < -max_ext:
+                F_bump = -bump_stiffness * (z_eff - max_comp)
+            elif z_eff < -max_ext:
                 # Extended beyond limit
-                F_bump = -bump_stiffness * (z + max_ext)
+                F_bump = -bump_stiffness * (z_eff + max_ext)
 
             # Weight force on suspension (sprung mass)
             sprung_mass = self.MASS / 4.0
@@ -726,39 +756,6 @@ class Car:
             # Integrate (Forward Euler)
             self.suspension_velocity[i] += accel * dt
             self.suspension_travel[i] += self.suspension_velocity[i] * dt
-
-        # Add geometric coupling from body roll and pitch
-        # Body roll/pitch change wheel heights relative to ground
-        track_width = self.suspension_config.get('track_width', 1.50)
-        wheelbase = self.suspension_config.get('wheelbase', 2.310)
-
-        # Roll contribution (positive roll = right side compresses, left extends)
-        # For small angles: Δz ≈ ±(track_width/2) * φ
-        z_roll_left = -(track_width / 2) * self.body_roll   # Left extends when roll positive
-        z_roll_right = +(track_width / 2) * self.body_roll  # Right compresses when roll positive
-
-        # Pitch contribution (positive pitch = nose up = front compresses, rear extends)
-        # For small angles: Δz ≈ ±(wheelbase/2) * θ
-        z_pitch_front = +(wheelbase / 2) * self.body_pitch  # Front compresses when pitch positive
-        z_pitch_rear = -(wheelbase / 2) * self.body_pitch   # Rear extends when pitch positive
-
-        # Apply geometric displacements to each wheel
-        self.suspension_travel[0] += z_roll_left + z_pitch_front   # FL
-        self.suspension_travel[1] += z_roll_right + z_pitch_front  # FR
-        self.suspension_travel[2] += z_roll_left + z_pitch_rear    # RL
-        self.suspension_travel[3] += z_roll_right + z_pitch_rear   # RR
-
-        # Apply velocity from body motion (for damper forces next step)
-        # v_geom = (track_width/2) * φ̇ or (wheelbase/2) * θ̇
-        v_roll_left = -(track_width / 2) * self.body_roll_rate
-        v_roll_right = +(track_width / 2) * self.body_roll_rate
-        v_pitch_front = +(wheelbase / 2) * self.body_pitch_rate
-        v_pitch_rear = -(wheelbase / 2) * self.body_pitch_rate
-
-        self.suspension_velocity[0] += v_roll_left + v_pitch_front   # FL
-        self.suspension_velocity[1] += v_roll_right + v_pitch_front  # FR
-        self.suspension_velocity[2] += v_roll_left + v_pitch_rear    # RL
-        self.suspension_velocity[3] += v_roll_right + v_pitch_rear   # RR
 
         # Limit travel (backup constraint, should not trigger with bump stops)
         max_comp = self.suspension_config['max_compression']
