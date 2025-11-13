@@ -240,7 +240,7 @@ def train(args):
     print(f"Environment created:")
     print(f"  State mode: vector (67D state vector)")
     print(f"  State dimension: {state_dim}")
-    print(f"  Action space: Continuous (3D)")
+    print(f"  Action space: Continuous (2D)")
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
     print(f"  Reward shaping enabled (penalty {SHORT_EPISODE_PENALTY} for episodes < {MIN_EPISODE_STEPS} steps)")
