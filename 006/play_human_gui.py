@@ -293,37 +293,42 @@ class TelemetryGUI:
             susp_text = self.font_small.render(f"Susp: {suspension:+.1f}mm", True, (200, 255, 200))
             surface.blit(susp_text, (40, y_susp))
 
-            # Suspension travel bar (range: -120mm to +80mm)
+            # Suspension travel bar (rigid-body load transfer model)
+            # Range: -50mm (droop/extension) to +50mm (bump/compression)
+            # Zero = static equilibrium (car at rest)
             susp_bar_x = 115
             susp_bar_width = 265
             susp_bar_height = 8
 
-            max_extension = -120.0  # mm (negative = droop)
-            max_compression = 80.0  # mm (positive = bump)
-            equilibrium = 58.0  # mm (static compression)
+            max_extension = -50.0  # mm (negative = droop)
+            max_compression = 50.0  # mm (positive = bump)
 
             pygame.draw.rect(surface, (40, 40, 45), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height))
 
-            # Calculate bar position (0 = max extension, 1 = max compression)
-            susp_range = max_compression - max_extension
-            susp_norm = (suspension - max_extension) / susp_range
-            susp_fill_x = int(susp_norm * susp_bar_width)
+            # Calculate bar position (centered at zero)
+            center_x = susp_bar_x + susp_bar_width // 2
+
+            # Clamp suspension to display range
+            susp_clamped = max(max_extension, min(max_compression, suspension))
+            fill_width = int((susp_clamped / max_compression) * (susp_bar_width // 2))
 
             # Color: green near equilibrium, yellow/red at extremes
-            deviation = abs(suspension - equilibrium)
+            deviation = abs(suspension)
             if deviation < 10:
                 susp_color = (100, 255, 100)  # Green (normal)
-            elif deviation < 30:
+            elif deviation < 25:
                 susp_color = (255, 255, 100)  # Yellow (moderate)
             else:
                 susp_color = (255, 100, 100)  # Red (extreme)
 
-            pygame.draw.rect(surface, susp_color, (susp_bar_x, y_susp, susp_fill_x, susp_bar_height))
+            # Draw bar from center
+            if fill_width > 0:
+                pygame.draw.rect(surface, susp_color, (center_x, y_susp, fill_width, susp_bar_height))
+            elif fill_width < 0:
+                pygame.draw.rect(surface, susp_color, (center_x + fill_width, y_susp, -fill_width, susp_bar_height))
 
-            # Equilibrium marker
-            eq_norm = (equilibrium - max_extension) / susp_range
-            eq_x = susp_bar_x + int(eq_norm * susp_bar_width)
-            pygame.draw.line(surface, (200, 200, 200), (eq_x, y_susp), (eq_x, y_susp + susp_bar_height), 2)
+            # Zero marker (equilibrium)
+            pygame.draw.line(surface, (200, 200, 200), (center_x, y_susp), (center_x, y_susp + susp_bar_height), 2)
 
             pygame.draw.rect(surface, (80, 80, 85), (susp_bar_x, y_susp, susp_bar_width, susp_bar_height), 1)
 
@@ -423,16 +428,25 @@ def get_wheel_data(env):
             forces = car.last_tire_forces if hasattr(car, 'last_tire_forces') else None
 
             if forces:
+                # Static load per wheel (at rest)
+                static_load = (car.MASS * 9.81) / 4.0
+
+                # Get spring rate from suspension config
+                spring_rate = car.suspension_config.get('spring_rate', 30000.0)
+
                 for i in range(4):
                     if i in forces:
                         wheel_data[i]['slip_angle'] = forces[i].get('slip_angle', 0.0)
                         wheel_data[i]['slip_ratio'] = forces[i].get('slip_ratio', 0.0)
                         wheel_data[i]['normal_force'] = forces[i].get('normal_force', 0.0)
 
-            # Get suspension travel
-            if hasattr(car, 'suspension_travel'):
-                for i in range(4):
-                    wheel_data[i]['suspension_travel'] = car.last_tire_forces[i]['normal_force'] #car.suspension_travel[i]
+                        # Compute virtual suspension travel from normal force
+                        # Using rigid-body load transfer model:
+                        # travel = (normal_force - static_load) / spring_rate
+                        # Positive = compression (bump), Negative = extension (droop)
+                        normal_force = forces[i].get('normal_force', static_load)
+                        suspension_travel = (normal_force - static_load) / spring_rate
+                        wheel_data[i]['suspension_travel'] = suspension_travel
 
     return wheel_data
 
