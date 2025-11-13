@@ -129,9 +129,9 @@ def get_car_speed(env):
 
 def visualize_vector_state(state_vector, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
     """
-    Visualize the 67D vector state to show what the model sees.
+    Visualize the 71D vector state to show what the model sees.
 
-    Vector state structure (67D):
+    Vector state structure (71D):
     - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
     - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along, seg_len
     - Waypoints (40): 20 waypoints × (x, y) in car-relative coordinates
@@ -141,7 +141,7 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     - Slip ratios (4): for each wheel [FL, FR, RL, RR]
 
     Args:
-        state_vector: 67D numpy array
+        state_vector: 71D numpy array
         episode: Episode number
         step: Step number
         reward: Current reward
@@ -434,7 +434,7 @@ def watch_agent(args):
     print("=" * 60)
 
     # Create agent with same state mode as training
-    # Extract state_dim from state_shape (for vector mode: (67,) -> 67)
+    # Extract state_dim from state_shape (for vector mode: (71,) -> 71)
     state_dim = state_shape[0] if len(state_shape) == 1 else state_shape
     agent = SACAgent(
         state_dim=state_dim,

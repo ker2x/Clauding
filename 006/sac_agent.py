@@ -8,7 +8,7 @@ Key Features:
 2. Twin Q-networks (reduces overestimation bias)
 3. Automatic entropy tuning (learns optimal exploration coefficient)
 4. Continuous action space support (steering, acceleration)
-5. Vector mode only (67D state vector)
+5. Vector mode only (71D state vector)
 
 Architecture:
 - Actor: Gaussian policy with reparameterization trick
@@ -34,7 +34,7 @@ import numpy as np
 
 class VectorActor(nn.Module):
     """
-    Actor (policy) network for vector state mode (67D input as of 006).
+    Actor (policy) network for vector state mode (71D input as of 006).
     Outputs mean and log_std for a Gaussian policy.
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
@@ -64,13 +64,13 @@ class VectorActor(nn.Module):
 
 class VectorCritic(nn.Module):
     """
-    Critic (Q-function) network for vector state mode (67D input as of 006).
+    Critic (Q-function) network for vector state mode (71D input as of 006).
     Takes state and action as input, outputs Q-value.
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
 
-    Hidden dimension set to 256 for efficiency - sufficient capacity for 67D
+    Hidden dimension set to 256 for efficiency - sufficient capacity for 71D
     state space without overfitting.
     """
     def __init__(self, state_dim, action_dim, hidden_dim=256):
@@ -199,7 +199,7 @@ class SACAgent:
     - Twin Q-networks to reduce overestimation
     - Entropy regularization for better exploration
     - Automatic temperature (alpha) tuning
-    - Vector state mode only (67D state vector)
+    - Vector state mode only (71D state vector)
     """
 
     def __init__(
@@ -217,7 +217,7 @@ class SACAgent:
     ):
         """
         Args:
-            state_dim: Dimension of state vector (67 for current version)
+            state_dim: Dimension of state vector (71 for current version)
             action_dim: Dimension of action space
             lr_actor: Learning rate for actor
             lr_critic: Learning rate for critics

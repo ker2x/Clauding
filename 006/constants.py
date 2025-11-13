@@ -9,7 +9,7 @@ providing a single source of truth for hyperparameters and configuration values.
 # State and Action Space
 # ===========================
 
-STATE_DIM = 67  # Vector mode state dimension (car state + track geometry + lookahead)
+STATE_DIM = 71  # Vector mode state dimension (car state + track geometry + lookahead)
 ACTION_DIM = 3  # Continuous action space: [steering, gas, brake]
 
 # ===========================

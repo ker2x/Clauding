@@ -153,7 +153,7 @@ def test_preprocessing():
 
         print(f"✓ Vector mode environment created")
         print(f"  Observation space: {env.observation_space.shape}")
-        print(f"  Expected: (67,) for 67D vector state")
+        print(f"  Expected: (71,) for 71D vector state")
         print(f"  Action space: {env.action_space}")
         print(f"  Action bounds: {env.action_space.low} to {env.action_space.high}")
 
@@ -197,7 +197,7 @@ def test_agent():
         # Create agent for vector mode
         print("Creating SAC agent (vector mode)...")
         agent = SACAgent(
-            state_dim=67,  # 67D vector state
+            state_dim=71,  # 71D vector state
             action_dim=3,  # [steering, gas, brake]
             lr_actor=3e-4,
             lr_critic=3e-4,
@@ -211,7 +211,7 @@ def test_agent():
 
         # Test action selection
         print("\nTesting action selection...")
-        dummy_state = np.random.rand(67).astype(np.float32)
+        dummy_state = np.random.rand(71).astype(np.float32)
         action = agent.select_action(dummy_state, evaluate=False)
         print(f"✓ Action selection works")
         print(f"  Selected action shape: {action.shape}")
@@ -219,7 +219,7 @@ def test_agent():
 
         # Test replay buffer
         print("\nTesting replay buffer...")
-        buffer = ReplayBuffer(capacity=1000, state_shape=(67,), action_dim=3, device=agent.device)
+        buffer = ReplayBuffer(capacity=1000, state_shape=(71,), action_dim=3, device=agent.device)
         buffer.push(dummy_state, action, 1.0, dummy_state, False)
         print(f"✓ Replay buffer works")
         print(f"  Buffer size: {len(buffer)}")

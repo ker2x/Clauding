@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine** (no Box2D dependency). The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (67D) state representation** for training.
+This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine** (no Box2D dependency). The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (71D) state representation** for training.
 
 ### Key Features
 
@@ -12,7 +12,7 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 - **Custom 2D Physics**: Clean, interpretable physics simulation with Magic Formula tires
 - **Physical Suspension System**: Per-wheel spring-damper with kinematic load transfer (default enabled)
 - **Soft Actor-Critic**: State-of-the-art continuous control algorithm
-- **Vector Mode**: 67D state representation (car state + track geometry + lookahead waypoints)
+- **Vector Mode**: 71D state representation (car state + track geometry + lookahead waypoints)
 - **Clean Architecture**: Simplified codebase focused on vector mode for optimal performance
 
 ### Suspension System (NEW - 2025-01-13)
@@ -174,7 +174,7 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 
 ### State Representation
 
-**Vector Mode (67D):**
+**Vector Mode (71D):**
 - Car state (11D): position, velocity, angle, wheel contacts, progress
 - Track segment (5D): distance to center, angle, curvature, segment info
 - Lookahead waypoints (20×2 = 40D): future waypoints in car coordinates
@@ -195,8 +195,8 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 ### Network Architecture
 
 **Vector Mode:**
-- Actor: 67D → FC(256)×3 → 2D action (mean, log_std)
-- Critic: 67D + 2D action → FC(512)×4 → Q-value
+- Actor: 71D → FC(256)×3 → 2D action (mean, log_std)
+- Critic: 71D + 2D action → FC(512)×4 → Q-value
 
 ## File Structure
 
@@ -279,7 +279,7 @@ python train_selection_parallel.py --device cpu  # Default
 Checkpoints contain:
 - Network weights (actor, critics, targets)
 - Optimizer states
-- `state_dim`: 67 (vector dimension)
+- `state_dim`: 71 (vector dimension)
 - `action_dim`: 2
 - Entropy tuning parameters (if enabled)
 

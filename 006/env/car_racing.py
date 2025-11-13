@@ -321,7 +321,9 @@ class CarRacing(gym.Env, EzPickle):
       (default: -1.0 when speed < 0.5 m/s, discourages staying still)
     - Off-track penalty: -OFFTRACK_PENALTY per wheel off-track per frame when ANY wheels off
       (default: -5.0 per wheel, strongly discourages off-track driving)
-    - Off-track termination: -OFFTRACK_TERMINATION_PENALTY when all wheels go off track (default: -100, strongly discourages crashes)
+    - Off-track termination: -OFFTRACK_TERMINATION_PENALTY × (1.0 - progress) when all wheels go off track
+      (default: -100 × progress_multiplier, proportional to how far the car progressed)
+      Progress-based: crash at 0% = -100, crash at 50% = -50, crash at 90% = -10 (min 10%)
 
     **Optimal racing line:**
     The agent learns the optimal racing line (which uses the full width of the track) through
@@ -344,8 +346,9 @@ class CarRacing(gym.Env, EzPickle):
 
     ## Episode Termination
     The episode finishes when all the tiles are visited. The car can also go outside the playfield -
-     that is, far off the track (all 4 wheels off), in which case it will receive -OFFTRACK_TERMINATION_PENALTY
-     reward and die (default: -100, strongly discourages crashes and encourages safe driving).
+     that is, far off the track (all 4 wheels off), in which case it will receive -OFFTRACK_TERMINATION_PENALTY × (1.0 - progress)
+     reward and die (default: -100 × progress_multiplier, proportionally lower penalty for crashes further into the track).
+     This encourages the agent to learn to go farther before crashing.
 
     Additionally, if `terminate_stationary=True`, episodes will be truncated early if the car makes
      no progress (no new tiles visited) for `stationary_patience` frames (default: 100), after a
@@ -487,16 +490,16 @@ class CarRacing(gym.Env, EzPickle):
             # Vector state: car state (11) + track segment info (5) + lookahead waypoints (40)
             # + speed (1) + longitudinal accel (1) + lateral accel (1)
             # + slip angles (4) + slip ratios (4)
-            # = 67 values total (increased from 47 to support 20 waypoint lookahead)
+            # = 71 values total (increased from 47 to support 20 waypoint lookahead)
             if self.num_cars > 1:
                 # Multi-car: return stacked observations for all cars
                 self.observation_space = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(self.num_cars, 67), dtype=np.float32
+                    low=-np.inf, high=np.inf, shape=(self.num_cars, 71), dtype=np.float32
                 )
             else:
                 # Single car (backward compatible)
                 self.observation_space = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(67,), dtype=np.float32
+                    low=-np.inf, high=np.inf, shape=(71,), dtype=np.float32
                 )
         else:
             # Visual state: 96x96 RGB image
@@ -882,7 +885,7 @@ class CarRacing(gym.Env, EzPickle):
                 - Multi car: shape (num_cars, 2) or array of ints
 
         Returns:
-            observations: shape (num_cars, 67) if multi-car, else (67,)
+            observations: shape (num_cars, 71) if multi-car, else (71,)
             rewards: shape (num_cars,) if multi-car, else scalar
             terminated: shape (num_cars,) if multi-car, else bool
             truncated: shape (num_cars,) if multi-car, else bool
@@ -1067,7 +1070,13 @@ class CarRacing(gym.Env, EzPickle):
                 terminated = True
                 info["lap_finished"] = False
                 info["off_track"] = True
-                step_reward = -OFFTRACK_TERMINATION_PENALTY
+                # Proportional penalty: lower penalty if more progress was made
+                # Farther crashes are rewarded with smaller penalties
+                current_progress = self.furthest_tile_idx / len(self.track) if len(self.track) > 0 else 0.0
+                progress_multiplier = max(0.1, 1.0 - current_progress)  # Min 10% penalty even at 100% progress
+                step_reward = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
+                info["off_track_penalty"] = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
+                info["progress_at_crash"] = current_progress
 
             # Built-in timeout logic (replaces TimeLimit wrapper for vector mode)
             self.episode_steps += 1
@@ -1133,7 +1142,7 @@ class CarRacing(gym.Env, EzPickle):
             action: shape (num_cars, 2) or (num_cars,) - actions for all cars
 
         Returns:
-            observations: (num_cars, 67)
+            observations: (num_cars, 71)
             rewards: (num_cars,)
             terminated: (num_cars,)
             truncated: (num_cars,)
@@ -1206,7 +1215,13 @@ class CarRacing(gym.Env, EzPickle):
                 if all_wheels_off:
                     terminated[car_idx] = True
                     infos[car_idx]["off_track"] = True
-                    step_rewards[car_idx] = -OFFTRACK_TERMINATION_PENALTY
+                    # Proportional penalty: lower penalty if more progress was made
+                    # Farther crashes are rewarded with smaller penalties
+                    current_progress = self.car_tile_visited_counts[car_idx] / len(self.track) if len(self.track) > 0 else 0.0
+                    progress_multiplier = max(0.1, 1.0 - current_progress)  # Min 10% penalty even at 100% progress
+                    step_rewards[car_idx] = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
+                    infos[car_idx]["off_track_penalty"] = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
+                    infos[car_idx]["progress_at_crash"] = current_progress
 
                 # Check lap completion for this car
                 if self.car_tile_visited_counts[car_idx] == len(self.track):
@@ -1374,7 +1389,7 @@ class CarRacing(gym.Env, EzPickle):
         """
         Create vector state representation (fast, informative).
 
-        Returns 67-dimensional state vector (increased from 47 for better lookahead):
+        Returns 71-dimensional state vector (increased from 47 for better lookahead):
         - Car state (11): x, y, vx (body), vy (body), angle, angular_vel, wheel_contacts[4], track_progress
         - Track segment info (5): dist_to_center, angle_diff, curvature, t (position on segment [0-1]), segment_length
         - Lookahead waypoints (40): 20 waypoints × (x, y) in car-relative coordinates (increased from 10)
@@ -1460,6 +1475,7 @@ class CarRacing(gym.Env, EzPickle):
         # tire force feedback loop
         slip_angles = []
         slip_ratios = []
+        vertical_forces = []
 
         if hasattr(self.car, 'last_tire_forces') and self.car.last_tire_forces is not None:
             # Use pre-computed values (consistent with physics simulation)
@@ -1468,9 +1484,11 @@ class CarRacing(gym.Env, EzPickle):
                 if i in forces:
                     slip_angles.append(forces[i].get('slip_angle', 0.0))
                     slip_ratios.append(forces[i].get('slip_ratio', 0.0))
+                    vertical_forces.append(forces[i].get('normal_force', 0.0))  # <-- ADD THIS
                 else:
                     slip_angles.append(0.0)
                     slip_ratios.append(0.0)
+                    vertical_forces.append(0.0)  # <-- ADD THIS
         else:
             # Fallback: compute if not available (shouldn't happen in normal operation)
             for i in range(4):
@@ -1508,6 +1526,7 @@ class CarRacing(gym.Env, EzPickle):
 
                 slip_angles.append(slip_angle)
                 slip_ratios.append(slip_ratio)
+                vertical_forces.append(0.0)  # <-- ADD THIS (fallback will be 0)
 
         # 4. Get next N waypoints in car-relative coordinates
         # Vectorized computation for all 20 waypoints at once (20-30% faster)
@@ -1537,6 +1556,7 @@ class CarRacing(gym.Env, EzPickle):
         MAX_ACCELERATION = 50.0  # m/s^2 (typical max ~30-40 m/s^2)
         MAX_CURVATURE = 1.0  # 1/m (typical sharp turn)
         MAX_SLIP_RATIO = 2.0  # Dimensionless (clip extreme values)
+        MAX_VERTICAL_FORCE = 5000.0 # (approx 1000kg car * 1.5g) but it's PER WHEEL + some safety margin
 
         # Normalize velocities
         vx_norm = vx / MAX_VELOCITY
@@ -1557,9 +1577,18 @@ class CarRacing(gym.Env, EzPickle):
         slip_angles_norm = [sa / np.pi for sa in slip_angles]
 
         # Normalize and clip slip ratios
-        slip_ratios_norm = [np.clip(sr / MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
+#        for sr in slip_ratios:
+#            if sr > 1.0:
+#                print("WARNING: SLIP RATIO > 1.0: {}".format(sr))
+#            elif sr < -1.0:
+#                print("WARNING: SLIP RATIO < -1.0")
+        slip_ratios_norm = [sr / MAX_SLIP_RATIO for sr in slip_ratios]
+#        slip_ratios_norm = [np.clip(sr / MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
 
-        # Combine all features (67 total, increased from 47)
+        # Normalize vertical forces <-- ADD THIS BLOCK
+        vertical_forces_norm = [vf / MAX_VERTICAL_FORCE for vf in vertical_forces]
+
+        # Combine all features (71 total, increased from 47)
         # ALL FEATURES NOW NORMALIZED to similar scales for stable training
         # ALL VELOCITIES AND ACCELERATIONS IN BODY FRAME (consistent coordinate system)
         state = np.array([
@@ -1577,8 +1606,10 @@ class CarRacing(gym.Env, EzPickle):
             ax_norm, ay_norm,
             # Slip angles (4) - NORMALIZED
             slip_angles_norm[0], slip_angles_norm[1], slip_angles_norm[2], slip_angles_norm[3],
-            # Slip ratios (4) - NORMALIZED & CLIPPED
-            slip_ratios_norm[0], slip_ratios_norm[1], slip_ratios_norm[2], slip_ratios_norm[3]
+            # Slip ratios (4) - NORMALIZED
+            slip_ratios_norm[0], slip_ratios_norm[1], slip_ratios_norm[2], slip_ratios_norm[3],
+            # Vertical forces (4) - NORMALIZED
+            vertical_forces_norm[0], vertical_forces_norm[1], vertical_forces_norm[2], vertical_forces_norm[3]
         ], dtype=np.float32)
 
         return state

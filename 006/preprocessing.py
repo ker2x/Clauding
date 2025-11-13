@@ -2,7 +2,7 @@
 Preprocessing and environment wrappers for CarRacing-v3.
 
 This module handles environment creation for vector mode only.
-Vector mode provides a 67D state vector with track geometry and car state.
+Vector mode provides a 71D state vector with track geometry and car state.
 
 CarRacing-v3 has a continuous action space: [steering, gas, brake]
 - steering: [-1.0, 1.0] (left to right)
@@ -34,7 +34,7 @@ def make_carracing_env(
     """
     Creates a CarRacing-v3 environment for SAC training in vector mode.
 
-    Vector mode provides a 67D state vector containing:
+    Vector mode provides a 71D state vector containing:
     - Track geometry (lookahead sensors)
     - Car state (velocity, angular velocity, position)
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     env = make_carracing_env()
     print(f"Action space: {env.action_space}")
     print(f"Observation space: {env.observation_space}")
-    print(f"Expected shape: (67,) for 67D vector state")
+    print(f"Expected shape: (71,) for 71D vector state")
 
     obs, info = env.reset()
     print(f"Observation shape: {obs.shape}")
