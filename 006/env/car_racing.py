@@ -11,6 +11,23 @@ from .car_dynamics import Car
 from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 
+# Import reward configuration from constants
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from constants import (
+    PROGRESS_REWARD_SCALE,
+    LAP_COMPLETION_REWARD,
+    STEP_PENALTY,
+    STATIONARY_PENALTY,
+    STATIONARY_SPEED_THRESHOLD,
+    ONTRACK_REWARD,
+    OFFTRACK_PENALTY,
+    OFFTRACK_THRESHOLD,
+    OFFTRACK_TERMINATION_PENALTY,
+    FORWARD_SPEED_REWARD_SCALE,
+)
+
 
 # Box2D no longer needed - using custom 2D physics engine
 # Removed Box2D dependency for cleaner, more interpretable physics
@@ -60,18 +77,6 @@ GRASS_DIM = PLAYFIELD / 20.0
 MAX_SHAPE_DIM = (
     max(GRASS_DIM, TRACK_WIDTH, TRACK_DETAIL_STEP) * math.sqrt(2) * ZOOM * SCALE
 )
-
-# Reward structure configuration
-PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
-LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
-STEP_PENALTY = 0.6              # Penalty per frame (mild time pressure)
-STATIONARY_PENALTY = 1.0        # Penalty per frame for being stationary (speed < 0.5 m/s)
-ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track (encourages staying on track)
-OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
-OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies - set to 0 so ANY wheel off is penalized
-OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
-FORWARD_SPEED_REWARD_SCALE = 0.0
-STATIONARY_SPEED_THRESHOLD = 0.5  # Speed threshold (m/s) below which car is considered stationary
 
 
 class FrictionDetector:

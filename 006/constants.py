@@ -16,10 +16,10 @@ ACTION_DIM = 2  # Continuous action space: [steering, gas & brake]
 # Training Hyperparameters
 # ===========================
 
-# Learning rates
-DEFAULT_LR_ACTOR = 1e-4
-DEFAULT_LR_CRITIC = 1e-4
-DEFAULT_LR_ALPHA = 1e-3
+# Learning rates (conservative values for initial learning to prevent collapse. you can easily multiply it by 10)
+DEFAULT_LR_ACTOR = 1e-5
+DEFAULT_LR_CRITIC = 1e-5
+DEFAULT_LR_ALPHA = 1e-4
 
 # SAC parameters
 DEFAULT_GAMMA = 0.99      # Discount factor
@@ -29,7 +29,7 @@ DEFAULT_ALPHA = 0.2       # Initial entropy coefficient (if not auto-tuning)
 # Experience replay
 DEFAULT_BUFFER_SIZE = 200000
 DEFAULT_BATCH_SIZE = 512
-DEFAULT_LEARNING_STARTS = 5000  # Steps of random exploration before learning
+DEFAULT_LEARNING_STARTS = 10000  # Steps of random exploration before learning
 
 # Training schedule
 DEFAULT_EPISODES = 200
@@ -59,16 +59,41 @@ DEFAULT_ELITE_COUNT = 2            # Top N agents preserved (1=winner-takes-all)
 
 # Early termination
 DEFAULT_TERMINATE_STATIONARY = True
-DEFAULT_STATIONARY_PATIENCE = 150
-DEFAULT_STATIONARY_MIN_STEPS = 50
+DEFAULT_STATIONARY_PATIENCE = 150   # Will terminate episode if no progress for N steps
+DEFAULT_STATIONARY_MIN_STEPS = 0   # Minimum steps required to terminate episode (it's useless at this stage since it's < patience)
 
 # Episode constraints
 DEFAULT_MAX_EPISODE_STEPS = 5000  # Max steps per episode (prevents infinite loops)
-DEFAULT_MIN_EPISODE_STEPS = 250   # if episode end before this, apply penalty
+DEFAULT_MIN_EPISODE_STEPS = 200   # if episode end before this, apply penalty
 
 # Reward shaping
 DEFAULT_REWARD_SHAPING = True
 DEFAULT_SHORT_EPISODE_PENALTY = -250.0
+
+# ===========================
+# Reward Structure Configuration
+# ===========================
+
+# Progress and completion rewards
+PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
+LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
+
+# Time and behavior penalties
+# STEP_PENALTY == ONTRACK_REWARD for initial learning. then set step penalty to 0.6 or more to push the ai to drive fast
+STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+STATIONARY_PENALTY = 1.0        # Penalty per frame for being stationary (speed < threshold)
+STATIONARY_SPEED_THRESHOLD = 0.5  # Speed threshold (m/s) below which car is considered stationary
+
+# On-track rewards
+ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track
+
+# Off-track penalties
+OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies (0 = any wheel off is penalized)
+OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
+
+# Speed-based rewards
+FORWARD_SPEED_REWARD_SCALE = 0.001  # 0.001 for initial learning then 0. (a small reward prevent the car from staying still during initial learning)
 
 # ===========================
 # Device Configuration
