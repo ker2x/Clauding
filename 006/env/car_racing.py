@@ -378,6 +378,7 @@ class CarRacing(gym.Env, EzPickle):
         min_episode_steps: int = 150,
         short_episode_penalty: float = -50.0,
         num_cars: int = 1,
+        suspension_config: dict | None = None,
     ):
         """
         Args:
@@ -407,6 +408,7 @@ class CarRacing(gym.Env, EzPickle):
             min_episode_steps,
             short_episode_penalty,
             num_cars,
+            suspension_config,
         )
         self.continuous = continuous
         self.domain_randomize = domain_randomize
@@ -420,6 +422,13 @@ class CarRacing(gym.Env, EzPickle):
         self.min_episode_steps = min_episode_steps
         self.short_episode_penalty = short_episode_penalty
         self.num_cars = num_cars
+
+        # Suspension configuration (simplified independent per-wheel springs)
+        if suspension_config is None:
+            from .suspension_config import get_suspension_config
+            suspension_config = get_suspension_config()
+        self.suspension_config = suspension_config
+
         self._init_colors()
 
         self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
@@ -845,7 +854,7 @@ class CarRacing(gym.Env, EzPickle):
         # Create cars (multi-car support)
         self.cars = []
         for car_idx in range(self.num_cars):
-            car = Car(self.world, init_yaw, init_x, init_y)
+            car = Car(self.world, init_yaw, init_x, init_y, self.suspension_config)
             car.car_id = car_idx  # Track which car this is
             # Assign different colors for rendering
             car.hull.color = self._get_car_color(car_idx)

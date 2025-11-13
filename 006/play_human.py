@@ -132,11 +132,9 @@ def play_human(args):
     # Create environment
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
-        stack_size=4,
         terminate_stationary=False,
         stationary_patience=100,
-        render_mode=render_mode,
-        state_mode='visual'
+        render_mode=render_mode
     )
 
     action_dim = env.action_space.shape[0]

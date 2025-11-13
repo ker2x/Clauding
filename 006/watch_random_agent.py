@@ -123,14 +123,12 @@ def render_frame(frame, episode, step, reward, total_reward, action):
 def watch_random_agent(args):
     """Watch random agent play episodes."""
     # Create environment with rendering
-    # ALWAYS use visual mode for watching
+    # Note: make_carracing_env always uses vector mode (not visual)
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
-        stack_size=4,
         terminate_stationary=True,  # Enable stationary termination (prevents infinite episodes)
         stationary_patience=100,
-        render_mode=render_mode,
-        state_mode='visual'  # Always use visual mode for watching
+        render_mode=render_mode
     )
 
     action_dim = env.action_space.shape[0]

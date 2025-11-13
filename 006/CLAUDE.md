@@ -10,9 +10,31 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 
 - **Parallel Selection Training**: Primary training method using N independent agents with evolutionary selection
 - **Custom 2D Physics**: Clean, interpretable physics simulation with Magic Formula tires
+- **Physical Suspension System**: Per-wheel spring-damper with kinematic load transfer (default enabled)
 - **Soft Actor-Critic**: State-of-the-art continuous control algorithm
 - **Vector Mode**: 67D state representation (car state + track geometry + lookahead waypoints)
 - **Clean Architecture**: Simplified codebase focused on vector mode for optimal performance
+
+### Suspension System (NEW - 2025-01-13)
+
+The physics engine now includes a **realistic suspension system** using independent per-wheel spring-dampers with kinematic load transfer:
+
+**Key Features:**
+- Spring rate: 45,000 N/m (balanced street/track)
+- Damping ratio: 1.09 (slightly overdamped, very stable)
+- Natural frequency: 8.19 Hz (responsive)
+- Load transfer: Visible weight shifts during cornering/braking
+- Stability: Fixed feedback loops, bounded travel (±80mm max compression)
+
+**Physics Fixes Applied:**
+- ✅ Fixed positive feedback loop (switched to feedforward control)
+- ✅ Fixed brake force (reduced from 780 → 50 rad/s² to prevent wheel locking)
+- ✅ Fixed double-counting of weight forces
+- ✅ Added combined bias caps to prevent suspension travel limit violations
+
+**For Details:** See `SUSPENSION_FIX_SUMMARY.md`
+
+**Testing:** Use `python play_human_gui.py --log-telemetry` then `python analyze_telemetry.py telemetry_*.csv`
 
 ### Current Reward Structure
 
