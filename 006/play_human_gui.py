@@ -594,14 +594,17 @@ def play_human_gui(args):
                     acceleration = current_gas
 
                 # Steering (smooth with progressive return to center)
+                # Reduced max steering for easier small adjustments
+                MAX_STEER = 0.70    # Maximum steering angle (< 1.0 for gentler turns)
+                STEER_SPEED = 0.05  # Very slow ramp for precise control
+
                 target_steering = 0.0
                 if keys[pygame.K_q] or keys[pygame.K_LEFT]:
-                    target_steering = -1.0
+                    target_steering = -MAX_STEER
                 if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-                    target_steering = 1.0
+                    target_steering = MAX_STEER
 
-                # Smoother steering response
-                STEER_SPEED = 0.08  # Reduced from 0.1 for smoother control
+                # Very smooth steering response for precise control
                 current_steering = current_steering + (target_steering - current_steering) * STEER_SPEED
 
                 action = np.array([current_steering, acceleration], dtype=np.float32)
