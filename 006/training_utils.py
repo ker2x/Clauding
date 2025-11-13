@@ -265,7 +265,7 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
                 f.write("=" * 70 + "\n")
                 f.write(f"Date: {log_timestamp}\n")
                 f.write(f"Device: {agent.device}\n")
-                f.write(f"State mode: vector (67D)\n")
+                f.write(f"State mode: vector (71D)\n")
                 f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
 
             f.write("Agent Hyperparameters:\n")

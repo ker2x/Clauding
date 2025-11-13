@@ -9,7 +9,7 @@ This project implements state-of-the-art reinforcement learning for racing using
 - **Soft Actor-Critic (SAC)**: Maximum entropy RL with automatic tuning
 - **Custom 2D Physics**: Clean, interpretable simulation with Magic Formula tires
 - **Continuous Actions**: Native `[steering, acceleration]` without discretization
-- **Vector Mode**: Fast 67D state representation (car + track + lookahead)
+- **Vector Mode**: Fast 71D state representation (car + track + lookahead)
 - **Streamlined Codebase**: Focused on vector mode for optimal performance
 
 ## Quick Start
@@ -108,7 +108,7 @@ See `TRAINING_COMPARISON.md` for detailed comparison.
 ## Environment
 
 **CarRacing-v3** with custom physics:
-- **Observation**: 67D vector (car state + track geometry + lookahead waypoints)
+- **Observation**: 71D vector (car state + track geometry + lookahead waypoints)
 - **Action Space**: Continuous `[steering, acceleration]`
   - steering ∈ [-1, 1] (left to right)
   - acceleration ∈ [-1, 1] (brake to gas)
@@ -136,11 +136,12 @@ SAC is an off-policy, maximum entropy RL algorithm that:
 
 ### State Representation
 
-**Vector Mode (67D):**
+**Vector Mode (71D):**
 - Car state (11D): position, velocity, angle, wheel contacts, progress
 - Track segment (5D): distance to center, angle, curvature
 - Lookahead waypoints (40D): 20 future waypoints in car coordinates
-- Opponent info (11D): nearest competitor (for multi-agent)
+- Vertical forces (4D): normal forces on each tire
+- Additional features (11D): opponent info and extended state data
 
 **Why vector mode?**
 - Fast, efficient training
@@ -152,7 +153,7 @@ SAC is an off-policy, maximum entropy RL algorithm that:
 
 **Actor (Policy):**
 ```
-67D state → FC(256)×3 → LeakyReLU
+71D state → FC(256)×3 → LeakyReLU
           → mean (2D) + log_std (2D)
           → Sample action from Gaussian
           → Squash with tanh to [-1, 1]
@@ -160,7 +161,7 @@ SAC is an off-policy, maximum entropy RL algorithm that:
 
 **Critic (Q-function):**
 ```
-67D state + 2D action → FC(512)×4 → LeakyReLU
+71D state + 2D action → FC(512)×4 → LeakyReLU
                       → Q-value (scalar)
 ```
 
@@ -168,20 +169,25 @@ Uses LayerNorm for stability, LeakyReLU to prevent dead neurons.
 
 ## Training Parameters
 
+All default values are defined in `constants.py` for centralized configuration.
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--num-agents` | 8 | Parallel agents (selection training) |
+| `--num-agents` | 4 | Parallel agents (selection training) |
 | `--selection-frequency` | 50 | Episodes between tournaments |
 | `--eval-episodes` | 10 | Episodes per tournament evaluation |
-| `--elite-count` | 1 | Top N agents preserved (1=winner-takes-all, 2+=elite) |
-| `--episodes` | 2000 | Total training episodes per agent |
+| `--elite-count` | 2 | Top N agents preserved (1=winner-takes-all, 2+=elite) |
+| `--episodes` | 200 | Total training episodes per agent |
 | `--learning-starts` | 5000 | Random steps before learning |
-| `--lr-actor` | 3e-4 | Actor learning rate |
-| `--lr-critic` | 3e-4 | Critic learning rate |
+| `--lr-actor` | 1e-4 | Actor learning rate |
+| `--lr-critic` | 1e-4 | Critic learning rate |
+| `--lr-alpha` | 1e-3 | Alpha (entropy) learning rate |
 | `--gamma` | 0.99 | Discount factor |
 | `--tau` | 0.005 | Target network update rate |
-| `--buffer-size` | 1000000 | Replay buffer capacity |
-| `--batch-size` | 256 | Training batch size |
+| `--buffer-size` | 200000 | Replay buffer capacity |
+| `--batch-size` | 512 | Training batch size |
+
+**Note:** Intermediate evaluations during training use 5 episodes, while final evaluations use 10 episodes.
 
 ## Training Timeline
 
@@ -308,8 +314,9 @@ This version has been streamlined to focus on vector mode training:
 - **Removed**: Non-parallel selection training variants
 - **Removed**: Multi-car training scripts
 - **Removed**: VectorEnv training scripts
-- **Kept**: Vector mode (67D state) for optimal performance
+- **Kept**: Vector mode (71D state) for optimal performance
 - **Kept**: Parallel selection training and standard training
+- **Added**: Centralized configuration via `constants.py`
 - **Result**: Cleaner, more maintainable codebase focused on what works best
 
 The environment still supports visual mode for visualization purposes (watching trained agents), but all training code uses vector mode exclusively.

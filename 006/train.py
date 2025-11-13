@@ -424,8 +424,8 @@ def train(args):
             log_handle.write(f"[{eval_timestamp}] {'=' * 50}\n")
             log_handle.write(f"[{eval_timestamp}] Evaluation at episode {episode + 1}\n")
 
-            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=5, log_handle=log_handle, return_details=True)
-            print(f"Evaluation reward (5 episodes): {eval_mean:.2f} (±{eval_std:.2f})")
+            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=DEFAULT_INTERMEDIATE_EVAL_EPISODES, log_handle=log_handle, return_details=True)
+            print(f"Evaluation reward ({DEFAULT_INTERMEDIATE_EVAL_EPISODES} episodes): {eval_mean:.2f} (±{eval_std:.2f})")
             print("-" * 60 + "\n")
 
             log_handle.write(f"[{eval_timestamp}] Evaluation complete | Mean: {eval_mean:.2f} | Std: {eval_std:.2f}\n")
@@ -479,10 +479,10 @@ def train(args):
     print("\n" + "=" * 60)
     print("Training complete! Running final evaluation...")
     log_handle.write(f"[{final_timestamp}] {'=' * 50}\n")
-    log_handle.write(f"[{final_timestamp}] Final evaluation (10 episodes)\n")
+    log_handle.write(f"[{final_timestamp}] Final evaluation ({DEFAULT_FINAL_EVAL_EPISODES} episodes)\n")
 
-    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=10, log_handle=log_handle, return_details=True)
-    print(f"Final evaluation reward (10 episodes): {final_eval_mean:.2f} (±{final_eval_std:.2f})")
+    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=DEFAULT_FINAL_EVAL_EPISODES, log_handle=log_handle, return_details=True)
+    print(f"Final evaluation reward ({DEFAULT_FINAL_EVAL_EPISODES} episodes): {final_eval_mean:.2f} (±{final_eval_std:.2f})")
     print("=" * 60)
 
     log_handle.write(f"[{final_timestamp}] Final evaluation complete | Mean: {final_eval_mean:.2f} | Std: {final_eval_std:.2f}\n")

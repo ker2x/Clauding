@@ -230,19 +230,27 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 
 ## Key Hyperparameters
 
+All default values are defined in `constants.py` for centralized configuration.
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--num-agents` | 8 | Number of parallel agents (selection training) |
+| `--num-agents` | 4 | Number of parallel agents (selection training) |
 | `--selection-frequency` | 50 | Episodes between selection tournaments |
 | `--eval-episodes` | 10 | Episodes per tournament evaluation |
-| `--elite-count` | 1 | Top N agents preserved (1=winner-takes-all) |
+| `--elite-count` | 2 | Top N agents preserved (1=winner-takes-all) |
 | `--learning-starts` | 5000 | Steps before training begins |
-| `--lr-actor` | 3e-4 | Actor learning rate |
-| `--lr-critic` | 3e-4 | Critic learning rate |
+| `--lr-actor` | 1e-4 | Actor learning rate |
+| `--lr-critic` | 1e-4 | Critic learning rate |
+| `--lr-alpha` | 1e-3 | Alpha (entropy) learning rate |
 | `--gamma` | 0.99 | Discount factor |
 | `--tau` | 0.005 | Target network update rate |
-| `--buffer-size` | 1000000 | Replay buffer capacity |
-| `--batch-size` | 256 | Training batch size |
+| `--buffer-size` | 200000 | Replay buffer capacity |
+| `--batch-size` | 512 | Training batch size |
+
+**Evaluation Parameters (from constants.py):**
+- `DEFAULT_INTERMEDIATE_EVAL_EPISODES = 5` - Periodic evaluations during training
+- `DEFAULT_FINAL_EVAL_EPISODES = 10` - Final evaluation at end of training
+- `DEFAULT_MAX_STEPS_PER_EPISODE = 2500` - Safety timeout for evaluation episodes
 
 ## Training Metrics
 

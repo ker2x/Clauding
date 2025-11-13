@@ -10,7 +10,7 @@ providing a single source of truth for hyperparameters and configuration values.
 # ===========================
 
 STATE_DIM = 71  # Vector mode state dimension (car state + track geometry + lookahead)
-ACTION_DIM = 3  # Continuous action space: [steering, gas, brake]
+ACTION_DIM = 2  # Continuous action space: [steering, gas & brake]
 
 # ===========================
 # Training Hyperparameters
@@ -19,7 +19,7 @@ ACTION_DIM = 3  # Continuous action space: [steering, gas, brake]
 # Learning rates
 DEFAULT_LR_ACTOR = 1e-4
 DEFAULT_LR_CRITIC = 1e-4
-DEFAULT_LR_ALPHA = 1e-4
+DEFAULT_LR_ALPHA = 1e-3
 
 # SAC parameters
 DEFAULT_GAMMA = 0.99      # Discount factor
@@ -41,6 +41,7 @@ DEFAULT_CHECKPOINT_FREQUENCY = 100  # Save checkpoint every N episodes
 # ===========================
 
 DEFAULT_EVAL_EPISODES = 10          # Episodes for standard evaluation
+DEFAULT_INTERMEDIATE_EVAL_EPISODES = 5   # Episodes for periodic evaluation during training
 DEFAULT_FINAL_EVAL_EPISODES = 10   # Episodes for final evaluation
 DEFAULT_MAX_STEPS_PER_EPISODE = 2500  # Safety timeout for evaluation
 
@@ -63,17 +64,17 @@ DEFAULT_STATIONARY_MIN_STEPS = 50
 
 # Episode constraints
 DEFAULT_MAX_EPISODE_STEPS = 5000  # Max steps per episode (prevents infinite loops)
-DEFAULT_MIN_EPISODE_STEPS = 200   # Min steps before penalty applied
+DEFAULT_MIN_EPISODE_STEPS = 250   # if episode end before this, apply penalty
 
 # Reward shaping
 DEFAULT_REWARD_SHAPING = True
-DEFAULT_SHORT_EPISODE_PENALTY = -50.0
+DEFAULT_SHORT_EPISODE_PENALTY = -250.0
 
 # ===========================
 # Device Configuration
 # ===========================
 
-DEFAULT_DEVICE = 'auto'  # 'auto', 'cpu', 'cuda', or 'mps'
+DEFAULT_DEVICE = 'cpu'  # 'auto', 'cpu', 'cuda', or 'mps'
 
 # ===========================
 # Logging and Checkpoints

@@ -197,7 +197,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 )
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
-                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
+                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
                 result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 continue
             elif command == 'GET_WEIGHTS':
@@ -289,7 +289,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                         device=device
                     )
                 elif command == 'EVALUATE':
-                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=2500)
+                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
                     result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 elif command == 'GET_WEIGHTS':
                     state_dict = agent.get_state_dict()
