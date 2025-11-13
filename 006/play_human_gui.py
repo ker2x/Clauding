@@ -432,7 +432,7 @@ def get_wheel_data(env):
             # Get suspension travel
             if hasattr(car, 'suspension_travel'):
                 for i in range(4):
-                    wheel_data[i]['suspension_travel'] = car.suspension_travel[i]
+                    wheel_data[i]['suspension_travel'] = car.last_tire_forces[i]['normal_force'] #car.suspension_travel[i]
 
     return wheel_data
 
