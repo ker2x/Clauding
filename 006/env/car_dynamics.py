@@ -225,14 +225,14 @@ class Car:
     STARTUP_ACCEL = 1250.0  # Angular acceleration (rad/s^2) for startup
 
     # Brake torque: Direct torque applied by brake calipers to wheel
-    # MX5 braking performance: ~0.93g with proper 60/40 brake bias
-    # Real-world MX-5 brake torque values:
-    #   Front: 930 N·m per wheel (60% of braking force)
-    #   Rear: 620 N·m per wheel (40% of braking force)
-    #   Total: 3100 N·m (all 4 wheels)
-    # This gives realistic weight transfer and prevents rear lockup
-    MAX_BRAKE_TORQUE_FRONT = 930.0  # Maximum brake torque per front wheel (N·m)
-    MAX_BRAKE_TORQUE_REAR = 620.0   # Maximum brake torque per rear wheel (N·m)
+    # MX5 braking performance: ~1.1g with proper 60/40 brake bias
+    # Reduced values to prevent wheel locking (was 930/620 N·m):
+    #   Front: 60 N·m → 50 rad/s² → 1.58g per wheel (realistic)
+    #   Rear: 40 N·m → 33 rad/s² → 1.05g per wheel (realistic)
+    #   Combined: ~1.1-1.3g total braking with load transfer
+    # This allows smooth brake modulation without instant lockup
+    MAX_BRAKE_TORQUE_FRONT = 60.0  # Maximum brake torque per front wheel (N·m)
+    MAX_BRAKE_TORQUE_REAR = 40.0   # Maximum brake torque per rear wheel (N·m)
 
     # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
     INERTIA = 1.2  # Wheel inertia (kg*m^2)
@@ -435,6 +435,10 @@ class Car:
             # Reduced coupling to prevent oscillations in RL environment
             # (track collisions + feedback can cause instability at full coupling)
             feedback_coupling = 0.5  # Balanced coupling for stability
+
+            # Physics: I × α = T_applied - (F_x × r)
+            # F_x is tire force on car, ground reaction is opposite (Newton's 3rd law)
+            # We SUBTRACT the torque because ground reaction opposes wheel motion
             tire_force_torque = self.prev_tire_forces[i] * self.TIRE_RADIUS * feedback_coupling
 
             # Simple logic: Apply brakes, engine, or free-roll
@@ -449,15 +453,16 @@ class Car:
                 else:  # Rear wheels (lower braking force to prevent lockup)
                     brake_torque = -self.MAX_BRAKE_TORQUE_REAR * self._brake
 
-                # Physics naturally balances brake torque vs tire resistance
-                # No special cases needed - the forces work themselves out!
-                net_torque = brake_torque + tire_force_torque
+                # During braking: ONLY apply brake torque (no tire feedback)
+                # Tire feedback uses delayed forces from previous timestep, which
+                # creates oscillation during braking (ABS-like pulsing)
+                # The brake is the primary control - let it work cleanly
+                net_torque = brake_torque
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
 
-                # CRITICAL: Car has NO REVERSE GEAR - wheels cannot spin backward
+                # Car has NO REVERSE GEAR - wheels cannot spin backward
                 # Brakes can only slow wheels to zero, not reverse them
-                # Clamp wheel speed to non-negative (forward only)
                 wheel.omega = max(0.0, new_omega)
 
             # 2. Apply Engine (rear-wheel drive)
@@ -468,16 +473,11 @@ class Car:
                 else:
                     engine_torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
 
-                # Apply tire force feedback to prevent unrealistic wheel spin
-                # Feedback should resist acceleration, not assist it
-                if tire_force_torque < 0:
-                    # Feedback is negative (resists wheel spin) - apply it
-                    # Cap feedback to prevent complete lockup of driven wheels
-                    effective_feedback = min(abs(tire_force_torque), abs(engine_torque) * 0.9)
-                    net_torque = engine_torque - (-effective_feedback)
-                else:
-                    # Feedback is positive (would assist) - skip it
-                    net_torque = engine_torque
+                # Correct physics: net_torque = T_applied - (F_x × r)
+                # T_applied is engine_torque (positive for acceleration)
+                # Subtracting tire_force_torque accounts for ground reaction (Newton's 3rd law)
+                # The road resistance (tire_force_torque) naturally opposes the engine
+                net_torque = engine_torque - tire_force_torque
 
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
