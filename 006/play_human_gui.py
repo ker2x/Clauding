@@ -527,11 +527,13 @@ def play_human_gui(args):
 
             action = np.array([0.0, 0.0], dtype=np.float32)
             current_steering = 0.0
+            current_gas = 0.0
+            current_brake = 0.0
 
             print(f"\n{'-' * 80}")
             print(f"Episode {episode + 1}/{args.episodes}")
             print(f"{'-' * 80}")
-            print("Ready! Use keyboard to control the car")
+            print("Ready! Use keyboard to control the car (smooth progressive controls)")
 
             while not done:
                 frame_start = time.time()
@@ -554,22 +556,53 @@ def play_human_gui(args):
                             pygame.quit()
                             sys.exit()
 
-                # --- Keyboard Input ---
+                # --- Keyboard Input with Progressive Smoothing ---
                 keys = pygame.key.get_pressed()
 
-                gas = 1.0 if keys[pygame.K_z] or keys[pygame.K_UP] else 0.0
-                brake = 1.0 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0.0
+                # Progressive gas/brake (ramps up/down smoothly)
+                # Faster ramp up, slower ramp down for better control
+                GAS_RAMP_UP = 0.08      # Speed when pressing gas (slower = more progressive)
+                GAS_RAMP_DOWN = 0.15    # Speed when releasing gas (faster release)
+                BRAKE_RAMP_UP = 0.12    # Speed when pressing brake
+                BRAKE_RAMP_DOWN = 0.20  # Speed when releasing brake
+                MAX_GAS = 0.85          # Maximum gas (< 1.0 for easier control)
+                MAX_BRAKE = 0.90        # Maximum brake (< 1.0 for easier control)
 
-                acceleration = -brake if brake > 0 else gas
+                # Gas pedal (progressive)
+                if keys[pygame.K_z] or keys[pygame.K_UP]:
+                    target_gas = MAX_GAS
+                    current_gas = current_gas + (target_gas - current_gas) * GAS_RAMP_UP
+                else:
+                    current_gas = current_gas * (1.0 - GAS_RAMP_DOWN)
+                    if current_gas < 0.01:
+                        current_gas = 0.0
 
+                # Brake pedal (progressive)
+                if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+                    target_brake = MAX_BRAKE
+                    current_brake = current_brake + (target_brake - current_brake) * BRAKE_RAMP_UP
+                else:
+                    current_brake = current_brake * (1.0 - BRAKE_RAMP_DOWN)
+                    if current_brake < 0.01:
+                        current_brake = 0.0
+
+                # Combine into acceleration (-1 = brake, +1 = gas)
+                # Brake takes priority over gas
+                if current_brake > 0.05:
+                    acceleration = -current_brake
+                else:
+                    acceleration = current_gas
+
+                # Steering (smooth with progressive return to center)
                 target_steering = 0.0
                 if keys[pygame.K_q] or keys[pygame.K_LEFT]:
                     target_steering = -1.0
                 if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                     target_steering = 1.0
 
-                STEER_SPEED = 0.1
-                current_steering = (1.0 - STEER_SPEED) * current_steering + STEER_SPEED * target_steering
+                # Smoother steering response
+                STEER_SPEED = 0.08  # Reduced from 0.1 for smoother control
+                current_steering = current_steering + (target_steering - current_steering) * STEER_SPEED
 
                 action = np.array([current_steering, acceleration], dtype=np.float32)
 
