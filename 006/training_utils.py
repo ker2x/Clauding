@@ -216,7 +216,7 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
         log_handle.write("=" * 70 + "\n")
         log_handle.write(f"Timestamp: {log_timestamp}\n")
         log_handle.write(f"Device: {agent.device}\n")
-        log_handle.write(f"State mode: vector (67D)\n")
+        log_handle.write(f"State mode: vector (71D)\n")
         log_handle.write(f"State dimension: {env.observation_space.shape[0]}\n")
         log_handle.write(f"Action space: Continuous (3D)\n")
         log_handle.write(f"Episodes: {args.episodes}\n")
@@ -243,7 +243,7 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
                 f.write("=" * 70 + "\n")
                 f.write(f"Date: {log_timestamp}\n")
                 f.write(f"Device: {agent.device}\n")
-                f.write(f"State mode: vector (67D)\n")
+                f.write(f"State mode: vector (71D)\n")
                 f.write(f"State dimension: {env.observation_space.shape[0]}\n\n")
 
                 f.write("Environment:\n")

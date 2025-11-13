@@ -202,13 +202,13 @@ def plot_training_progress(episode_rewards, metrics, save_path):
 
 def train(args):
     """Main training loop."""
-    # Environment configuration (single source of truth)
-    TERMINATE_STATIONARY = True
-    STATIONARY_PATIENCE = 50
-    REWARD_SHAPING = True
-    MIN_EPISODE_STEPS = 100
-    SHORT_EPISODE_PENALTY = -50.0
-    MAX_EPISODE_STEPS = 2500  # 50 seconds: allows lap completion at ≥25 m/s (mid-training speed)
+    # Environment configuration (using constants from constants.py)
+    TERMINATE_STATIONARY = DEFAULT_TERMINATE_STATIONARY
+    STATIONARY_PATIENCE = DEFAULT_STATIONARY_PATIENCE
+    REWARD_SHAPING = DEFAULT_REWARD_SHAPING
+    MIN_EPISODE_STEPS = DEFAULT_MIN_EPISODE_STEPS
+    SHORT_EPISODE_PENALTY = DEFAULT_SHORT_EPISODE_PENALTY
+    MAX_EPISODE_STEPS = DEFAULT_MAX_EPISODE_STEPS
 
     # Create directories
     os.makedirs(args.checkpoint_dir, exist_ok=True)
@@ -238,7 +238,7 @@ def train(args):
     state_dim = env.observation_space.shape[0]
 
     print(f"Environment created:")
-    print(f"  State mode: vector (67D state vector)")
+    print(f"  State mode: vector (71D state vector)")
     print(f"  State dimension: {state_dim}")
     print(f"  Action space: Continuous (2D)")
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")

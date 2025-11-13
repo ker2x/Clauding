@@ -1577,16 +1577,40 @@ class CarRacing(gym.Env, EzPickle):
         slip_angles_norm = [sa / np.pi for sa in slip_angles]
 
         # Normalize and clip slip ratios
-#        for sr in slip_ratios:
-#            if sr > 1.0:
-#                print("WARNING: SLIP RATIO > 1.0: {}".format(sr))
-#            elif sr < -1.0:
-#                print("WARNING: SLIP RATIO < -1.0")
+        for sr in slip_ratios:
+            if sr > 2.0:
+                print("WARNING: SLIP RATIO > 2.0: {}".format(sr))
+            elif sr < -2.0:
+                print("WARNING: SLIP RATIO < -2.0")
         slip_ratios_norm = [sr / MAX_SLIP_RATIO for sr in slip_ratios]
 #        slip_ratios_norm = [np.clip(sr / MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
 
         # Normalize vertical forces <-- ADD THIS BLOCK
+        for vf in vertical_forces:
+            if vf > MAX_VERTICAL_FORCE * 2:
+                print("WARNING: VERTICAL FORCE > MAX*2: {}".format(vf))
+            elif vf < -MAX_VERTICAL_FORCE * 2:
+                print("WARNING: VERTICAL FORCE < MAX*2")
         vertical_forces_norm = [vf / MAX_VERTICAL_FORCE for vf in vertical_forces]
+
+        # ... right after you calculate slip_ratios_norm and vertical_forces_norm
+
+        # New, more robust check
+        if np.isnan(slip_ratios_norm).any() or np.isnan(vertical_forces_norm).any():
+            print("=" * 50)
+            print("WARNING: NaN DETECTED IN STATE VECTOR!")
+            print(f"Slip Ratios: {slip_ratios_norm}")
+            print(f"Vertical Forces: {vertical_forces_norm}")
+            print("=" * 50)
+            # This is what's causing the training collapse.
+            # You should probably clip these values.
+
+        if np.isinf(slip_ratios_norm).any() or np.isinf(vertical_forces_norm).any():
+            print("=" * 50)
+            print("WARNING: Inf DETECTED IN STATE VECTOR!")
+            print(f"Slip Ratios: {slip_ratios_norm}")
+            print(f"Vertical Forces: {vertical_forces_norm}")
+            print("=" * 50)
 
         # Combine all features (71 total, increased from 47)
         # ALL FEATURES NOW NORMALIZED to similar scales for stable training

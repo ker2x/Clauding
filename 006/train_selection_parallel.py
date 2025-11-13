@@ -124,12 +124,12 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     # Set thread count to prevent CPU oversubscription
     torch.set_num_threads(threads_per_agent)
 
-    # Environment constants
-    MAX_EPISODE_STEPS = 2500
-    STATIONARY_PATIENCE = 50
-    STATIONARY_MIN_STEPS = 50
-    SHORT_EPISODE_PENALTY = -50.0
-    MIN_EPISODE_STEPS = 150
+    # Environment constants (using constants from constants.py)
+    MAX_EPISODE_STEPS = DEFAULT_MAX_EPISODE_STEPS
+    STATIONARY_PATIENCE = DEFAULT_STATIONARY_PATIENCE
+    STATIONARY_MIN_STEPS = DEFAULT_STATIONARY_MIN_STEPS
+    SHORT_EPISODE_PENALTY = DEFAULT_SHORT_EPISODE_PENALTY
+    MIN_EPISODE_STEPS = DEFAULT_MIN_EPISODE_STEPS
 
     # Create environment
     env = make_carracing_env(
