@@ -432,7 +432,7 @@ class Car:
             # This creates opposing torque that prevents unrealistic slip
             # Reduced coupling to prevent oscillations in RL environment
             # (track collisions + feedback can cause instability at full coupling)
-            feedback_coupling = 0.5  # Balanced coupling for stability
+            feedback_coupling = 0.9  # Balanced coupling for stability
 
             # Physics: I × α = T_applied - (F_x × r)
             # F_x is tire force on car, ground reaction is opposite (Newton's 3rd law)

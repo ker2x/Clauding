@@ -1409,23 +1409,9 @@ class CarRacing(gym.Env, EzPickle):
         # Note: For the first step, prev_vx/vy are 0, so acceleration will be 0
         dt = 1.0 / FPS
 
-        # Handle per-car velocities (multi-car mode) or single-car mode
-        if self.num_cars > 1 and hasattr(self.car, 'car_id'):
-            car_id = self.car.car_id
-            prev_vx = self.car_prev_vx[car_id]
-            prev_vy = self.car_prev_vy[car_id]
-            ax = (self.car.vx - prev_vx) / dt if dt > 0 else 0.0  # Longitudinal
-            ay = (self.car.vy - prev_vy) / dt if dt > 0 else 0.0  # Lateral
-            # Update stored for next step (will be used if this method is called again)
-            self.car_prev_vx[car_id] = self.car.vx
-            self.car_prev_vy[car_id] = self.car.vy
-        else:
-            # Single-car mode
-            ax = (self.car.vx - self.prev_vx) / dt if dt > 0 else 0.0  # Longitudinal
-            ay = (self.car.vy - self.prev_vy) / dt if dt > 0 else 0.0  # Lateral
-            # Update previous velocities for next step
-            self.prev_vx = self.car.vx
-            self.prev_vy = self.car.vy
+        # Get true accelerations from the physics engine (body frame)
+        ax = self.car.ax  # Longitudinal acceleration from car_dynamics
+        ay = self.car.ay  # Lateral acceleration from car_dynamics
 
         # 2. Get track segment info
         car_world_pos = self.car.hull.position
