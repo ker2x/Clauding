@@ -475,7 +475,11 @@ class Car:
                 # T_applied is engine_torque (positive for acceleration)
                 # Subtracting tire_force_torque accounts for ground reaction (Newton's 3rd law)
                 # The road resistance (tire_force_torque) naturally opposes the engine
-                net_torque = engine_torque - tire_force_torque
+                #net_torque = engine_torque - tire_force_torque
+
+                # We remove the explicit, delayed feedback.
+                # The implicit feedback from the slip_ratio calculation is stable and sufficient.
+                net_torque = engine_torque
 
                 accel = net_torque / self.INERTIA
                 new_omega = wheel.omega + accel * dt
@@ -491,7 +495,7 @@ class Car:
 
                 # Apply damping toward target speed
                 # This is more stable than force-based feedback for coasting
-                damping = 0.3  # Damping coefficient (reduced for stability)
+                damping = 0.9  # Damping coefficient (reduce it for stability)
                 omega_change = (target_omega - wheel.omega) * damping
 
                 wheel.omega += omega_change

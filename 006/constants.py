@@ -80,7 +80,7 @@ LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encou
 
 # Time and behavior penalties
 # STEP_PENALTY == ONTRACK_REWARD for initial learning. then set step penalty to 0.6 or more to push the ai to drive fast
-STEP_PENALTY = 0.5              # Penalty per frame (mild time pressure)
+STEP_PENALTY = 0.6              # Penalty per frame (mild time pressure)
 STATIONARY_PENALTY = 1.0        # Penalty per frame for being stationary (speed < threshold)
 STATIONARY_SPEED_THRESHOLD = 0.5  # Speed threshold (m/s) below which car is considered stationary
 
@@ -93,7 +93,7 @@ OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before 
 OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
 
 # Speed-based rewards
-FORWARD_SPEED_REWARD_SCALE = 0.001  # 0.001 for initial learning then 0. (a small reward prevent the car from staying still during initial learning)
+FORWARD_SPEED_REWARD_SCALE = 0.0  # 0.001 for initial learning then 0. (a small reward prevent the car from staying still during initial learning)
 
 # ===========================
 # Device Configuration
