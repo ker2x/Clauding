@@ -54,7 +54,7 @@ def parse_args():
                         help='Disable rendering (just compute rewards)')
     parser.add_argument('--fps', type=int, default=30,
                         help='Display FPS (default: 30)')
-    parser.add_argument('--view', type=str, default='both', choices=['game', 'vector', 'both'],
+    parser.add_argument('--view', type=str, default='game', choices=['game', 'vector', 'both'],
                         help='Which view to show for vector mode: game, vector, or both (default: both)')
 
     return parser.parse_args()
