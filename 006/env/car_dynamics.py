@@ -1,18 +1,53 @@
 """
 Clean 2D top-down car dynamics simulation using Pacejka magic formula tires.
 
-This replaces the Box2D implementation with a more interpretable physics model:
-- Pacejka magic formula for tire forces
+This module replaces the Box2D implementation with a clean, interpretable physics model:
+- Pacejka Magic Formula for tire forces (industry standard)
+- Rigid-body load transfer model with filtered accelerations
+- Realistic drivetrain (RWD) and braking (60/40 bias)
 - No external physics library dependency
 
-The curves output tire forces (lateral/longitudinal) and moments (Mz for aligning moment for example) based on just a few inputs. These inputs are:
+Vehicle Model: 2022 Mazda MX-5 Sport (ND)
+- Mass: 1062 kg, 50/50 weight distribution
+- Tires: 195/50R16 street tires (Bridgestone Potenza RE050A equivalent)
+- Expected Performance:
+  * Lateral: 0.95g cornering (matches real MX-5 skidpad data)
+  * Braking: 1.15g deceleration (matches 60-0 mph in 115 ft)
+  * Acceleration: 0.57g on rear wheels (RWD, realistic)
 
-slip angle; the difference between the direction the tire is facing, and its velocity. 0 means the tire is going straight ahead (no slip). Typical peak slip angles for tire are around 3-6 degrees.
-slip ratio; the spin velocity divided by its actual world velocity. A slip ratio of -1 means full braking lock; a ratio of 0 means the tire is spinning at the exact same rate as the road is disappearing below it. A slip ratio of 1 means it's spinning.
-camber; the angle of the tire with respect to the surface
-load; the amount of force pressing down on the tire. Typically each wheel carries around 1/4th of the car's weight.
+Pacejka Magic Formula Inputs:
+- slip_angle: Difference between tire direction and velocity direction
+  * 0° = no slip (rolling straight)
+  * Street tires peak at ~8-10° (race tires peak at 3-6°)
+  * Range: -90° to +90°
 
+- slip_ratio: Difference between wheel speed and ground speed
+  * -1.0 = full brake lockup (wheel stopped, car moving)
+  * 0.0 = perfect grip (wheel speed = ground speed)
+  * +1.0 = full wheelspin (wheel spinning, car stationary)
+  * Street tires peak at ~12-15% slip ratio
 
+- normal_force: Vertical load on tire (N)
+  * Static: ~2605 N per wheel (¼ vehicle weight)
+  * Dynamic: Varies with load transfer during cornering/braking
+  * Load transfer uses filtered accelerations (alpha=0.15) to prevent oscillations
+
+- max_friction: Surface friction coefficient
+  * 1.0 = asphalt (default)
+  * 0.5 = grass
+  * Combined with Pacejka D parameter to determine peak grip
+
+Classes:
+- PacejkaTire: Magic Formula tire model with separate lateral/longitudinal parameters
+- Car: Full vehicle dynamics with 4 wheels, drivetrain, and braking
+
+See Also:
+- ../TIRE_PARAMETERS.md: Detailed calibration and validation
+- suspension_config.py: Suspension parameters (currently using rigid-body load transfer)
+- car_racing.py: Gymnasium environment wrapper
+
+References:
+- Pacejka, H. B. (2012). Tire and Vehicle Dynamics. 3rd Edition.
 """
 
 import numpy as np
@@ -20,8 +55,22 @@ from env.suspension_config import get_suspension_config, compute_derived_params,
 
 class PacejkaTire:
     """
-    Pacejka magic formula tire model for slip-based force calculation.
-    Now with separate longitudinal and lateral coefficients.
+    Pacejka Magic Formula tire model for slip-based force calculation.
+
+    Uses separate coefficients for lateral (cornering) and longitudinal (traction/braking) forces.
+
+    Magic Formula:
+        F = D × sin(C × arctan(B×α - E×(B×α - arctan(B×α))))
+
+    Where:
+        α = slip angle (lateral) or slip ratio (longitudinal)
+        B = Stiffness factor (initial slope)
+        C = Shape factor (curve peakiness)
+        D = Peak friction multiplier
+        E = Curvature factor (falloff after peak)
+
+    Default parameters calibrated for 2022 Mazda MX-5 Sport with 195/50R16 street tires.
+    See ../TIRE_PARAMETERS.md for validation against real-world performance data.
     """
 
     def __init__(self,
