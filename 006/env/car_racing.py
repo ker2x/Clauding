@@ -82,7 +82,21 @@ MAX_SHAPE_DIM = (
 class FrictionDetector:
     """
     Detects wheel-track collisions using accurate polygon-based geometry.
+
     Replaces Box2D contact listener with spatial geometry queries.
+    Uses spatial partitioning for performance: only checks tiles near the car
+    (~61 tiles instead of all 300), reducing computational cost by 80%.
+
+    Performance Optimization:
+    - Two-stage search: coarse (every 10th tile) then fine refinement
+    - Spatial range: ±30 tiles around car position (wraps around for circular track)
+    - Per-step cost: ~244 polygon checks (4 wheels × 61 tiles)
+    - Tolerance: 0.3 units outside polygon edge for wheel-on-track detection
+
+    Methods:
+    - update_contacts(): Main entry point, called each physics step
+    - _point_in_polygon(): Ray casting algorithm for point-in-polygon test
+    - _distance_to_polygon_edge(): Minimum distance from point to polygon edges
     """
     def __init__(self, env, lap_complete_percent):
         self.env = env
