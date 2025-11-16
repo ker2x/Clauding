@@ -39,7 +39,7 @@ def test_imports():
             print(f"  Install with: pip install {package_name}")
             all_imports_ok = False
 
-    # Note: Box2D is no longer required - using custom 2D physics engine
+    # Note: Box2D is not required - we use a custom 2D physics engine
 
     if not all_imports_ok:
         print("\n❌ Some packages are missing. Please install them before proceeding.")
@@ -103,7 +103,7 @@ def test_environment():
 
         # Create base environment using local CarRacing class
         print("Creating base CarRacing-v3 environment...")
-        env = CarRacing(render_mode=None, continuous=True)
+        env = CarRacing(render_mode=None)
 
         print(f"✓ Environment created successfully")
         print(f"  Observation space: {env.observation_space.shape}")
@@ -132,7 +132,6 @@ def test_environment():
 
     except Exception as e:
         print(f"\n❌ Error testing environment: {e}")
-        print("  Make sure Box2D is installed: pip install gymnasium[box2d]")
         return False
 
 
@@ -198,7 +197,7 @@ def test_agent():
         print("Creating SAC agent (vector mode)...")
         agent = SACAgent(
             state_dim=71,  # 71D vector state
-            action_dim=3,  # [steering, gas, brake]
+            action_dim=2,  # [steering, acceleration]
             lr_actor=3e-4,
             lr_critic=3e-4,
             device=torch.device('cpu')  # Use CPU for testing
@@ -219,7 +218,7 @@ def test_agent():
 
         # Test replay buffer
         print("\nTesting replay buffer...")
-        buffer = ReplayBuffer(capacity=1000, state_shape=(71,), action_dim=3, device=agent.device)
+        buffer = ReplayBuffer(capacity=1000, state_shape=(71,), action_dim=2, device=agent.device)
         buffer.push(dummy_state, action, 1.0, dummy_state, False)
         print(f"✓ Replay buffer works")
         print(f"  Buffer size: {len(buffer)}")

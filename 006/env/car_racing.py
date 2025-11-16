@@ -8,7 +8,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from .car_dynamics import Car
-from gymnasium.error import DependencyNotInstalled, InvalidAction
+from gymnasium.error import DependencyNotInstalled
 from gymnasium.utils import EzPickle
 
 # Import reward configuration from constants
@@ -39,7 +39,7 @@ try:
     from pygame import gfxdraw
 except ImportError as e:
     raise DependencyNotInstalled(
-        'pygame is not installed, run `pip install "gymnasium[box2d]"`'
+        'pygame is not installed, run `pip install pygame`'
     ) from e
 
 try:
@@ -48,10 +48,6 @@ except ImportError as e:
     raise DependencyNotInstalled(
         'opencv is not installed, run `pip install opencv-python`'
     ) from e
-
-# visual mode resolution
-STATE_W = 96
-STATE_H = 96
 
 # rendering resolution
 VIDEO_W = 600
@@ -287,39 +283,28 @@ class FrictionDetector:
 class CarRacing(gym.Env, EzPickle):
     """
     ## Description
-    The easiest control task to learn from pixels - a top-down
-    racing environment. The generated track is random every episode.
+    A top-down racing environment using vector state representation.
+    The generated track is random every episode.
 
-    Some indicators are shown at the bottom of the window along with the
-    state RGB buffer. From left to right: true speed, four ABS sensors,
-    steering wheel position, and gyroscope.
-    To play yourself (it's rather fast for humans), type:
-    ```shell
-    python gymnasium/envs/box2d/car_racing.py
-    ```
+    This implementation uses a 71-dimensional vector state containing track geometry,
+    car dynamics, and lookahead waypoints - optimized for efficient SAC training.
+
+    Some indicators are shown at the bottom of the window when rendering.
+    From left to right: true speed, four ABS sensors, steering wheel position, and gyroscope.
+
     Remember: it's a powerful rear-wheel drive car - don't press the accelerator
     and turn at the same time.
 
     ## Action Space
-    If continuous there are 2 actions:
+    Continuous action space with 2 actions:
     - 0: steering, -1 is full left, +1 is full right
     - 1: acceleration, -1 is full brake, +1 is full gas
 
-    If discrete there are 5 actions:
-    - 0: do nothing
-    - 1: steer right
-    - 2: steer left
-    - 3: gas
-    - 4: brake
-
     ## Observation Space
 
-    Depends on `state_mode` parameter:
-    - "vector": 36-dimensional track geometry with lookahead (RECOMMENDED - fast and informative)
-    - "visual": 96x96 RGB image (slow - not recommended for training, useful for watching)
-
-    **Recommendation**: Use `state_mode="vector"` for training. It's 3-5x faster than visual mode
-    and provides sufficient information for the agent to learn proper racing behavior.
+    Vector mode only:
+    - 71-dimensional state vector with track geometry, car dynamics, and lookahead waypoints
+    - Fast and informative representation optimized for training
 
     ## Rewards
     The reward structure uses continuous progress tracking with safe driving incentives.
@@ -378,8 +363,6 @@ class CarRacing(gym.Env, EzPickle):
         "render_modes": [
             "human",
             "rgb_array",
-            "state_pixels",
-            "agent_view",  # Shows what the agent actually sees (96x96 optimized view)
         ],
         "render_fps": FPS,
     }
@@ -389,8 +372,6 @@ class CarRacing(gym.Env, EzPickle):
         render_mode: str | None = None,
         verbose: bool = False,
         lap_complete_percent: float = 0.95,
-        domain_randomize: bool = False,
-        continuous: bool = True,
         terminate_stationary: bool = True,
         stationary_patience: int = 50,
         stationary_min_steps: int = 50,
@@ -404,9 +385,8 @@ class CarRacing(gym.Env, EzPickle):
     ):
         """
         Args:
-            state_mode: "vector" (compact track geometry vector with lookahead - RECOMMENDED),
-                        or "visual" (96x96 RGB images - slow, not recommended for training).
-                        Default is "vector" for best performance and training results.
+            state_mode: Must be "vector" (71D state vector with track geometry and car dynamics).
+                        This is the only supported mode for optimal performance and training.
             max_episode_steps: Maximum steps per episode (default: 1500). None for unlimited.
             reward_shaping: Apply penalty for short episodes (default: True)
             min_episode_steps: Minimum episode length before penalty (default: 150)
@@ -419,8 +399,6 @@ class CarRacing(gym.Env, EzPickle):
             render_mode,
             verbose,
             lap_complete_percent,
-            domain_randomize,
-            continuous,
             terminate_stationary,
             stationary_patience,
             stationary_min_steps,
@@ -432,8 +410,6 @@ class CarRacing(gym.Env, EzPickle):
             num_cars,
             suspension_config,
         )
-        self.continuous = continuous
-        self.domain_randomize = domain_randomize
         self.lap_complete_percent = lap_complete_percent
         self.terminate_stationary = terminate_stationary
         self.stationary_patience = stationary_patience
@@ -493,40 +469,30 @@ class CarRacing(gym.Env, EzPickle):
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
 
-        # Continuous: 2D action space [steering, acceleration]
+        # Continuous action space: [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
-        if self.continuous:
-            self.action_space = spaces.Box(
-                np.array([-1, -1]).astype(np.float32),
-                np.array([+1, +1]).astype(np.float32),
-            )  # steer, acceleration
-        else:
-            self.action_space = spaces.Discrete(5)
-            # do nothing, right, left, gas, brake
+        self.action_space = spaces.Box(
+            np.array([-1, -1]).astype(np.float32),
+            np.array([+1, +1]).astype(np.float32),
+        )  # steer, acceleration
 
-        # Observation space depends on state_mode and num_cars
-        if self.state_mode == "vector":
-            # Vector state: car state (11) + track segment info (5) + lookahead waypoints (40)
-            # + speed (1) + longitudinal accel (1) + lateral accel (1)
-            # + slip angles (4) + slip ratios (4)
-            # = 71 values total (increased from 47 to support 20 waypoint lookahead)
-            if self.num_cars > 1:
-                # Multi-car: return stacked observations for all cars
-                self.observation_space = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(self.num_cars, 71), dtype=np.float32
-                )
-            else:
-                # Single car (backward compatible)
-                self.observation_space = spaces.Box(
-                    low=-np.inf, high=np.inf, shape=(71,), dtype=np.float32
-                )
-        else:
-            # Visual state: 96x96 RGB image
-            if self.num_cars > 1:
-                # Multi-car visual not supported yet
-                raise NotImplementedError("Multi-car mode only supports state_mode='vector'")
+        # Observation space: vector mode only
+        if self.state_mode != "vector":
+            raise ValueError(f"Only state_mode='vector' is supported, got '{self.state_mode}'")
+
+        # Vector state: car state (11) + track segment info (5) + lookahead waypoints (40)
+        # + speed (1) + longitudinal accel (1) + lateral accel (1)
+        # + slip angles (4) + slip ratios (4)
+        # = 71 values total (increased from 47 to support 20 waypoint lookahead)
+        if self.num_cars > 1:
+            # Multi-car: return stacked observations for all cars
             self.observation_space = spaces.Box(
-                low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8
+                low=-np.inf, high=np.inf, shape=(self.num_cars, 71), dtype=np.float32
+            )
+        else:
+            # Single car (backward compatible)
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(71,), dtype=np.float32
             )
 
         self.render_mode = render_mode
@@ -544,35 +510,10 @@ class CarRacing(gym.Env, EzPickle):
         self.car = None
 
     def _init_colors(self):
-        if self.domain_randomize:
-            # domain randomize the bg and grass colour
-            self.road_color = self.np_random.uniform(0, 210, size=3)
-
-            self.bg_color = self.np_random.uniform(0, 210, size=3)
-
-            self.grass_color = np.copy(self.bg_color)
-            idx = self.np_random.integers(3)
-            self.grass_color[idx] += 20
-        else:
-            # default colours
-            self.road_color = np.array([102, 102, 102])
-            self.bg_color = np.array([102, 204, 102])
-            self.grass_color = np.array([102, 230, 102])
-
-    def _reinit_colors(self, randomize):
-        assert (
-            self.domain_randomize
-        ), "domain_randomize must be True to use this function."
-
-        if randomize:
-            # domain randomize the bg and grass colour
-            self.road_color = self.np_random.uniform(0, 210, size=3)
-
-            self.bg_color = self.np_random.uniform(0, 210, size=3)
-
-            self.grass_color = np.copy(self.bg_color)
-            idx = self.np_random.integers(3)
-            self.grass_color[idx] += 20
+        # Default track colors
+        self.road_color = np.array([102, 102, 102])
+        self.bg_color = np.array([102, 204, 102])
+        self.grass_color = np.array([102, 230, 102])
 
     def _get_car_color(self, car_idx):
         """Return distinct color for each car (for rendering)."""
@@ -845,14 +786,6 @@ class CarRacing(gym.Env, EzPickle):
         self.furthest_tile_idx = 0  # Furthest tile index reached (for progress calculation)
         self.last_progress = 0.0    # Previous progress (0.0 to 1.0)
 
-        if self.domain_randomize:
-            randomize = True
-            if isinstance(options, dict):
-                if "randomize" in options:
-                    randomize = options["randomize"]
-
-            self._reinit_colors(randomize)
-
         while True:
             success = self._create_track()
             if success:
@@ -930,36 +863,22 @@ class CarRacing(gym.Env, EzPickle):
         accel = 0.0
 
         if action is not None:
-            if self.continuous:
-                action = action.astype(np.float64)
-                # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
-                steer_action = -action[0]
-                accel = np.clip(action[1], -1.0, 1.0)
+            action = action.astype(np.float64)
+            # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
+            steer_action = -action[0]
+            accel = np.clip(action[1], -1.0, 1.0)
 
-                # Convert acceleration to gas/brake
-                if accel > 0:
-                    gas = accel
-                    brake = 0.0
-                else:
-                    gas = 0.0
-                    brake = -accel
-
-                self.car.steer(steer_action)
-                self.car.gas(gas)
-                self.car.brake(brake)
+            # Convert acceleration to gas/brake
+            if accel > 0:
+                gas = accel
+                brake = 0.0
             else:
-                if not self.action_space.contains(action):
-                    raise InvalidAction(
-                        f"you passed the invalid action `{action}`. "
-                        f"The supported action_space is `{self.action_space}`"
-                    )
-                steer_action = -0.6 * (action == 1) + 0.6 * (action == 2)
-                gas = 0.2 * (action == 3)
-                brake = 0.8 * (action == 4)
+                gas = 0.0
+                brake = -accel
 
-                self.car.steer(steer_action)
-                self.car.gas(gas)
-                self.car.brake(brake)
+            self.car.steer(steer_action)
+            self.car.gas(gas)
+            self.car.brake(brake)
 
         # Step custom physics engine and get debug info
         physics_start = time.perf_counter() if self.verbose else None
@@ -972,17 +891,9 @@ class CarRacing(gym.Env, EzPickle):
         collision_time = (time.perf_counter() - collision_start) * 1000 if self.verbose else None
         self.t += 1.0 / FPS
 
-        # Create state based on state_mode
+        # Create vector state
         state_start = time.perf_counter() if self.verbose else None
-        if self.state_mode == "vector":
-            # Fast vector state (no rendering) - 36D with track geometry
-            self.state = self._create_vector_state()
-        elif self.render_mode is not None:
-            # Visual state with rendering
-            self.state = self._render("state_pixels")
-        else:
-            # Headless visual mode: create minimal state without rendering
-            self.state = self._create_headless_state()
+        self.state = self._create_vector_state()
         state_time = (time.perf_counter() - state_start) * 1000 if self.verbose else None
 
         step_reward = 0
@@ -995,9 +906,6 @@ class CarRacing(gym.Env, EzPickle):
 
         if action is not None:  # First step without action, called from reset()
             self.reward -= STEP_PENALTY  # Time penalty (encourages speed)
-            # We actually don't want to count fuel spent, we want car to be faster.
-            # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
-            self.car.fuel_spent = 0.0
 
             # Calculate speed magnitude (for stationary detection and debug output)
             speed = np.sqrt(
@@ -1169,11 +1077,8 @@ class CarRacing(gym.Env, EzPickle):
         """
         # Validate action shape
         if action is not None:
-            if self.continuous:
-                assert action.shape == (self.num_cars, 2), \
-                    f"Expected action shape ({self.num_cars}, 2), got {action.shape}"
-            else:
-                assert len(action) == self.num_cars
+            assert action.shape == (self.num_cars, 2), \
+                f"Expected action shape ({self.num_cars}, 2), got {action.shape}"
 
         step_rewards = np.zeros(self.num_cars, dtype=np.float32)
         terminated = np.zeros(self.num_cars, dtype=bool)
@@ -1185,23 +1090,14 @@ class CarRacing(gym.Env, EzPickle):
             if action is not None:
                 car_action = action[car_idx]
 
-                # Apply action to this car
-                if self.continuous:
-                    steer_action = -car_action[0]
-                    accel = np.clip(car_action[1], -1.0, 1.0)
-                    gas = accel if accel > 0 else 0.0
-                    brake = -accel if accel < 0 else 0.0
-                    car.steer(steer_action)
-                    car.gas(gas)
-                    car.brake(brake)
-                else:
-                    # Discrete action logic
-                    steer_action = -0.6 * (car_action == 1) + 0.6 * (car_action == 2)
-                    gas = 0.2 * (car_action == 3)
-                    brake = 0.8 * (car_action == 4)
-                    car.steer(steer_action)
-                    car.gas(gas)
-                    car.brake(brake)
+                # Apply continuous action to this car
+                steer_action = -car_action[0]
+                accel = np.clip(car_action[1], -1.0, 1.0)
+                gas = accel if accel > 0 else 0.0
+                brake = -accel if accel < 0 else 0.0
+                car.steer(steer_action)
+                car.gas(gas)
+                car.brake(brake)
 
                 # Step physics for this car
                 car.step(1.0 / FPS)
@@ -1316,53 +1212,8 @@ class CarRacing(gym.Env, EzPickle):
                 f'e.g. gym.make("{self.spec.id}", render_mode="rgb_array")'
             )
             return
-        elif self.render_mode == "agent_view":
-            return self._render_agent_view()
         else:
             return self._render(self.render_mode)
-
-    def _render_agent_view(self):
-        """
-        Render mode that shows exactly what the agent sees during training.
-        Returns the 96x96 optimized view in human-viewable window.
-        """
-        pygame.font.init()
-        if self.screen is None:
-            pygame.init()
-            pygame.display.init()
-            # Create a larger window to show the small 96x96 view
-            self.screen = pygame.display.set_mode((STATE_W * 6, STATE_H * 6))
-            pygame.display.set_caption("Agent View (96x96 scaled 6x)")
-        if self.clock is None:
-            self.clock = pygame.time.Clock()
-
-        if "t" not in self.__dict__:
-            return  # reset() not called yet
-
-        # Get the agent's actual view
-        agent_view = self._create_headless_state()
-
-        # Convert to pygame surface
-        # agent_view is (96, 96, 3) in range [0, 255]
-        surf = pygame.surfarray.make_surface(np.transpose(agent_view, (1, 0, 2)))
-
-        # Scale up 6x for visibility
-        scaled_surf = pygame.transform.scale(surf, (STATE_W * 6, STATE_H * 6))
-
-        # Display
-        pygame.event.pump()
-        self.clock.tick(self.metadata["render_fps"])
-        self.screen.fill(0)
-        self.screen.blit(scaled_surf, (0, 0))
-
-        # Add text overlay showing it's agent view
-        font = pygame.font.Font(pygame.font.get_default_font(), 20)
-        text = font.render("Agent View (96x96 @ 6x scale)", True, (255, 255, 0), (0, 0, 0))
-        self.screen.blit(text, (10, 10))
-
-        pygame.display.flip()
-
-        return agent_view
 
     def _find_closest_track_segment(self, car_pos):
         """
@@ -1657,100 +1508,6 @@ class CarRacing(gym.Env, EzPickle):
 
         return state
 
-    def _create_headless_state(self):
-        """
-        Fast headless rendering for training (3-5x faster than full rendering).
-        Creates minimal pygame surface at target resolution without expensive elements.
-        Compatible with new physics engine (no Box2D fixtures).
-        """
-        # Use smaller surface size directly
-        target_size = (STATE_W, STATE_H)
-        surf = pygame.Surface(target_size)
-
-        # Simple rendering without zoom or rotation
-        assert self.car is not None
-
-        # Calculate simpler camera transform (no rotation)
-        zoom_factor = ZOOM * SCALE * STATE_W / WINDOW_W
-        scroll_x = -self.car.hull.position[0] * zoom_factor + STATE_W / 2
-        scroll_y = -self.car.hull.position[1] * zoom_factor + STATE_H / 2
-
-        # Draw background (solid color, no grass patches)
-        surf.fill(self.bg_color)
-
-        # Draw road (simplified, no anti-aliasing)
-        for poly, color in self.road_poly:
-            # Transform to screen coordinates
-            screen_poly = []
-            for p in poly:
-                x = p[0] * zoom_factor + scroll_x
-                y = p[1] * zoom_factor + scroll_y
-                screen_poly.append((x, y))
-
-            # Simple filled polygon (no anti-aliasing)
-            try:
-                pygame.draw.polygon(surf, color, screen_poly)
-            except (pygame.error, ValueError, TypeError):
-                pass  # Skip if polygon is off-screen or has invalid coordinates
-
-        # Draw car body (simplified for new physics engine)
-        self._draw_car_simple(surf, zoom_factor, scroll_x, scroll_y)
-
-        # Flip vertically to match standard rendering
-        surf = pygame.transform.flip(surf, False, True)
-
-        # Convert to numpy array
-        return self._create_image_array(surf, (STATE_W, STATE_H))
-
-    def _draw_car_simple(self, surf, zoom_factor, scroll_x, scroll_y):
-        """
-        Draw car body using simple geometry (no Box2D fixtures).
-        Draws a simple box representing the car.
-        """
-        assert self.car is not None
-
-        # Car dimensions in local frame
-        car_x, car_y = self.car.hull.position
-        angle = -self.car.hull.angle + (math.pi / 2.0)
-
-        # Draw car as a simple rectangle
-        # Approximate car as 4m long, 2m wide
-        car_length = 2.0
-        car_width = 1.0
-
-        # Car corners in local frame
-        corners_local = [
-            (-car_width / 2, car_length / 2),   # Front left
-            (car_width / 2, car_length / 2),    # Front right
-            (car_width / 2, -car_length / 2),   # Rear right
-            (-car_width / 2, -car_length / 2),  # Rear left
-        ]
-
-        # Rotate and translate to world frame
-        cos_a = np.cos(angle)
-        sin_a = np.sin(angle)
-        corners_world = []
-        for dx, dy in corners_local:
-            # Rotate
-            x = dx * cos_a - dy * sin_a
-            y = dx * sin_a + dy * cos_a
-            # Translate
-            corners_world.append((car_x + x, car_y + y))
-
-        # Transform to screen coordinates
-        screen_corners = []
-        for x, y in corners_world:
-            sx = x * zoom_factor + scroll_x
-            sy = y * zoom_factor + scroll_y
-            screen_corners.append((sx, sy))
-
-        # Draw car body
-        try:
-            color = [int(c * 255) for c in self.car.hull.color]
-            pygame.draw.polygon(surf, color, screen_corners)
-        except (pygame.error, ValueError, TypeError, AttributeError):
-            pass  # Skip if car rendering fails (e.g., color not set or invalid coordinates)
-
     def _render(self, mode: str):
         assert mode in self.metadata["render_modes"]
 
@@ -1779,7 +1536,7 @@ class CarRacing(gym.Env, EzPickle):
 
         self._render_road(zoom, trans, angle)
         # Draw car (simplified for new physics engine, no Box2D)
-        self._render_car(zoom, trans, angle, mode not in ["state_pixels_list", "state_pixels"])
+        self._render_car(zoom, trans, angle, draw_particles=True)
 
         self.surf = pygame.transform.flip(self.surf, False, True)
 
@@ -1801,8 +1558,6 @@ class CarRacing(gym.Env, EzPickle):
             pygame.display.flip()
         elif mode == "rgb_array":
             return self._create_image_array(self.surf, (VIDEO_W, VIDEO_H))
-        elif mode == "state_pixels":
-            return self._create_image_array(self.surf, (STATE_W, STATE_H))
         else:
             return self.isopen
 
