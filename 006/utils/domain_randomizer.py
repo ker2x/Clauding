@@ -90,9 +90,6 @@ class DomainRandomizer:
         # Track parameters
         params['track'] = self._randomize_track()
 
-        # Visual parameters
-        params['visual'] = self._randomize_visual()
-
         self.current_params = params
         self.randomization_count += 1
 
@@ -192,39 +189,6 @@ class DomainRandomizer:
             'track_width_multiplier': self._sample_range(cfg.track_width_range),
         }
 
-    def _randomize_visual(self) -> Dict[str, Any]:
-        """Randomize visual parameters."""
-        cfg = self.config.visual
-
-        visual_params = {
-            'randomize_track_color': cfg.randomize_track_color,
-            'randomize_bg_color': cfg.randomize_bg_color,
-            'randomize_car_color': cfg.randomize_car_color,
-        }
-
-        if cfg.randomize_track_color:
-            # Sample RGB noise
-            visual_params['track_color_noise'] = self.rng.normal(
-                0, cfg.track_color_noise_std, size=3
-            )
-        else:
-            visual_params['track_color_noise'] = np.zeros(3)
-
-        if cfg.randomize_bg_color:
-            visual_params['bg_color_noise'] = self.rng.normal(
-                0, cfg.bg_color_noise_std, size=3
-            )
-        else:
-            visual_params['bg_color_noise'] = np.zeros(3)
-
-        if cfg.randomize_car_color:
-            # Random car color (full randomization)
-            visual_params['car_color'] = self.rng.uniform(0, 1, size=3)
-        else:
-            visual_params['car_color'] = None
-
-        return visual_params
-
     def _sample_range(self, range_tuple: tuple) -> float:
         """
         Sample a value uniformly from a range.
@@ -276,14 +240,6 @@ class DomainRandomizer:
             'track': {
                 'surface_friction_multiplier': 1.0,
                 'track_width_multiplier': 1.0,
-            },
-            'visual': {
-                'randomize_track_color': False,
-                'randomize_bg_color': False,
-                'randomize_car_color': False,
-                'track_color_noise': np.zeros(3),
-                'bg_color_noise': np.zeros(3),
-                'car_color': None,
             },
         }
 
@@ -350,35 +306,6 @@ class DomainRandomizer:
 
         # Note: Track width randomization would require regenerating the track
         # or scaling existing geometry. This is more complex and may be added later.
-
-    def apply_visual(self, env, params: Dict[str, Any]) -> None:
-        """
-        Apply visual randomization to environment.
-
-        Args:
-            env: CarRacing environment instance
-            params: Randomized parameters from randomize()
-        """
-        visual_params = params['visual']
-
-        # Apply track color noise
-        if visual_params['randomize_track_color']:
-            noise = visual_params['track_color_noise']
-            if hasattr(env, 'road_color'):
-                env.road_color = np.clip(env.road_color + noise, 0, 255).astype(np.uint8)
-
-        # Apply background color noise
-        if visual_params['randomize_bg_color']:
-            noise = visual_params['bg_color_noise']
-            if hasattr(env, 'bg_color'):
-                env.bg_color = np.clip(env.bg_color + noise, 0, 255).astype(np.uint8)
-            if hasattr(env, 'grass_color'):
-                env.grass_color = np.clip(env.grass_color + noise, 0, 255).astype(np.uint8)
-
-        # Apply car color
-        if visual_params['randomize_car_color'] and visual_params['car_color'] is not None:
-            if hasattr(env, 'car') and env.car and hasattr(env.car, 'hull'):
-                env.car.hull.color = tuple(visual_params['car_color'])
 
     def get_info_dict(self) -> Dict[str, Any]:
         """

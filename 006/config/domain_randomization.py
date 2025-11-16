@@ -4,9 +4,8 @@ Domain Randomization Configuration for CarRacing Environment.
 This module provides configurable domain randomization for the car racing
 environment to improve policy robustness and generalization.
 
-Domain randomization varies physical parameters, visual properties, and
-track characteristics across episodes to prevent overfitting to specific
-conditions.
+Domain randomization varies physical parameters and track characteristics
+across episodes to prevent overfitting to specific conditions.
 
 Usage:
     # Create with default settings (disabled)
@@ -126,26 +125,6 @@ class TrackRandomization:
 
 
 @dataclass
-class VisualRandomization:
-    """
-    Visual parameter randomization ranges.
-
-    These don't affect physics but help with visual generalization.
-    Useful if training with vision-based observations.
-    """
-    # Track colors (RGB values will be perturbed)
-    randomize_track_color: bool = False
-    track_color_noise_std: float = 0.0  # Standard deviation for RGB noise
-
-    # Background colors
-    randomize_bg_color: bool = False
-    bg_color_noise_std: float = 0.0
-
-    # Car color
-    randomize_car_color: bool = False
-
-
-@dataclass
 class DomainRandomizationConfig:
     """
     Complete domain randomization configuration.
@@ -212,7 +191,6 @@ class DomainRandomizationConfig:
     drivetrain: DrivetrainRandomization = field(default_factory=DrivetrainRandomization)
     aerodynamics: AerodynamicsRandomization = field(default_factory=AerodynamicsRandomization)
     track: TrackRandomization = field(default_factory=TrackRandomization)
-    visual: VisualRandomization = field(default_factory=VisualRandomization)
 
     # Randomization frequency
     # 'episode': Randomize once per episode (recommended)
@@ -358,27 +336,5 @@ def wet_surface_conditions() -> DomainRandomizationConfig:
         ),
         track=TrackRandomization(
             surface_friction_range=(0.60, 0.80),  # Wet surface
-        ),
-    )
-
-
-def visual_randomization() -> DomainRandomizationConfig:
-    """
-    Enable visual randomization for vision-based training.
-
-    Randomizes colors and visual appearance while keeping physics constant.
-    Useful for training vision-based policies.
-
-    Returns:
-        DomainRandomizationConfig with visual randomization only
-    """
-    return DomainRandomizationConfig(
-        enabled=True,
-        visual=VisualRandomization(
-            randomize_track_color=True,
-            track_color_noise_std=20.0,  # RGB noise std dev
-            randomize_bg_color=True,
-            bg_color_noise_std=15.0,
-            randomize_car_color=True,
         ),
     )

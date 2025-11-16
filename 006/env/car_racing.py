@@ -835,9 +835,6 @@ class CarRacing(gym.Env, EzPickle):
             # Apply to track
             self.domain_randomizer.apply_to_track(self, randomized_params)
 
-            # Apply visual randomization
-            self.domain_randomizer.apply_visual(self, randomized_params)
-
             if self.verbose:
                 info = self.domain_randomizer.get_info_dict()
                 print(f"\n=== Domain Randomization Applied ===")

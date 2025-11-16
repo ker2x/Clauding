@@ -9,7 +9,7 @@ The environment provides a realistic car racing simulation with:
 - **Pacejka Magic Formula Tires**: Industry-standard tire model
 - **Realistic Load Transfer**: Physics-based weight distribution during cornering/braking
 - **Configurable Suspension**: Independent per-wheel spring-damper system
-- **Multiple State Modes**: Vector (71D) and visual (96x96 RGB) observation modes
+- **Vector State Space**: Rich 71D observation vector with track geometry and vehicle telemetry
 
 ## Architecture
 
@@ -195,7 +195,7 @@ CarRacing(
     terminate_stationary: bool = True,
     stationary_patience: int = 50,
     stationary_min_steps: int = 50,
-    state_mode: str = "vector",          # "vector" or "visual"
+    state_mode: str = "vector",          # Only "vector" mode supported
     max_episode_steps: int | None = 2500,
     reward_shaping: bool = True,
     min_episode_steps: int = 150,
@@ -245,11 +245,6 @@ state = [
     *opponent_info,                # Nearest opponent data
     ...
 ]
-```
-
-**Visual Mode (96×96×3)** - For visualization only:
-```python
-observation_space = Box(0, 255, (96, 96, 3), dtype=uint8)
 ```
 
 **Reward Structure** (car_racing.py:311-361):
@@ -409,12 +404,6 @@ env = CarRacing(
     continuous=True,
     max_episode_steps=2500
 )
-
-# Visual mode (for watching)
-env = CarRacing(
-    render_mode="human",
-    state_mode="visual"
-)
 ```
 
 ### Custom Suspension Configuration
@@ -491,18 +480,13 @@ for i in range(4):  # FL, FR, RL, RR
 
 ## Performance Considerations
 
-### Vector vs Visual Mode
+### Vector Mode
 
-**Vector Mode** (RECOMMENDED):
-- **Speed**: 3-5× faster than visual mode
-- **Training**: Efficient state representation (71D)
-- **Rendering**: No rendering overhead
-- **Information**: Full track geometry and lookahead
-
-**Visual Mode**:
-- **Speed**: Slower due to rendering
-- **Use Case**: Watching trained agents, human play
-- **Resolution**: 96×96 RGB (optimized for small networks)
+**Vector State Space**:
+- **Speed**: Highly efficient (~2ms per step)
+- **Training**: Rich 71D state representation
+- **Rendering**: Optional (only for visualization)
+- **Information**: Full track geometry, vehicle telemetry, and lookahead
 
 ### Computational Complexity
 

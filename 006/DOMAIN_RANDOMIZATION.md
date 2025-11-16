@@ -27,7 +27,6 @@ The system can randomize:
 - **Drivetrain**: Engine power, torque, braking force
 - **Aerodynamics**: Drag coefficient, frontal area
 - **Track**: Surface friction, track width
-- **Visual**: Colors and appearance (useful for vision-based training)
 
 ## Quick Start
 
@@ -486,16 +485,6 @@ def make_env():
 | `track_width_range` | Track width multiplier | (0.95, 1.05) |
 
 Note: Track width randomization affects difficulty significantly. Use conservatively.
-
-### VisualRandomization
-
-| Parameter | Description | Use Case |
-|-----------|-------------|----------|
-| `randomize_track_color` | Randomize track color | Vision-based policies |
-| `track_color_noise_std` | RGB noise std deviation | Typical: 10-20 |
-| `randomize_bg_color` | Randomize background | Vision-based policies |
-| `bg_color_noise_std` | RGB noise std deviation | Typical: 10-20 |
-| `randomize_car_color` | Randomize car color | Vision-based policies |
 
 ## Best Practices
 
