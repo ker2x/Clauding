@@ -179,17 +179,3 @@ class PhysicsConfig:
     aerodynamics: AerodynamicsParams = field(default_factory=AerodynamicsParams)
     steering: SteeringParams = field(default_factory=SteeringParams)
     friction: FrictionParams = field(default_factory=FrictionParams)
-
-
-# Default physics configuration instance
-DEFAULT_PHYSICS_CONFIG = PhysicsConfig()
-
-
-def get_physics_config():
-    """
-    Get the default physics configuration.
-
-    Returns:
-        PhysicsConfig: Default physics configuration
-    """
-    return DEFAULT_PHYSICS_CONFIG

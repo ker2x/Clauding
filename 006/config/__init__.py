@@ -17,8 +17,6 @@ from .physics_config import (
     AerodynamicsParams,
     SteeringParams,
     FrictionParams,
-    get_physics_config,
-    DEFAULT_PHYSICS_CONFIG,
 )
 from .rendering_config import (
     RenderingConfig,
@@ -27,8 +25,6 @@ from .rendering_config import (
     TrackVisualsConfig,
     FrictionDetectionConfig,
     StateNormalizationConfig,
-    get_rendering_config,
-    DEFAULT_RENDERING_CONFIG,
 )
 
 __all__ = [
@@ -85,8 +81,6 @@ __all__ = [
     'AerodynamicsParams',
     'SteeringParams',
     'FrictionParams',
-    'get_physics_config',
-    'DEFAULT_PHYSICS_CONFIG',
     # Rendering config
     'RenderingConfig',
     'VideoConfig',
@@ -94,6 +88,4 @@ __all__ = [
     'TrackVisualsConfig',
     'FrictionDetectionConfig',
     'StateNormalizationConfig',
-    'get_rendering_config',
-    'DEFAULT_RENDERING_CONFIG',
 ]

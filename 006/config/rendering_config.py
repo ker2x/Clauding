@@ -90,17 +90,3 @@ class RenderingConfig:
     track_visuals: TrackVisualsConfig = field(default_factory=TrackVisualsConfig)
     friction_detection: FrictionDetectionConfig = field(default_factory=FrictionDetectionConfig)
     state_normalization: StateNormalizationConfig = field(default_factory=StateNormalizationConfig)
-
-
-# Default rendering configuration instance
-DEFAULT_RENDERING_CONFIG = RenderingConfig()
-
-
-def get_rendering_config():
-    """
-    Get the default rendering configuration.
-
-    Returns:
-        RenderingConfig: Default rendering configuration
-    """
-    return DEFAULT_RENDERING_CONFIG
