@@ -65,49 +65,28 @@ def format_action(action):
     Format continuous action for display.
 
     Args:
-        action: Continuous action [steering, acceleration] (2D) or [steering, gas, brake] (3D, old)
+        action: Continuous action [steering, acceleration]
 
     Returns:
         Human-readable action description
     """
-    if len(action) == 2:
-        # New 2D action space: [steering, acceleration]
-        steering, accel = action
+    steering, accel = action
 
-        # Describe steering
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        # Describe acceleration
-        if accel > 0.1:
-            pedal_desc = f"GAS({accel:.2f})"
-        elif accel < -0.1:
-            pedal_desc = f"BRAKE({-accel:.2f})"
-        else:
-            pedal_desc = "COAST"
+    # Describe steering
+    if steering < -0.3:
+        steer_desc = f"LEFT({steering:.2f})"
+    elif steering > 0.3:
+        steer_desc = f"RIGHT({steering:.2f})"
     else:
-        # Old 3D action space: [steering, gas, brake]
-        steering, gas, brake = action
+        steer_desc = f"STRAIGHT({steering:.2f})"
 
-        # Describe steering
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        # Describe gas/brake
-        if brake > 0.1:
-            pedal_desc = f"BRAKE({brake:.2f})"
-        elif gas > 0.1:
-            pedal_desc = f"GAS({gas:.2f})"
-        else:
-            pedal_desc = "COAST"
+    # Describe acceleration
+    if accel > 0.1:
+        pedal_desc = f"GAS({accel:.2f})"
+    elif accel < -0.1:
+        pedal_desc = f"BRAKE({-accel:.2f})"
+    else:
+        pedal_desc = "COAST"
 
     return f"{steer_desc} + {pedal_desc}"
 
@@ -350,7 +329,7 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha, spee
         step: Current step number
         reward: Current step reward
         total_reward: Cumulative episode reward
-        action: Continuous action [steering, gas, brake]
+        action: Continuous action [steering, acceleration]
         alpha: Entropy coefficient
         speed_kmh: Car speed in km/h
 
@@ -386,7 +365,7 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha, spee
 
 def watch_agent(args):
     """Watch agent play episodes."""
-    # First, detect state mode from checkpoint
+    # Load checkpoint and verify it's vector mode
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
 
     # Try to detect state_mode from checkpoint
@@ -397,15 +376,15 @@ def watch_agent(args):
         # Auto-detect from network architecture
         actor_state = checkpoint['actor']
         if 'conv1.weight' in actor_state:
-            state_mode = 'visual'
-            print("Auto-detected state mode: visual (has conv layers)")
+            raise ValueError("Visual mode checkpoint detected but not supported in 006/. Use vector mode checkpoints only.")
         else:
             state_mode = 'vector'
-            print("Auto-detected state mode: vector (no conv layers)")
+            print("Auto-detected state mode: vector")
 
-    # Use same state mode as training (agent architecture must match checkpoint)
-    # 006/ only supports vector mode
-    # But use rendering for visualization
+    if state_mode != 'vector':
+        raise ValueError(f"Only vector mode is supported in 006/, got '{state_mode}'")
+
+    # Use rendering for visualization
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
         terminate_stationary=True,
@@ -490,43 +469,26 @@ def watch_agent(args):
                     # Get car speed
                     speed_kmh = get_car_speed(env)
 
-                    if state_mode == 'vector':
-                        # Vector mode: Show game render and/or vector visualization based on --view option
-
-                        # Get game render if needed
-                        if args.view in ['game', 'both']:
-                            rgb_frame = env.render()
-                            game_render = render_frame(
-                                rgb_frame, episode + 1, step, reward, total_reward,
-                                action, alpha_value, speed_kmh
-                            )
-                            cv2.imshow('SAC Agent - Game View', game_render)
-
-                        # Get vector state visualization if needed
-                        if args.view in ['vector', 'both']:
-                            vector_viz = visualize_vector_state(
-                                state, episode + 1, step, reward, total_reward,
-                                action, alpha_value, speed_kmh
-                            )
-                            cv2.imshow('SAC Agent - Vector State (Model View)', vector_viz)
-
-                        # Handle keyboard input
-                        key = cv2.waitKey(1) & 0xFF
-                    else:
-                        # Visual mode: Only show game render
+                    # Vector mode: Show game render and/or vector visualization based on --view option
+                    # Get game render if needed
+                    if args.view in ['game', 'both']:
                         rgb_frame = env.render()
-
-                        # Add overlay
-                        display_frame = render_frame(
+                        game_render = render_frame(
                             rgb_frame, episode + 1, step, reward, total_reward,
                             action, alpha_value, speed_kmh
                         )
+                        cv2.imshow('SAC Agent - Game View', game_render)
 
-                        # Display
-                        cv2.imshow('SAC Agent - CarRacing-v3', display_frame)
+                    # Get vector state visualization if needed
+                    if args.view in ['vector', 'both']:
+                        vector_viz = visualize_vector_state(
+                            state, episode + 1, step, reward, total_reward,
+                            action, alpha_value, speed_kmh
+                        )
+                        cv2.imshow('SAC Agent - Vector State (Model View)', vector_viz)
 
-                        # Handle keyboard input
-                        key = cv2.waitKey(1) & 0xFF
+                    # Handle keyboard input
+                    key = cv2.waitKey(1) & 0xFF
 
                     # Process keyboard input
                     if key == 27 or key == ord('q'):  # ESC or Q

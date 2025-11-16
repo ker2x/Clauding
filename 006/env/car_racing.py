@@ -39,7 +39,7 @@ try:
     from pygame import gfxdraw
 except ImportError as e:
     raise DependencyNotInstalled(
-        'pygame is not installed, run `pip install "gymnasium[box2d]"`'
+        'pygame is not installed, run `pip install pygame`'
     ) from e
 
 try:
@@ -283,30 +283,22 @@ class FrictionDetector:
 class CarRacing(gym.Env, EzPickle):
     """
     ## Description
-    The easiest control task to learn from pixels - a top-down
-    racing environment. The generated track is random every episode.
+    A top-down racing environment using vector state representation.
+    The generated track is random every episode.
 
-    Some indicators are shown at the bottom of the window along with the
-    state RGB buffer. From left to right: true speed, four ABS sensors,
-    steering wheel position, and gyroscope.
-    To play yourself (it's rather fast for humans), type:
-    ```shell
-    python gymnasium/envs/box2d/car_racing.py
-    ```
+    This implementation uses a 71-dimensional vector state containing track geometry,
+    car dynamics, and lookahead waypoints - optimized for efficient SAC training.
+
+    Some indicators are shown at the bottom of the window when rendering.
+    From left to right: true speed, four ABS sensors, steering wheel position, and gyroscope.
+
     Remember: it's a powerful rear-wheel drive car - don't press the accelerator
     and turn at the same time.
 
     ## Action Space
-    If continuous there are 2 actions:
+    Continuous action space with 2 actions:
     - 0: steering, -1 is full left, +1 is full right
     - 1: acceleration, -1 is full brake, +1 is full gas
-
-    If discrete there are 5 actions:
-    - 0: do nothing
-    - 1: steer right
-    - 2: steer left
-    - 3: gas
-    - 4: brake
 
     ## Observation Space
 

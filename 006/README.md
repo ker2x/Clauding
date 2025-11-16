@@ -310,7 +310,10 @@ PROGRESS_REWARD_SCALE = 6000.0
 ## Project 006 Cleanup
 
 This version has been streamlined to focus on vector mode training:
-- **Removed**: Visual mode training support (image-based observations)
+- **Removed**: Visual mode (96x96 image observations - never used)
+- **Removed**: Discrete action space (continuous-only now)
+- **Removed**: Domain randomization (always disabled)
+- **Removed**: Fuel tracking (unused penalty)
 - **Removed**: Non-parallel selection training variants
 - **Removed**: Multi-car training scripts
 - **Removed**: VectorEnv training scripts
@@ -319,7 +322,8 @@ This version has been streamlined to focus on vector mode training:
 - **Added**: Centralized configuration via `constants.py`
 - **Result**: Cleaner, more maintainable codebase focused on what works best
 
-The environment still supports visual mode for visualization purposes (watching trained agents), but all training code uses vector mode exclusively.
+The environment uses vector mode for both training and agent observations.
+Rendering (600x400 RGB) is only used for human visualization via watch scripts.
 
 ## License
 

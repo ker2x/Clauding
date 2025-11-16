@@ -38,40 +38,21 @@ def parse_args():
 
 def format_action(action):
     """Format continuous action for display."""
-    if len(action) == 2:
-        # New 2D action space: [steering, acceleration]
-        steering, accel = action
+    steering, accel = action
 
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        if accel > 0.1:
-            pedal_desc = f"GAS({accel:.2f})"
-        elif accel < -0.1:
-            pedal_desc = f"BRAKE({-accel:.2f})"
-        else:
-            pedal_desc = "COAST"
+    if steering < -0.3:
+        steer_desc = f"LEFT({steering:.2f})"
+    elif steering > 0.3:
+        steer_desc = f"RIGHT({steering:.2f})"
     else:
-        # Old 3D action space: [steering, gas, brake]
-        steering, gas, brake = action
+        steer_desc = f"STRAIGHT({steering:.2f})"
 
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        if brake > 0.1:
-            pedal_desc = f"BRAKE({brake:.2f})"
-        elif gas > 0.1:
-            pedal_desc = f"GAS({gas:.2f})"
-        else:
-            pedal_desc = "COAST"
+    if accel > 0.1:
+        pedal_desc = f"GAS({accel:.2f})"
+    elif accel < -0.1:
+        pedal_desc = f"BRAKE({-accel:.2f})"
+    else:
+        pedal_desc = "COAST"
 
     return f"{steer_desc} + {pedal_desc}"
 

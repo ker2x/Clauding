@@ -4,12 +4,11 @@ Preprocessing and environment wrappers for CarRacing-v3.
 This module handles environment creation for vector mode only.
 Vector mode provides a 71D state vector with track geometry and car state.
 
-CarRacing-v3 has a continuous action space: [steering, gas, brake]
+CarRacing-v3 uses a continuous action space: [steering, acceleration]
 - steering: [-1.0, 1.0] (left to right)
-- gas: [0.0, 1.0]
-- brake: [0.0, 1.0]
+- acceleration: [-1.0, 1.0] (brake to gas)
 
-This project uses continuous actions directly with SAC (no discretization).
+Continuous actions are used directly with SAC - no discretization.
 """
 
 import gymnasium as gym
