@@ -15,35 +15,18 @@ Vehicle Model: 2022 Mazda MX-5 Sport (ND)
   * Braking: 1.15g deceleration (matches 60-0 mph in 115 ft)
   * Acceleration: 0.57g on rear wheels (RWD, realistic)
 
-Pacejka Magic Formula Inputs:
-- slip_angle: Difference between tire direction and velocity direction
-  * 0° = no slip (rolling straight)
-  * Street tires peak at ~8-10° (race tires peak at 3-6°)
-  * Range: -90° to +90°
-
-- slip_ratio: Difference between wheel speed and ground speed
-  * -1.0 = full brake lockup (wheel stopped, car moving)
-  * 0.0 = perfect grip (wheel speed = ground speed)
-  * +1.0 = full wheelspin (wheel spinning, car stationary)
-  * Street tires peak at ~12-15% slip ratio
-
-- normal_force: Vertical load on tire (N)
-  * Static: ~2605 N per wheel (¼ vehicle weight)
-  * Dynamic: Varies with load transfer during cornering/braking
-  * Load transfer uses filtered accelerations (alpha=0.15) to prevent oscillations
-
-- max_friction: Surface friction coefficient
-  * 1.0 = asphalt (default)
-  * 0.5 = grass
-  * Combined with Pacejka D parameter to determine peak grip
+Load Transfer Model:
+- Uses rigid-body approximation with filtered accelerations
+- Longitudinal: Front/rear weight transfer during braking/acceleration
+- Lateral: Left/right weight transfer during cornering
+- Low-pass filter (alpha=0.15) prevents oscillations
 
 Classes:
-- PacejkaTire: Magic Formula tire model with separate lateral/longitudinal parameters
 - Car: Full vehicle dynamics with 4 wheels, drivetrain, and braking
 
 See Also:
+- tire_model.py: Pacejka Magic Formula tire model (extracted)
 - ../TIRE_PARAMETERS.md: Detailed calibration and validation
-- suspension_config.py: Suspension parameters (currently using rigid-body load transfer)
 - car_racing.py: Gymnasium environment wrapper
 
 References:
@@ -51,88 +34,12 @@ References:
 """
 
 import numpy as np
-from env.suspension_config import get_suspension_config, compute_derived_params, validate_config
+from env.tire_model import PacejkaTire
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config.physics_config import *
 
-class PacejkaTire:
-    """
-    Pacejka Magic Formula tire model for slip-based force calculation.
-
-    Uses separate coefficients for lateral (cornering) and longitudinal (traction/braking) forces.
-
-    Magic Formula:
-        F = D × sin(C × arctan(B×α - E×(B×α - arctan(B×α))))
-
-    Where:
-        α = slip angle (lateral) or slip ratio (longitudinal)
-        B = Stiffness factor (initial slope)
-        C = Shape factor (curve peakiness)
-        D = Peak friction multiplier
-        E = Curvature factor (falloff after peak)
-
-    Default parameters calibrated for 2022 Mazda MX-5 Sport with 195/50R16 street tires.
-    See ../TIRE_PARAMETERS.md for validation against real-world performance data.
-    """
-
-    def __init__(self,
-                 B_lat=8.5, C_lat=1.9, D_lat=0.95, E_lat=0.97,
-                 B_lon=8.0, C_lon=1.9, D_lon=1.15, E_lon=0.97):
-        """
-        Args:
-            B_lat: Stiffness factor (Lateral)
-            C_lat: Shape factor (Lateral)
-            D_lat: Peak friction coefficient (Lateral)
-            E_lat: Curvature factor (Lateral)
-            B_lon: Stiffness factor (Longitudinal)
-            C_lon: Shape factor (Longitudinal)
-            D_lon: Peak friction coefficient (Longitudinal)
-            E_lon: Curvature factor (Longitudinal)
-        """
-        self.B_lat = B_lat
-        self.C_lat = C_lat
-        self.D_lat = D_lat
-        self.E_lat = E_lat
-        self.B_lon = B_lon
-        self.C_lon = C_lon
-        self.D_lon = D_lon
-        self.E_lon = E_lon
-
-
-
-    def lateral_force(self, slip_angle, normal_force, max_friction=1.0):
-        """
-        Calculate lateral (cornering) force using Pacejka formula.
-        """
-        # The slip angle is the difference between the direction a wheel is pointing and the direction it's actually traveling.
-        # A slip angle of 90 degrees (or -np.pi / 2) means the wheel is sliding purely sideways.
-        # There is no physical scenario where the lateral (sideways) slip angle can be greater than 90 degrees.
-        # An angle of, for example, 100 degrees would imply the wheel is also rolling backward,
-        # which is handled by the longitudinal force model, not the lateral one.
-        sa = np.clip(slip_angle, -np.pi / 2, np.pi / 2)
-
-        # Use LATERAL coefficients
-        arg = self.B_lat * sa   # B_Lat is stiffness factor (Lateral)
-
-        # This is the Pacejka Magic Formula.
-        # F is the lateral force
-        # sa is the slip angle (the x in the original formula)
-        # D_lat is the peak friction coefficient (Lateral) This is self.D_lat * normal_force * max_friction. It scales the maximum possible force (the peak of the sine wave).
-        # C_lat is the shape factor (Lateral) This is np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))
-        # E_lat is the curvature factor (Lateral) This is self.E_lat * (arg - np.arctan(arg)). It controls the curvature of the force curve near its peak. (the sine wave)
-        F = (self.D_lat * normal_force * max_friction * np.sin(self.C_lat * np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))))
-        return F
-
-    def longitudinal_force(self, slip_ratio, normal_force, max_friction=1.0):
-        """
-        Calculate longitudinal (traction) force using Pacejka formula.
-        """
-        sr = np.clip(slip_ratio, -1.0, 1.0)
-
-        # Use LONGITUDINAL coefficients
-        # this is pretty much the as as the LATERAL force (but longitudinal) except it uses slip_ratio instead of slip_angle
-        arg = self.B_lon * sr
-        F = (self.D_lon * normal_force * max_friction * np.sin(self.C_lon * np.arctan(arg - self.E_lon * (arg - np.arctan(arg)))))
-
-        return F
 
 class Car:
     """
@@ -329,7 +236,7 @@ class Car:
     BASE_FRICTION = 1.0  # Asphalt (Pacejka D already handles peak friction)
     GRASS_FRICTION = 0.5  # Grass
 
-    def __init__(self, world, init_angle, init_x, init_y, suspension_config=None):
+    def __init__(self, world, init_angle, init_x, init_y):
         """
         Initialize car at position with given heading.
 
@@ -337,15 +244,7 @@ class Car:
             world: Box2D world (kept for compatibility, not used)
             init_angle: Initial heading angle (rad)
             init_x, init_y: Initial position
-            suspension_config: Suspension configuration dict (default: standard config)
         """
-        # Setup suspension configuration
-        if suspension_config is None:
-            suspension_config = get_suspension_config()
-
-        # Validate and compute derived parameters
-        validate_config(suspension_config)
-        self.suspension_config = compute_derived_params(suspension_config)
         # State variables
         self.x = init_x
         self.y = init_y
@@ -412,9 +311,6 @@ class Car:
         self.hull.angularVelocity = 0.0
         self.hull.color = (0.8, 0.0, 0.0)
 
-        # Initialize suspension state based on mode
-        #self._init_suspension_state()
-
         # Store previous tire forces for wheel dynamics feedback
         # This prevents unrealistic wheel spin/lock by applying tire force torque
         self.prev_tire_forces = np.zeros(4)  # Longitudinal force per wheel [FL, FR, RL, RR]
@@ -425,7 +321,7 @@ class Car:
         # Store last computed tire forces for GUI/debugging (avoids recomputation)
         self.last_tire_forces = None
 
-        # Store last computed accelerations for suspension
+        # Store last computed accelerations for load transfer calculation
         self.ax = 0.0  # Longitudinal acceleration (body frame)
         self.ay = 0.0  # Lateral acceleration (body frame)
 
@@ -463,9 +359,6 @@ class Car:
 
         # Update wheel angular velocities (uses previous tire forces)
         self._update_wheel_dynamics(dt)
-
-        # Update suspension dynamics (independent per-wheel springs)
-        #self._update_suspension(dt)
 
         # Compute tire forces
         tire_friction = self._get_surface_friction()
@@ -681,54 +574,17 @@ class Car:
 
         return normal_forces
 
-    def _compute_load_transfer_physical(self):
-        """
-        Compute per-wheel normal forces from suspension state.
-
-        Normal force comes directly from spring and damper forces.
-        At equilibrium (z_eq = mg/k), spring force equals weight.
-
-        Load transfer emerges naturally:
-        - Cornering compresses outside wheels → higher spring force
-        - Braking compresses front → higher spring force on front
-        - Acceleration compresses rear → higher spring force on rear
-
-        Returns:
-            np.ndarray: Normal force for each wheel [FL, FR, RL, RR] in Newtons
-        """
-        normal_forces = np.zeros(4)
-
-        spring_rate = self.suspension_config['spring_rate']
-        damping = self.suspension_config['damping']
-
-        for i in range(4):
-            z = self.suspension_travel[i]       # Compression (m)
-            z_dot = self.suspension_velocity[i]  # Compression velocity (m/s)
-
-            # Normal force = spring force + damper force
-            # Spring: F = k*z (more compression = more force)
-            # Damper: F = c*v (compressing = positive force)
-            normal_forces[i] = spring_rate * z + damping * z_dot
-
-            # Prevent negative forces (wheel liftoff)
-            # Minimum force keeps tire model stable
-            normal_forces[i] = max(50.0, normal_forces[i])
-
-        return normal_forces
-
     def _compute_tire_forces(self, friction):
         """
         Compute tire forces using Pacejka model with load transfer.
 
-        Load transfer comes from suspension dynamics - compressed wheels
-        have more normal force, extended wheels have less.
+        Load transfer comes from rigid-body dynamics - weight shifts
+        during acceleration, braking, and cornering.
 
         Returns dict with forces for each wheel.
         """
-        # Get normal forces from suspension state
-        # Load transfer is implicit in suspension compression/extension
-#        normal_forces_from_suspension = self._compute_load_transfer_physical()
-        normal_forces_from_suspension = self._compute_normal_forces()
+        # Get normal forces from rigid-body load transfer model
+        normal_forces = self._compute_normal_forces()
 
         # Compute longitudinal and lateral slip for each wheel
         forces = {}
@@ -774,8 +630,8 @@ class Car:
             # +1 = full spin (wheel spinning, car stationary)
             slip_ratio = np.clip(slip_ratio, -1.0, 1.0)
 
-            # Get normal force from suspension (includes load transfer)
-            normal_force = normal_forces_from_suspension[i]
+            # Get normal force from load transfer model
+            normal_force = normal_forces[i]
 
             # Tire forces
             # Note: Negate lateral force because positive slip angle (velocity left of wheel heading)
@@ -896,7 +752,7 @@ class Car:
         self.x += (self.vx * cos_yaw - self.vy * sin_yaw) * dt
         self.y += (self.vx * sin_yaw + self.vy * cos_yaw) * dt
 
-        # Store accelerations for next step's suspension calculation
+        # Store accelerations for next step's load transfer calculation
         self.ax = ax
         self.ay = ay
 
