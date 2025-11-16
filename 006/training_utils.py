@@ -248,7 +248,7 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
 
                 f.write("Environment:\n")
                 f.write(f"  Name: CarRacing-v3\n")
-                f.write(f"  Actions: Continuous [steering, gas, brake]\n")
+                f.write(f"  Actions: Continuous [steering, acceleration]\n")
                 f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
                 f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
 
