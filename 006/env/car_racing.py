@@ -8,7 +8,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from .car_dynamics import Car
-from gymnasium.error import DependencyNotInstalled, InvalidAction
+from gymnasium.error import DependencyNotInstalled
 from gymnasium.utils import EzPickle
 
 # Import reward configuration from constants
@@ -380,8 +380,6 @@ class CarRacing(gym.Env, EzPickle):
         render_mode: str | None = None,
         verbose: bool = False,
         lap_complete_percent: float = 0.95,
-        domain_randomize: bool = False,
-        continuous: bool = True,
         terminate_stationary: bool = True,
         stationary_patience: int = 50,
         stationary_min_steps: int = 50,
@@ -409,8 +407,6 @@ class CarRacing(gym.Env, EzPickle):
             render_mode,
             verbose,
             lap_complete_percent,
-            domain_randomize,
-            continuous,
             terminate_stationary,
             stationary_patience,
             stationary_min_steps,
@@ -422,8 +418,6 @@ class CarRacing(gym.Env, EzPickle):
             num_cars,
             suspension_config,
         )
-        self.continuous = continuous
-        self.domain_randomize = domain_randomize
         self.lap_complete_percent = lap_complete_percent
         self.terminate_stationary = terminate_stationary
         self.stationary_patience = stationary_patience
@@ -483,16 +477,12 @@ class CarRacing(gym.Env, EzPickle):
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
 
-        # Continuous: 2D action space [steering, acceleration]
+        # Continuous action space: [steering, acceleration]
         # steering: [-1, +1], acceleration: [-1 (brake), +1 (gas)]
-        if self.continuous:
-            self.action_space = spaces.Box(
-                np.array([-1, -1]).astype(np.float32),
-                np.array([+1, +1]).astype(np.float32),
-            )  # steer, acceleration
-        else:
-            self.action_space = spaces.Discrete(5)
-            # do nothing, right, left, gas, brake
+        self.action_space = spaces.Box(
+            np.array([-1, -1]).astype(np.float32),
+            np.array([+1, +1]).astype(np.float32),
+        )  # steer, acceleration
 
         # Observation space: vector mode only
         if self.state_mode != "vector":
@@ -528,35 +518,10 @@ class CarRacing(gym.Env, EzPickle):
         self.car = None
 
     def _init_colors(self):
-        if self.domain_randomize:
-            # domain randomize the bg and grass colour
-            self.road_color = self.np_random.uniform(0, 210, size=3)
-
-            self.bg_color = self.np_random.uniform(0, 210, size=3)
-
-            self.grass_color = np.copy(self.bg_color)
-            idx = self.np_random.integers(3)
-            self.grass_color[idx] += 20
-        else:
-            # default colours
-            self.road_color = np.array([102, 102, 102])
-            self.bg_color = np.array([102, 204, 102])
-            self.grass_color = np.array([102, 230, 102])
-
-    def _reinit_colors(self, randomize):
-        assert (
-            self.domain_randomize
-        ), "domain_randomize must be True to use this function."
-
-        if randomize:
-            # domain randomize the bg and grass colour
-            self.road_color = self.np_random.uniform(0, 210, size=3)
-
-            self.bg_color = self.np_random.uniform(0, 210, size=3)
-
-            self.grass_color = np.copy(self.bg_color)
-            idx = self.np_random.integers(3)
-            self.grass_color[idx] += 20
+        # Default track colors
+        self.road_color = np.array([102, 102, 102])
+        self.bg_color = np.array([102, 204, 102])
+        self.grass_color = np.array([102, 230, 102])
 
     def _get_car_color(self, car_idx):
         """Return distinct color for each car (for rendering)."""
@@ -829,14 +794,6 @@ class CarRacing(gym.Env, EzPickle):
         self.furthest_tile_idx = 0  # Furthest tile index reached (for progress calculation)
         self.last_progress = 0.0    # Previous progress (0.0 to 1.0)
 
-        if self.domain_randomize:
-            randomize = True
-            if isinstance(options, dict):
-                if "randomize" in options:
-                    randomize = options["randomize"]
-
-            self._reinit_colors(randomize)
-
         while True:
             success = self._create_track()
             if success:
@@ -914,36 +871,22 @@ class CarRacing(gym.Env, EzPickle):
         accel = 0.0
 
         if action is not None:
-            if self.continuous:
-                action = action.astype(np.float64)
-                # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
-                steer_action = -action[0]
-                accel = np.clip(action[1], -1.0, 1.0)
+            action = action.astype(np.float64)
+            # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
+            steer_action = -action[0]
+            accel = np.clip(action[1], -1.0, 1.0)
 
-                # Convert acceleration to gas/brake
-                if accel > 0:
-                    gas = accel
-                    brake = 0.0
-                else:
-                    gas = 0.0
-                    brake = -accel
-
-                self.car.steer(steer_action)
-                self.car.gas(gas)
-                self.car.brake(brake)
+            # Convert acceleration to gas/brake
+            if accel > 0:
+                gas = accel
+                brake = 0.0
             else:
-                if not self.action_space.contains(action):
-                    raise InvalidAction(
-                        f"you passed the invalid action `{action}`. "
-                        f"The supported action_space is `{self.action_space}`"
-                    )
-                steer_action = -0.6 * (action == 1) + 0.6 * (action == 2)
-                gas = 0.2 * (action == 3)
-                brake = 0.8 * (action == 4)
+                gas = 0.0
+                brake = -accel
 
-                self.car.steer(steer_action)
-                self.car.gas(gas)
-                self.car.brake(brake)
+            self.car.steer(steer_action)
+            self.car.gas(gas)
+            self.car.brake(brake)
 
         # Step custom physics engine and get debug info
         physics_start = time.perf_counter() if self.verbose else None
@@ -971,9 +914,6 @@ class CarRacing(gym.Env, EzPickle):
 
         if action is not None:  # First step without action, called from reset()
             self.reward -= STEP_PENALTY  # Time penalty (encourages speed)
-            # We actually don't want to count fuel spent, we want car to be faster.
-            # self.reward -=  10 * self.car.fuel_spent / ENGINE_POWER
-            self.car.fuel_spent = 0.0
 
             # Calculate speed magnitude (for stationary detection and debug output)
             speed = np.sqrt(
@@ -1145,11 +1085,8 @@ class CarRacing(gym.Env, EzPickle):
         """
         # Validate action shape
         if action is not None:
-            if self.continuous:
-                assert action.shape == (self.num_cars, 2), \
-                    f"Expected action shape ({self.num_cars}, 2), got {action.shape}"
-            else:
-                assert len(action) == self.num_cars
+            assert action.shape == (self.num_cars, 2), \
+                f"Expected action shape ({self.num_cars}, 2), got {action.shape}"
 
         step_rewards = np.zeros(self.num_cars, dtype=np.float32)
         terminated = np.zeros(self.num_cars, dtype=bool)
@@ -1161,23 +1098,14 @@ class CarRacing(gym.Env, EzPickle):
             if action is not None:
                 car_action = action[car_idx]
 
-                # Apply action to this car
-                if self.continuous:
-                    steer_action = -car_action[0]
-                    accel = np.clip(car_action[1], -1.0, 1.0)
-                    gas = accel if accel > 0 else 0.0
-                    brake = -accel if accel < 0 else 0.0
-                    car.steer(steer_action)
-                    car.gas(gas)
-                    car.brake(brake)
-                else:
-                    # Discrete action logic
-                    steer_action = -0.6 * (car_action == 1) + 0.6 * (car_action == 2)
-                    gas = 0.2 * (car_action == 3)
-                    brake = 0.8 * (car_action == 4)
-                    car.steer(steer_action)
-                    car.gas(gas)
-                    car.brake(brake)
+                # Apply continuous action to this car
+                steer_action = -car_action[0]
+                accel = np.clip(car_action[1], -1.0, 1.0)
+                gas = accel if accel > 0 else 0.0
+                brake = -accel if accel < 0 else 0.0
+                car.steer(steer_action)
+                car.gas(gas)
+                car.brake(brake)
 
                 # Step physics for this car
                 car.step(1.0 / FPS)

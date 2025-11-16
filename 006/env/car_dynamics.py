@@ -433,7 +433,6 @@ class Car:
         self.ax_filtered = 0.0
         self.ay_filtered = 0.0
 
-        self.fuel_spent = 0.0
         self.drawlist = self.wheels + [self.hull]
         self.particles = []
 
