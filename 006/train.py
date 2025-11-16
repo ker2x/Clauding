@@ -57,9 +57,9 @@ except (ImportError, RuntimeError) as e:
     print("Training will continue without plotting functionality.")
 
 from preprocessing import make_carracing_env
-from sac_agent import SACAgent, ReplayBuffer
+from sac import SACAgent, ReplayBuffer
 from training_utils import get_device, configure_cpu_threading, evaluate_agent, setup_logging
-from constants import *
+from config.constants import *
 
 
 def parse_args():

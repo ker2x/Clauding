@@ -231,9 +231,9 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
         # Create system info file
         system_info_path = os.path.join(log_dir, 'system_info.txt')
         with open(system_info_path, 'w') as f:
-            # Import reward constants here to avoid circular imports
+            # Import reward constants from centralized config
             try:
-                from env.car_racing import (
+                from config.constants import (
                     PROGRESS_REWARD_SCALE, LAP_COMPLETION_REWARD, ONTRACK_REWARD,
                     FORWARD_SPEED_REWARD_SCALE, STEP_PENALTY, OFFTRACK_PENALTY,
                     OFFTRACK_THRESHOLD, OFFTRACK_TERMINATION_PENALTY
@@ -252,7 +252,7 @@ def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=N
                 f.write(f"  Early termination: True (patience={config['stationary_patience']})\n")
                 f.write(f"  Reward shaping: True (penalty {config['short_episode_penalty']} for < {config['min_episode_steps']} steps)\n\n")
 
-                f.write("Reward Structure (from env/car_racing.py):\n")
+                f.write("Reward Structure (from config/constants.py):\n")
                 f.write(f"  Progress reward: {PROGRESS_REWARD_SCALE} points for full lap (continuous/dense)\n")
                 f.write(f"  Lap completion: {LAP_COMPLETION_REWARD} points (bonus for finishing)\n")
                 f.write(f"  On-track reward: {ONTRACK_REWARD} per frame (encourages staying on track)\n")
