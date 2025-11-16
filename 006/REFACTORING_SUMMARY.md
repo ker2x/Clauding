@@ -31,6 +31,7 @@ Created the following new directories to organize code by functionality:
   - `AerodynamicsParams`: Drag, rolling resistance
   - `SteeringParams`: Max angle, response rate
   - `FrictionParams`: Surface friction coefficients
+  - `NormalizationParams`: Neural network input normalization constants
   - Backward compatibility constants for gradual migration
 
 - **`config/rendering_config.py`** - All rendering/visualization constants:
@@ -38,7 +39,7 @@ Created the following new directories to organize code by functionality:
   - `CameraConfig`: Zoom, scale, playfield boundaries
   - `TrackVisualsConfig`: Track width, borders, grass tiles
   - `FrictionDetectionConfig`: Collision detection thresholds
-  - `StateNormalizationConfig`: Neural network input normalization constants
+  - ~~`StateNormalizationConfig`~~: Moved to `physics_config.py` as `NormalizationParams`
 
 - **`config/constants.py`** - Moved from root `006/constants.py`:
   - Training hyperparameters (learning rates, batch size, buffer size)
