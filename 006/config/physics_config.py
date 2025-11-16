@@ -163,6 +163,30 @@ class FrictionParams:
 
 
 @dataclass
+class NormalizationParams:
+    """
+    Normalization constants for better training stability.
+
+    These constants are used to normalize state observation values to similar scales,
+    which improves neural network training stability and convergence.
+
+    All values are based on typical maximum values observed during racing:
+    - Velocity: ~25-30 m/s top speed
+    - Angular velocity: ~3-4 rad/s typical max
+    - Acceleration: ~30-40 m/s^2 peak acceleration
+    - Curvature: Sharp turn radius
+    - Slip ratio: Dimensionless, clipped at extreme values
+    - Vertical force: ~1000kg car * 1.5g per wheel + safety margin
+    """
+    MAX_VELOCITY: float = 30.0  # m/s (typical max speed ~25-30 m/s)
+    MAX_ANGULAR_VEL: float = 5.0  # rad/s (typical max ~3-4 rad/s)
+    MAX_ACCELERATION: float = 50.0  # m/s^2 (typical max ~30-40 m/s^2)
+    MAX_CURVATURE: float = 1.0  # 1/m (typical sharp turn)
+    MAX_SLIP_RATIO: float = 2.0  # Dimensionless (clip extreme values)
+    MAX_VERTICAL_FORCE: float = 5000.0  # N (approx 1000kg car * 1.5g per wheel + safety margin)
+
+
+@dataclass
 class PhysicsConfig:
     """
     Complete physics configuration combining all parameter groups.
@@ -171,6 +195,7 @@ class PhysicsConfig:
         config = PhysicsConfig()
         print(config.vehicle.MASS)  # 1062.0
         print(config.pacejka.D_LAT)  # 0.95
+        print(config.normalization.MAX_VELOCITY)  # 30.0
     """
     vehicle: VehicleParams = field(default_factory=VehicleParams)
     tire: TireParams = field(default_factory=TireParams)
@@ -179,3 +204,4 @@ class PhysicsConfig:
     aerodynamics: AerodynamicsParams = field(default_factory=AerodynamicsParams)
     steering: SteeringParams = field(default_factory=SteeringParams)
     friction: FrictionParams = field(default_factory=FrictionParams)
+    normalization: NormalizationParams = field(default_factory=NormalizationParams)

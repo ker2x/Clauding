@@ -32,6 +32,11 @@ from constants import (
 from config.domain_randomization import DomainRandomizationConfig
 from utils.domain_randomizer import DomainRandomizer
 
+# Import normalization parameters
+from config.physics_config import NormalizationParams
+
+# Create module-level instance of normalization parameters
+_NORM_PARAMS = NormalizationParams()
 
 # Box2D no longer needed - using custom 2D physics engine
 # Removed Box2D dependency for cleaner, more interpretable physics
@@ -1447,28 +1452,23 @@ class CarRacing(gym.Env, EzPickle):
         # Normalize and flatten to list
         waypoints = (rel_coords / PLAYFIELD).flatten().tolist()
 
-        # Normalization constants for better training stability
-        MAX_VELOCITY = 30.0  # m/s (typical max speed ~25-30 m/s)
-        MAX_ANGULAR_VEL = 5.0  # rad/s (typical max ~3-4 rad/s)
-        MAX_ACCELERATION = 50.0  # m/s^2 (typical max ~30-40 m/s^2)
-        MAX_CURVATURE = 1.0  # 1/m (typical sharp turn)
-        MAX_SLIP_RATIO = 2.0  # Dimensionless (clip extreme values)
-        MAX_VERTICAL_FORCE = 5000.0 # (approx 1000kg car * 1.5g) but it's PER WHEEL + some safety margin
+        # Use centralized normalization parameters from config
+        # (see config/physics_config.py for constant definitions)
 
         # Normalize velocities
-        vx_norm = vx / MAX_VELOCITY
-        vy_norm = vy / MAX_VELOCITY
-        angular_vel_norm = angular_vel / MAX_ANGULAR_VEL
+        vx_norm = vx / _NORM_PARAMS.MAX_VELOCITY
+        vy_norm = vy / _NORM_PARAMS.MAX_VELOCITY
+        angular_vel_norm = angular_vel / _NORM_PARAMS.MAX_ANGULAR_VEL
 
         # Normalize speed
-        speed_norm = speed / MAX_VELOCITY
+        speed_norm = speed / _NORM_PARAMS.MAX_VELOCITY
 
         # Normalize accelerations
-        ax_norm = ax / MAX_ACCELERATION
-        ay_norm = ay / MAX_ACCELERATION
+        ax_norm = ax / _NORM_PARAMS.MAX_ACCELERATION
+        ay_norm = ay / _NORM_PARAMS.MAX_ACCELERATION
 
         # Normalize curvature
-        curvature_norm = curvature / MAX_CURVATURE
+        curvature_norm = curvature / _NORM_PARAMS.MAX_CURVATURE
 
         # Normalize slip angles (from radians [-π, π] to [-1, 1])
         slip_angles_norm = [sa / np.pi for sa in slip_angles]
@@ -1479,16 +1479,16 @@ class CarRacing(gym.Env, EzPickle):
                 print("WARNING: SLIP RATIO > 2.0: {}".format(sr))
             elif sr < -2.0:
                 print("WARNING: SLIP RATIO < -2.0")
-        slip_ratios_norm = [sr / MAX_SLIP_RATIO for sr in slip_ratios]
-#        slip_ratios_norm = [np.clip(sr / MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
+        slip_ratios_norm = [sr / _NORM_PARAMS.MAX_SLIP_RATIO for sr in slip_ratios]
+#        slip_ratios_norm = [np.clip(sr / _NORM_PARAMS.MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
 
-        # Normalize vertical forces <-- ADD THIS BLOCK
+        # Normalize vertical forces
         for vf in vertical_forces:
-            if vf > MAX_VERTICAL_FORCE * 2:
+            if vf > _NORM_PARAMS.MAX_VERTICAL_FORCE * 2:
                 print("WARNING: VERTICAL FORCE > MAX*2: {}".format(vf))
-            elif vf < -MAX_VERTICAL_FORCE * 2:
+            elif vf < -_NORM_PARAMS.MAX_VERTICAL_FORCE * 2:
                 print("WARNING: VERTICAL FORCE < MAX*2")
-        vertical_forces_norm = [vf / MAX_VERTICAL_FORCE for vf in vertical_forces]
+        vertical_forces_norm = [vf / _NORM_PARAMS.MAX_VERTICAL_FORCE for vf in vertical_forces]
 
         # ... right after you calculate slip_ratios_norm and vertical_forces_norm
 
