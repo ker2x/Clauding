@@ -307,23 +307,16 @@ PROGRESS_REWARD_SCALE = 6000.0
 - **Automatic Tuning**: [SAC Algorithms and Applications (Haarnoja et al., 2019)](https://arxiv.org/abs/1812.05905)
 - **Environment**: [Gymnasium CarRacing-v3](https://gymnasium.farama.org/environments/box2d/car_racing/)
 
-## Project 006 Cleanup
+## Project Features
 
-This version has been streamlined to focus on vector mode training:
-- **Removed**: Visual mode (96x96 image observations - never used)
-- **Removed**: Discrete action space (continuous-only now)
-- **Removed**: Fuel tracking (unused penalty)
-- **Removed**: Non-parallel selection training variants
-- **Removed**: Multi-car training scripts
-- **Removed**: VectorEnv training scripts
-- **Kept**: Vector mode (71D state) for optimal performance
-- **Kept**: Parallel selection training and standard training
-- **Added**: Centralized configuration via `constants.py`
-- **Added**: Domain randomization with configurable presets (conservative, moderate, aggressive, wet)
-- **Result**: Cleaner, more maintainable codebase focused on what works best
+This implementation focuses on efficient vector mode training:
+- **Vector observations**: 71D state vector for optimal performance
+- **Continuous actions**: Smooth steering and acceleration/braking control
+- **Parallel selection training**: Efficient multi-population evolutionary approach
+- **Domain randomization**: Configurable presets (conservative, moderate, aggressive, wet) for robust policies
+- **Centralized configuration**: All settings managed via `constants.py`
 
-The environment uses vector mode for both training and agent observations.
-Rendering (600x400 RGB) is only used for human visualization via watch scripts.
+The environment uses vector observations for training. Rendering (600x400 RGB) is available for human visualization via watch scripts.
 
 ## License
 
