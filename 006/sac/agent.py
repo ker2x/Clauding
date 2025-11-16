@@ -25,8 +25,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
 
-from .actor import VectorActor, VectorActorNoLN
-from .critic import VectorCritic, VectorCriticNoLN
+from .actor import VectorActor
+from .critic import VectorCritic
 
 
 class SACAgent:
@@ -51,7 +51,6 @@ class SACAgent:
         tau=0.005,
         alpha=0.2,
         auto_entropy_tuning=True,
-        use_layernorm=True,
         device=None
     ):
         """
@@ -65,31 +64,20 @@ class SACAgent:
             tau: Soft update coefficient for target networks
             alpha: Initial entropy coefficient (if not auto-tuning)
             auto_entropy_tuning: Whether to automatically tune alpha
-            use_layernorm: Whether to use LayerNorm (default: True)
             device: torch device (cuda/mps/cpu)
         """
         self.action_dim = action_dim
         self.state_dim = state_dim
         self.gamma = gamma
         self.tau = tau
-        self.use_layernorm = use_layernorm
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Create networks (choose architecture based on use_layernorm flag)
-        if use_layernorm:
-            ActorClass = VectorActor
-            CriticClass = VectorCritic
-            print("Using architecture: WITH LayerNorm")
-        else:
-            ActorClass = VectorActorNoLN
-            CriticClass = VectorCriticNoLN
-            print("Using architecture: WITHOUT LayerNorm")
-
-        self.actor = ActorClass(state_dim, action_dim).to(self.device)
-        self.critic_1 = CriticClass(state_dim, action_dim).to(self.device)
-        self.critic_2 = CriticClass(state_dim, action_dim).to(self.device)
-        self.critic_target_1 = CriticClass(state_dim, action_dim).to(self.device)
-        self.critic_target_2 = CriticClass(state_dim, action_dim).to(self.device)
+        # Create networks (optimized architecture with LayerNorm)
+        self.actor = VectorActor(state_dim, action_dim).to(self.device)
+        self.critic_1 = VectorCritic(state_dim, action_dim).to(self.device)
+        self.critic_2 = VectorCritic(state_dim, action_dim).to(self.device)
+        self.critic_target_1 = VectorCritic(state_dim, action_dim).to(self.device)
+        self.critic_target_2 = VectorCritic(state_dim, action_dim).to(self.device)
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())
@@ -306,8 +294,21 @@ class SACAgent:
         }, filepath)
 
     def load(self, filepath):
-        """Load agent checkpoint."""
+        """Load agent checkpoint (LayerNorm architecture only)."""
         checkpoint = torch.load(filepath, map_location=self.device)
+
+        # Check if checkpoint has LayerNorm architecture
+        checkpoint_has_ln = 'ln1.weight' in checkpoint['actor']
+
+        if not checkpoint_has_ln:
+            raise ValueError(
+                "\n❌ ERROR: This checkpoint was saved without LayerNorm.\n"
+                "   The no-LayerNorm architecture has been removed due to poor training quality.\n"
+                "   Only checkpoints with LayerNorm (default architecture) are supported.\n"
+                "   Please retrain with the current architecture or use a compatible checkpoint."
+            )
+
+        # Load state dicts
         self.actor.load_state_dict(checkpoint['actor'])
         self.critic_1.load_state_dict(checkpoint['critic_1'])
         self.critic_2.load_state_dict(checkpoint['critic_2'])
@@ -340,6 +341,17 @@ class SACAgent:
 
     def load_state_dict(self, state_dict):
         """Load agent state from dictionary (for in-memory cloning)."""
+        # Check if source has LayerNorm architecture
+        source_has_ln = 'ln1.weight' in state_dict['actor']
+
+        if not source_has_ln:
+            raise ValueError(
+                "\n❌ ERROR: Source state dict was created without LayerNorm.\n"
+                "   The no-LayerNorm architecture has been removed due to poor training quality.\n"
+                "   Only state dicts with LayerNorm (default architecture) are supported."
+            )
+
+        # Load state dicts
         self.actor.load_state_dict(state_dict['actor'])
         self.critic_1.load_state_dict(state_dict['critic_1'])
         self.critic_2.load_state_dict(state_dict['critic_2'])

@@ -18,7 +18,7 @@ class VectorCritic(nn.Module):
     Optimized architecture (~2.5x faster forward pass):
     - 3 hidden layers (reduced from 4) - critic needs more capacity than actor
     - 128 hidden units (reduced from 256)
-    - Keeps LayerNorm for training stability
+    - LayerNorm for training stability
     - 42,881 parameters (72% reduction from 151,297)
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
@@ -38,34 +38,6 @@ class VectorCritic(nn.Module):
     def forward(self, state, action):
         x = torch.cat([state, action], dim=1)
         x = F.leaky_relu(self.ln1(self.fc1(x)), negative_slope=0.01)
-        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
-        x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
-        q_value = self.fc4(x)
-        return q_value
-
-
-class VectorCriticNoLN(nn.Module):
-    """
-    Alternative critic network WITHOUT LayerNorm.
-
-    Same architecture as VectorCritic but without LayerNorm:
-    - 3 hidden layers
-    - 128 hidden units
-    - NO LayerNorm (for performance comparison)
-    - 42,625 parameters (slightly fewer than LayerNorm version)
-
-    Use --no-layernorm flag to enable this architecture.
-    """
-    def __init__(self, state_dim, action_dim, hidden_dim=128):
-        super(VectorCriticNoLN, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc4 = nn.Linear(hidden_dim, 1)
-
-    def forward(self, state, action):
-        x = torch.cat([state, action], dim=1)
-        x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
         q_value = self.fc4(x)

@@ -115,8 +115,6 @@ def parse_args():
                         help=f'Training batch size (default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Use automatic entropy tuning (default: True)')
-    parser.add_argument('--no-layernorm', action='store_true', default=False,
-                        help='Disable LayerNorm in networks (for performance testing)')
 
     # Environment parameters (vector mode only)
 
@@ -303,7 +301,6 @@ def train(args):
         gamma=args.gamma,
         tau=args.tau,
         auto_entropy_tuning=args.auto_entropy_tuning,
-        use_layernorm=not args.no_layernorm,  # Invert the flag (--no-layernorm → use_layernorm=False)
         device=device
     )
 

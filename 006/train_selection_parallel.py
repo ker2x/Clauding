@@ -90,8 +90,6 @@ def parse_args():
                         help=f'Target network update rate (default: {DEFAULT_TAU})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Automatically tune entropy coefficient')
-    parser.add_argument('--no-layernorm', action='store_true', default=False,
-                        help='Disable LayerNorm in networks (for performance testing)')
     parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
                         help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
@@ -185,7 +183,6 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         gamma=args.gamma,
         tau=args.tau,
         auto_entropy_tuning=args.auto_entropy_tuning,
-        use_layernorm=not args.no_layernorm,  # Invert the flag
         device=device
     )
 

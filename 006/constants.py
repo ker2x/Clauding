@@ -28,7 +28,7 @@ DEFAULT_ALPHA = 0.2       # Initial entropy coefficient (if not auto-tuning)
 
 # Experience replay
 DEFAULT_BUFFER_SIZE = 200000
-DEFAULT_BATCH_SIZE = 512
+DEFAULT_BATCH_SIZE = 128
 DEFAULT_LEARNING_STARTS = 10000  # Steps of random exploration before learning
 
 # Training schedule
