@@ -35,10 +35,6 @@ References:
 
 import numpy as np
 from env.tire_model import PacejkaTire
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from config.physics_config import *
 
 
 class Car:
