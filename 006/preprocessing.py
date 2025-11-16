@@ -60,7 +60,6 @@ def make_carracing_env(
     env = CarRacing(
         render_mode=render_mode,
         verbose=verbose,
-        continuous=True,
         terminate_stationary=terminate_stationary,
         stationary_patience=stationary_patience,
         stationary_min_steps=stationary_min_steps,

@@ -103,7 +103,7 @@ def test_environment():
 
         # Create base environment using local CarRacing class
         print("Creating base CarRacing-v3 environment...")
-        env = CarRacing(render_mode=None, continuous=True)
+        env = CarRacing(render_mode=None)
 
         print(f"✓ Environment created successfully")
         print(f"  Observation space: {env.observation_space.shape}")
