@@ -28,6 +28,10 @@ from constants import (
     FORWARD_SPEED_REWARD_SCALE,
 )
 
+# Import domain randomization
+from config.domain_randomization import DomainRandomizationConfig
+from utils.domain_randomizer import DomainRandomizer
+
 
 # Box2D no longer needed - using custom 2D physics engine
 # Removed Box2D dependency for cleaner, more interpretable physics
@@ -381,6 +385,7 @@ class CarRacing(gym.Env, EzPickle):
         min_episode_steps: int = 150,
         short_episode_penalty: float = -50.0,
         num_cars: int = 1,
+        domain_randomization_config: DomainRandomizationConfig | None = None,
     ):
         """
         Args:
@@ -392,6 +397,8 @@ class CarRacing(gym.Env, EzPickle):
             short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
             num_cars: Number of cars racing simultaneously (default: 1). When >1, enables multi-car mode
                       where all cars race on the same track as ghost cars (no collision with each other).
+            domain_randomization_config: Configuration for domain randomization (default: None, disabled).
+                      Use config.domain_randomization presets or create custom DomainRandomizationConfig.
         """
         EzPickle.__init__(
             self,
@@ -407,6 +414,7 @@ class CarRacing(gym.Env, EzPickle):
             min_episode_steps,
             short_episode_penalty,
             num_cars,
+            domain_randomization_config,
         )
         self.lap_complete_percent = lap_complete_percent
         self.terminate_stationary = terminate_stationary
@@ -418,6 +426,12 @@ class CarRacing(gym.Env, EzPickle):
         self.min_episode_steps = min_episode_steps
         self.short_episode_penalty = short_episode_penalty
         self.num_cars = num_cars
+
+        # Domain randomization
+        if domain_randomization_config is None:
+            domain_randomization_config = DomainRandomizationConfig(enabled=False)
+        self.domain_randomization_config = domain_randomization_config
+        self.domain_randomizer = DomainRandomizer(domain_randomization_config)
 
         self._init_colors()
 
@@ -809,6 +823,30 @@ class CarRacing(gym.Env, EzPickle):
 
         # Maintain backward compatibility
         self.car = self.cars[0] if self.num_cars > 0 else None
+
+        # Apply domain randomization
+        if self.domain_randomization_config.enabled:
+            randomized_params = self.domain_randomizer.randomize()
+
+            # Apply to all cars
+            for car in self.cars:
+                self.domain_randomizer.apply_to_car(car, randomized_params)
+
+            # Apply to track
+            self.domain_randomizer.apply_to_track(self, randomized_params)
+
+            # Apply visual randomization
+            self.domain_randomizer.apply_visual(self, randomized_params)
+
+            if self.verbose:
+                info = self.domain_randomizer.get_info_dict()
+                print(f"\n=== Domain Randomization Applied ===")
+                print(f"  Mass: {info.get('mass', 'N/A'):.1f} kg")
+                print(f"  Lateral Grip (D_lat): {info.get('pacejka_d_lat', 'N/A'):.3f}")
+                print(f"  Longitudinal Grip (D_lon): {info.get('pacejka_d_lon', 'N/A'):.3f}")
+                print(f"  Surface Friction: {info.get('surface_friction', 'N/A'):.3f}")
+                print(f"  Engine Power: {info.get('engine_power', 'N/A'):.0f} W")
+                print(f"====================================\n")
 
         if self.render_mode == "human":
             self.render()
