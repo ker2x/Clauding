@@ -312,7 +312,6 @@ PROGRESS_REWARD_SCALE = 6000.0
 This version has been streamlined to focus on vector mode training:
 - **Removed**: Visual mode (96x96 image observations - never used)
 - **Removed**: Discrete action space (continuous-only now)
-- **Removed**: Domain randomization (always disabled)
 - **Removed**: Fuel tracking (unused penalty)
 - **Removed**: Non-parallel selection training variants
 - **Removed**: Multi-car training scripts
@@ -320,6 +319,7 @@ This version has been streamlined to focus on vector mode training:
 - **Kept**: Vector mode (71D state) for optimal performance
 - **Kept**: Parallel selection training and standard training
 - **Added**: Centralized configuration via `constants.py`
+- **Added**: Domain randomization with configurable presets (conservative, moderate, aggressive, wet)
 - **Result**: Cleaner, more maintainable codebase focused on what works best
 
 The environment uses vector mode for both training and agent observations.
