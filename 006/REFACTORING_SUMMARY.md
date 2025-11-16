@@ -140,46 +140,73 @@ Created the following new directories to organize code by functionality:
 
 ---
 
-## Remaining Work
+## Completed Work - Import Updates and Code Deduplication
 
-### Critical: Import Statement Updates
+### ✅ High Priority (Core Training Files) - COMPLETED
+1. **`train_selection_parallel.py`** ✅
+   - ✅ Changed: `from constants import *` → `from config.constants import *`
+   - ✅ Changed: `from sac_agent import SACAgent, ReplayBuffer` → `from sac import SACAgent, ReplayBuffer`
 
-The following files need their import statements updated to use the new module structure:
+2. **`training_utils.py`** ✅
+   - ✅ Changed: Import reward constants from `config.constants` instead of `env.car_racing`
+   - ✅ Removed circular import pattern
+   - ✅ Updated documentation comment to reflect new import source
 
-#### High Priority (Core Training Files)
-1. **`train_selection_parallel.py`**
-   - Change: `from constants import *` → `from config.constants import *`
-   - Change: `from sac_agent import ...` → `from sac import ...`
+3. **`preprocessing.py`** ✅
+   - ✅ Already clean - only imports from gymnasium and env.car_racing
 
-2. **`training_utils.py`**
-   - Change: Import reward constants from `config.constants` instead of `env.car_racing`
-   - Remove circular import pattern
+### ✅ Utility Scripts - COMPLETED (162 lines of duplicate code removed)
+4. **`watch_agent.py`** ✅
+   - ✅ Changed: `from sac_agent import SACAgent` → `from sac import SACAgent`
+   - ✅ Added: `from utils.display import format_action, get_car_speed`
+   - ✅ Removed 44 lines of duplicate format_action() and get_car_speed() functions
 
-3. **`preprocessing.py`**
-   - Update to import from `config.constants`
+5. **`play_human.py`** ✅
+   - ✅ Added: `from utils.display import format_action, get_car_speed`
+   - ✅ Removed 34 lines of duplicate functions
 
-#### Medium Priority (Environment Files)
-4. **`env/car_racing.py`** (Critical - 1875 lines)
-   - Import FrictionDetector from `env.friction_detector`
-   - Import rendering constants from `config.rendering_config`
-   - Import reward constants from `config.constants`
+6. **`play_human_gui.py`** ✅
+   - ✅ Added: `from utils.display import format_action, get_car_speed`
+   - ✅ Removed 48 lines of duplicate functions (including 3-element action support)
+
+7. **`watch_random_agent.py`** ✅
+   - ✅ Added: `from utils.display import format_action`
+   - ✅ Removed 36 lines of duplicate format_action() function
+
+### ✅ Shared Utilities Enhancement
+8. **`utils/display.py`** ✅
+   - ✅ Enhanced format_action() to handle both 2-element [steering, acceleration] and 3-element [steering, gas, brake] formats
+   - ✅ Now serves as single source of truth for action formatting and speed extraction
+
+### ✅ Dead Code Cleanup
+9. **Backward Compatibility Constants** ✅
+   - ✅ Removed 31 lines of unused backward compatibility constants from `config/physics_config.py`
+   - ✅ Removed 31 lines of unused backward compatibility constants from `config/rendering_config.py`
+   - ✅ Investigation confirmed these were never actually used (environments define their own constants)
+
+10. **Testing** ✅
+    - ✅ All scripts pass Python syntax checks
+    - ✅ Import structure verified correct
+
+---
+
+## Remaining Work (Optional/Future Enhancements)
+
+### Medium Priority (Environment Files)
+1. **`env/car_racing.py`** (1875 lines - could benefit from further refactoring)
+   - Import FrictionDetector from `env.friction_detector` (already extracted, just needs import update)
+   - Import rendering constants from `config.rendering_config` (defines own constants, update optional)
+   - Import reward constants from `config.constants` (defines own constants, update optional)
    - Update class definition to use imported FrictionDetector
 
-5. **`env/car_dynamics.py`** (823 lines)
-   - Import PacejkaTire from `env.tire_model`
-   - Import physics constants from `config.physics_config`
-   - Replace class variables with imported constants
-   - Update __init__ to use physics config
+2. **`env/car_dynamics.py`** (~677 lines after cleanup)
+   - Import PacejkaTire from `env.tire_model` (already extracted, just needs import update)
+   - Import physics constants from `config.physics_config` (defines own constants, update optional)
+   - Replace class variables with imported constants (would enable runtime configuration)
 
-#### Low Priority (Utility Scripts)
-6. **`watch_agent.py`, `play_human.py`, `play_human_gui.py`, `watch_random_agent.py`**
-   - Replace duplicate `format_action()` and `get_car_speed()` with:
-     ```python
-     from utils.display import format_action, get_car_speed
-     ```
-
-7. **`telemetry_viewer.py`, `analyze_telemetry.py`, `magic_formula_visualizer.py`**
-   - Update imports as needed
+### Other Scripts (Low Priority)
+3. **`telemetry_viewer.py`, `analyze_telemetry.py`, `magic_formula_visualizer.py`**
+   - Update imports as needed (check if any use old patterns)
 
 ### Recommended: Further Class Extraction
 
