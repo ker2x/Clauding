@@ -8,7 +8,7 @@ and drivetrain characteristics.
 All values are based on the 2022 Mazda MX-5 Sport (ND) with 195/50R16 tires.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -172,13 +172,13 @@ class PhysicsConfig:
         print(config.vehicle.MASS)  # 1062.0
         print(config.pacejka.D_LAT)  # 0.95
     """
-    vehicle: VehicleParams = VehicleParams()
-    tire: TireParams = TireParams()
-    pacejka: PacejkaParams = PacejkaParams()
-    drivetrain: DrivetrainParams = DrivetrainParams()
-    aerodynamics: AerodynamicsParams = AerodynamicsParams()
-    steering: SteeringParams = SteeringParams()
-    friction: FrictionParams = FrictionParams()
+    vehicle: VehicleParams = field(default_factory=VehicleParams)
+    tire: TireParams = field(default_factory=TireParams)
+    pacejka: PacejkaParams = field(default_factory=PacejkaParams)
+    drivetrain: DrivetrainParams = field(default_factory=DrivetrainParams)
+    aerodynamics: AerodynamicsParams = field(default_factory=AerodynamicsParams)
+    steering: SteeringParams = field(default_factory=SteeringParams)
+    friction: FrictionParams = field(default_factory=FrictionParams)
 
 
 # Default physics configuration instance

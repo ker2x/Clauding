@@ -6,7 +6,7 @@ CarRacing environment, including video resolution, window size, camera
 settings, and track visualization parameters.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
 
@@ -85,11 +85,11 @@ class RenderingConfig:
         print(config.video.VIDEO_W)  # 600
         print(config.camera.ZOOM)  # 2.7
     """
-    video: VideoConfig = VideoConfig()
-    camera: CameraConfig = CameraConfig()
-    track_visuals: TrackVisualsConfig = TrackVisualsConfig()
-    friction_detection: FrictionDetectionConfig = FrictionDetectionConfig()
-    state_normalization: StateNormalizationConfig = StateNormalizationConfig()
+    video: VideoConfig = field(default_factory=VideoConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
+    track_visuals: TrackVisualsConfig = field(default_factory=TrackVisualsConfig)
+    friction_detection: FrictionDetectionConfig = field(default_factory=FrictionDetectionConfig)
+    state_normalization: StateNormalizationConfig = field(default_factory=StateNormalizationConfig)
 
 
 # Default rendering configuration instance
