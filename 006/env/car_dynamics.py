@@ -35,6 +35,7 @@ References:
 
 import numpy as np
 from env.tire_model import PacejkaTire
+from config.physics_config import PhysicsConfig
 
 
 class Car:
@@ -48,191 +49,17 @@ class Car:
     - Yaw rate: r = d(yaw)/dt
     - Wheel speeds: [fl, fr, rl, rr] angular velocities
     - Steering angle: delta (front wheels only)
+
+    NOTE: All physics parameters are now loaded from config.physics_config.PhysicsConfig
+    instead of being hardcoded as class constants. This enables:
+    - Domain randomization
+    - Easy parameter tuning
+    - Single source of truth for all physics values
+
+    See config/physics_config.py for parameter documentation and default values.
     """
 
-    # Vehicle parameters (Based on 2022 Mazda MX-5 Sport)
-    MASS = 1062.0  # Vehicle mass (kg)
-    LENGTH = 2.310  # Wheelbase (m)
-    WIDTH = 1.50  # Track width (m)
-
-    # 50/50 weight distribution
-    LF = LENGTH * 0.5  # Distance from CG to front axle
-    LR = LENGTH * 0.5  # Distance from CG to rear axle
-
-    # Tire parameters
-    TIRE_RADIUS = 0.309  # Wheel radius (m) (from 195/50R16)
-    TIRE_WIDTH = 0.205  # Tire width (m)
-
-    # Pacejka parameters
-    # ------------------
-    # See this guide as well https://www.edy.es/dev/docs/pacejka-94-parameters-explained-a-comprehensive-guide/
-    #
-    # For road cars, typical peak slip angles are around 10-15 degrees, while F1 tires may peak around 6 degrees Racer.
-    # We now use separate lateral (cornering) and longitudinal (accel) values
-    #
-    # ----------------------------------------------
-    # Pacejka Magic Formula Parameters (B, C, D, E):
-    # These are empirical curve-fitting coefficients with no direct physical meaning.
-    # They shape the tire force vs slip curve to match real tire behavior.
-    #
-    # B (Stiffness): Controls initial slope - how quickly force builds with slip.
-    #   Higher B = stiffer, more responsive tire. Typical range: 8-15
-    #   B=12.0 is a good starting point for MX-5 tires.
-    #
-    # C (Shape): Controls overall curve shape. Typically 1.3-2.5
-    #   Affects the "peakiness" of the force curve.
-    #   C=1.9 is a good starting point for MX-5 tires.
-    #
-    # D (Peak): Peak force multiplier. Combined with normal force and friction,
-    #   this determines maximum grip. D=1.0 means peak friction = surface friction.
-    #   D>1.0 means tire can exceed surface friction at optimal slip.
-    #   D=1.1 is a good starting point for MX-5 tires.
-    #
-    # E (Curvature): Controls curve shape near and after peak.
-    #   Affects how sharply grip falls off past optimal slip. Typically 0.9-1.0
-    #   E=0.97 is a good starting point for MX-5 tires.
-    #
-    # Note: Peak slip angles for road cars are typically 10-15 degrees lateral.
-    # These values are tuned for MX-5 performance street tires.
-
-    # Pacejka Magic Formula Parameters - Tuned for MX-5 on street tires (195/50R16)
-    # These values are calibrated to match real MX-5 performance:
-    # - Lateral grip: ~0.90g in corners (typical for good street tires)
-    # - Braking: ~1.10g max deceleration
-    # - Acceleration: ~0.60g (RWD, 2 wheels only)
-
-    # B: Stiffness factor (initial slope of force curve)
-    # Street tires need sufficient stiffness to prevent runaway wheel spin
-    # Higher B = more force across entire slip range = better traction control
-    # Increased from 8.0 to 12.0 to prevent 100% slip at standing starts
-    PACEJKA_B_LAT = 8.5   # Lateral stiffness - softer for street tires
-    PACEJKA_B_LON = 12.0  # Longitudinal stiffness - increased for better low-speed grip
-
-    # C: Shape factor (affects curve peakiness)
-    # Standard value for passenger car tires
-    PACEJKA_C_LAT = 1.9   # Lateral shape
-    PACEJKA_C_LON = 1.9   # Longitudinal shape
-
-    # D: Peak friction multiplier
-    # Calibrated to real MX-5 grip levels on street tires:
-    # - D_lat=0.95 × 2605N × 4 wheels = 9919N = 0.95g lateral
-    # - D_lon=1.35 × 2605N × 4 wheels = 14075N = 1.35g braking
-    # - D_lon=1.35 × 2605N × 2 wheels = 7037N = 0.67g acceleration (RWD)
-    #
-    # Increased D_lon to 1.35 to provide more grip and prevent wheel spin
-    # Street tires can exceed μ=1.0 in pure longitudinal  direction
-    PACEJKA_D_LAT = 0.95  # Lateral peak - realistic for street tires
-    PACEJKA_D_LON = 1.35  # Longitudinal peak - increased for better traction
-
-    # E: Curvature factor (shape near/after peak)
-    # Controls how gradually grip falls off after peak slip
-    # Street tires typically have smoother falloff than race tires
-    PACEJKA_E_LAT = 0.97  # Lateral curvature - gradual falloff
-    PACEJKA_E_LON = 0.97  # Longitudinal curvature - gradual falloff
-
-    # ============================================================
-    # EXPECTED PERFORMANCE WITH THESE TIRE PARAMETERS
-    # ============================================================
-    # Vehicle mass: 1062 kg
-    # Weight per wheel: 2604.6 N
-    #
-    # LATERAL (Cornering):
-    #   Peak force per wheel: 2474.4 N (D_lat=0.95 × 2604.6N)
-    #   Total lateral force: 9897.5 N (all 4 wheels)
-    #   Max lateral accel: 9.32 m/s² (0.95g)
-    #   Target: 0.85-0.95g ✓
-    #   Real MX-5: ~0.90g skidpad (Car and Driver)
-    #
-    # LONGITUDINAL - Acceleration (RWD, 2 wheels):
-    #   Peak force per wheel: 2995.3 N (D_lon=1.15 × 2604.6N)
-    #   Total driving force: 5990.6 N (rear wheels only)
-    #   Max acceleration: 5.64 m/s² (0.57g)
-    #   Target: 0.50-0.70g ✓
-    #   Real MX-5: Power-limited, not traction-limited
-    #
-    # LONGITUDINAL - Braking (all 4 wheels):
-    #   Total braking force: 11981.2 N (all 4 wheels)
-    #   Max deceleration: 11.28 m/s² (1.15g)
-    #   Target: 1.00-1.20g ✓
-    #   Real MX-5: 60-0 mph in ~115 ft @ 1.10g (Motor Trend)
-    #
-    # Peak slip characteristics:
-    #   Lateral: Peak at ~8-10° slip angle (street tire typical)
-    #   Longitudinal: Peak at ~12-15% slip ratio (street tire typical)
-    #
-    # These values match real MX-5 Sport with stock Bridgestone
-    # Potenza RE050A or similar performance street tires.
-    # ============================================================
-
-    # Drivetrain (2.0L Skyactiv-G)
-    ENGINE_POWER = 135000.0  # Power (Watts) (181 hp * 745.7)
-
-    # Derived from ~205 Nm torque in 1st gear (5.09) & final drive (2.87)
-    # Total: 205 * 5.09 * 2.87 = 2992 Nm (both wheels)
-    # Per wheel: 2992 / 2 = 1496 Nm
-    #
-    # REALISTIC TORQUE DELIVERY FOR MX-5:
-    # Street cars don't dump full torque instantly - there's throttle response,
-    # drivetrain compliance, and progressive power delivery.
-    #
-    # Peak torque (1st gear): 1496 Nm per wheel (theoretical max at crank)
-    # Practical torque (street driving): Accounting for real-world factors:
-    #   - Drivetrain loss: 15% (clutch, gearbox, differential friction)
-    #   - Progressive throttle: Real pedal isn't instant 100% torque
-    #   - Clutch slip: Engagement isn't perfect lockup
-    #   - Weight transfer: Front wheels lift slightly on hard accel
-    #
-    # Effective torque for realistic drivability: 400 Nm per wheel
-    # This gives:
-    #   - Smooth acceleration with minimal wheelspin
-    #   - ~12-18% slip ratio (optimal for tire grip)
-    #   - Matches real MX-5 character: progressive and controllable
-    # Note: Lower than theoretical max accounts for drivetrain losses,
-    # clutch slip, and progressive throttle mapping
-    MAX_TORQUE_PER_WHEEL = 400.0  # Conservative torque for good traction
-
-    # We transition from "constant torque" to "constant power"
-    # P = τ * ω  =>  ω = P / τ
-    # (135000 W / 2 wheels) / 400 Nm = 168.75 rad/s (~162 km/h at transition)
-    # This is high but allows power delivery across full speed range
-    POWER_TRANSITION_OMEGA = 168.75  # Speed at which torque starts to drop
-
-    # Startup acceleration with realistic torque
-    # Alpha = Torque / Inertia = 400 / 1.2 = 333 rad/s^2
-    STARTUP_ACCEL = 333.0  # Angular acceleration (rad/s^2) for startup
-
-    # Brake torque: Direct torque applied by brake calipers to wheel
-    # MX5 braking performance: ~1.1g with proper 60/40 brake bias
-    # Reduced values to prevent wheel locking (was 930/620 N·m):
-    #   Front: 60 N·m → 50 rad/s² → 1.58g per wheel (realistic)
-    #   Rear: 40 N·m → 33 rad/s² → 1.05g per wheel (realistic)
-    #   Combined: ~1.1-1.3g total braking with load transfer
-    # This allows smooth brake modulation without instant lockup
-    MAX_BRAKE_TORQUE_FRONT = 60.0  # Maximum brake torque per front wheel (N·m)
-    MAX_BRAKE_TORQUE_REAR = 40.0   # Maximum brake torque per rear wheel (N·m)
-
-    # Estimated: 16" wheel + tire = ~17kg. I = 0.8 * m * r^2 = 0.8 * 17 * 0.3^2 = ~1.2
-    INERTIA = 1.2  # Wheel inertia (kg*m^2)
-
-    # Aerodynamics (ND MX-5 RF)
-    RHO_AIR = 1.225  # Air density (kg/m^3)
-    FRONTAL_AREA = 1.8  # Frontal area (m^2)
-    CD_CAR = 0.33  # Drag coefficient
-    C_ROLL_RESISTANCE = 0.015  # Coefficient of rolling resistance (tires on asphalt)
-
-    C_ROLL_RESISTANCE = 0.015  # Coefficient of rolling resistance (tires on asphalt)
-    CG_HEIGHT = 0.46  # Center of Gravity height (m) (Estimate for ND MX-5)
-
-
-    # Steering
-    MAX_STEER_ANGLE = 0.4  # Max steering angle (rad) (~23 degrees)
-    STEER_RATE = 3.0  # Steering response rate (rad/s)
-
-    # Friction (surface-dependent, modified per tile)
-    BASE_FRICTION = 1.0  # Asphalt (Pacejka D already handles peak friction)
-    GRASS_FRICTION = 0.5  # Grass
-
-    def __init__(self, world, init_angle, init_x, init_y):
+    def __init__(self, world, init_angle, init_x, init_y, physics_config=None):
         """
         Initialize car at position with given heading.
 
@@ -240,7 +67,61 @@ class Car:
             world: Box2D world (kept for compatibility, not used)
             init_angle: Initial heading angle (rad)
             init_x, init_y: Initial position
+            physics_config: PhysicsConfig instance (defaults to PhysicsConfig())
         """
+        # Load physics configuration
+        if physics_config is None:
+            physics_config = PhysicsConfig()
+
+        # Store configuration for later use
+        self._physics_config = physics_config
+
+        # Load all physics parameters from config
+        # Vehicle parameters
+        self.MASS = physics_config.vehicle.MASS
+        self.LENGTH = physics_config.vehicle.LENGTH
+        self.WIDTH = physics_config.vehicle.WIDTH
+        self.LF = physics_config.vehicle.LF
+        self.LR = physics_config.vehicle.LR
+        self.CG_HEIGHT = physics_config.vehicle.CG_HEIGHT
+
+        # Tire parameters
+        self.TIRE_RADIUS = physics_config.tire.TIRE_RADIUS
+        self.TIRE_WIDTH = physics_config.tire.TIRE_WIDTH
+        self.INERTIA = physics_config.tire.INERTIA
+
+        # Pacejka parameters
+        self.PACEJKA_B_LAT = physics_config.pacejka.B_LAT
+        self.PACEJKA_C_LAT = physics_config.pacejka.C_LAT
+        self.PACEJKA_D_LAT = physics_config.pacejka.D_LAT
+        self.PACEJKA_E_LAT = physics_config.pacejka.E_LAT
+        self.PACEJKA_B_LON = physics_config.pacejka.B_LON
+        self.PACEJKA_C_LON = physics_config.pacejka.C_LON
+        self.PACEJKA_D_LON = physics_config.pacejka.D_LON
+        self.PACEJKA_E_LON = physics_config.pacejka.E_LON
+
+        # Drivetrain parameters
+        self.ENGINE_POWER = physics_config.drivetrain.ENGINE_POWER
+        self.MAX_TORQUE_PER_WHEEL = physics_config.drivetrain.MAX_TORQUE_PER_WHEEL
+        self.POWER_TRANSITION_OMEGA = physics_config.drivetrain.POWER_TRANSITION_OMEGA
+        self.STARTUP_ACCEL = physics_config.drivetrain.STARTUP_ACCEL
+        self.MAX_BRAKE_TORQUE_FRONT = physics_config.drivetrain.MAX_BRAKE_TORQUE_FRONT
+        self.MAX_BRAKE_TORQUE_REAR = physics_config.drivetrain.MAX_BRAKE_TORQUE_REAR
+
+        # Aerodynamics parameters
+        self.RHO_AIR = physics_config.aerodynamics.RHO_AIR
+        self.FRONTAL_AREA = physics_config.aerodynamics.FRONTAL_AREA
+        self.CD_CAR = physics_config.aerodynamics.CD_CAR
+        self.C_ROLL_RESISTANCE = physics_config.aerodynamics.C_ROLL_RESISTANCE
+
+        # Steering parameters
+        self.MAX_STEER_ANGLE = physics_config.steering.MAX_STEER_ANGLE
+        self.STEER_RATE = physics_config.steering.STEER_RATE
+
+        # Friction parameters
+        self.BASE_FRICTION = physics_config.friction.BASE_FRICTION
+        self.GRASS_FRICTION = physics_config.friction.GRASS_FRICTION
+
         # State variables
         self.x = init_x
         self.y = init_y

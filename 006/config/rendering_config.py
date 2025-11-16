@@ -60,22 +60,6 @@ class FrictionDetectionConfig:
 
 
 @dataclass
-class StateNormalizationConfig:
-    """
-    Normalization constants for vector state creation.
-
-    These values are used to normalize state variables to [-1, 1] range
-    for neural network input.
-    """
-    MAX_VELOCITY: float = 30.0  # m/s (used for velocity normalization)
-    MAX_ANGULAR_VEL: float = 5.0  # rad/s
-    MAX_ACCELERATION: float = 50.0  # m/s^2
-    MAX_CURVATURE: float = 1.0  # rad/m
-    MAX_SLIP_RATIO: float = 2.0  # dimensionless
-    MAX_VERTICAL_FORCE: float = 5000.0  # N
-
-
-@dataclass
 class RenderingConfig:
     """
     Complete rendering configuration combining all rendering parameter groups.
@@ -84,9 +68,11 @@ class RenderingConfig:
         config = RenderingConfig()
         print(config.video.VIDEO_W)  # 600
         print(config.camera.ZOOM)  # 2.7
+
+    NOTE: State normalization constants have been moved to config.physics_config.NormalizationParams
+    since they are physics-related, not rendering-related.
     """
     video: VideoConfig = field(default_factory=VideoConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     track_visuals: TrackVisualsConfig = field(default_factory=TrackVisualsConfig)
     friction_detection: FrictionDetectionConfig = field(default_factory=FrictionDetectionConfig)
-    state_normalization: StateNormalizationConfig = field(default_factory=StateNormalizationConfig)
