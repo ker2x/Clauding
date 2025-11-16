@@ -42,6 +42,13 @@ from preprocessing import make_carracing_env
 from sac import SACAgent, ReplayBuffer
 from training_utils import evaluate_agent, setup_logging
 from config.constants import *
+from config.domain_randomization import (
+    DomainRandomizationConfig,
+    conservative_randomization,
+    moderate_randomization,
+    aggressive_randomization,
+    wet_surface_conditions,
+)
 
 
 def parse_args():
@@ -93,6 +100,12 @@ def parse_args():
                         help='Device (must be cpu for multiprocessing, default: cpu)')
     parser.add_argument('--threads-per-agent', type=int, default=None,
                         help='CPU threads per agent (default: auto-calculated as num_cores/num_agents)')
+
+    # Domain randomization
+    parser.add_argument('--domain-randomization', type=str, default='none',
+                        choices=['none', 'conservative', 'moderate', 'aggressive', 'wet'],
+                        help='Domain randomization preset: none (default), conservative, moderate, aggressive, or wet')
+
     parser.add_argument('--verbose', action='store_true',
                         help='Enable verbose output')
     parser.add_argument('--resume', type=str, default=None,
@@ -131,6 +144,18 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     SHORT_EPISODE_PENALTY = DEFAULT_SHORT_EPISODE_PENALTY
     MIN_EPISODE_STEPS = DEFAULT_MIN_EPISODE_STEPS
 
+    # Configure domain randomization
+    domain_rand_config = None
+    if args.domain_randomization != 'none':
+        if args.domain_randomization == 'conservative':
+            domain_rand_config = conservative_randomization()
+        elif args.domain_randomization == 'moderate':
+            domain_rand_config = moderate_randomization()
+        elif args.domain_randomization == 'aggressive':
+            domain_rand_config = aggressive_randomization()
+        elif args.domain_randomization == 'wet':
+            domain_rand_config = wet_surface_conditions()
+
     # Create environment
     env = make_carracing_env(
         max_episode_steps=MAX_EPISODE_STEPS,
@@ -140,7 +165,8 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         reward_shaping=True,
         min_episode_steps=MIN_EPISODE_STEPS,
         short_episode_penalty=SHORT_EPISODE_PENALTY,
-        verbose=args.verbose
+        verbose=args.verbose,
+        domain_randomization_config=domain_rand_config,
     )
 
     state_dim = env.observation_space.shape[0]
@@ -340,6 +366,7 @@ def main():
     else:
         print(f"Selection strategy: Winner-takes-all")
 
+    print(f"Domain randomization: {args.domain_randomization}")
     print(f"Total episodes: {args.episodes}")
     print(f"Wall-clock speedup: ~{args.num_agents}×")
     print(f"{'='*60}\n")

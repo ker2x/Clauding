@@ -15,6 +15,7 @@ import gymnasium as gym
 
 # Import local CarRacing environment
 from env.car_racing import CarRacing
+from config.domain_randomization import DomainRandomizationConfig
 
 
 def make_carracing_env(
@@ -28,6 +29,7 @@ def make_carracing_env(
     max_episode_steps=1500,
     verbose=False,
     num_cars=1,
+    domain_randomization_config=None,
 ) -> gym.Env:
     """
     Creates a CarRacing-v3 environment for SAC training in vector mode.
@@ -47,6 +49,7 @@ def make_carracing_env(
         max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
         num_cars: Number of cars racing simultaneously (default: 1)
+        domain_randomization_config: Configuration for domain randomization (default: None, disabled)
 
     Returns:
         Environment ready for SAC training with continuous actions.
@@ -66,6 +69,7 @@ def make_carracing_env(
         min_episode_steps=min_episode_steps,
         short_episode_penalty=short_episode_penalty,
         num_cars=num_cars,
+        domain_randomization_config=domain_randomization_config,
     )
     return env
 

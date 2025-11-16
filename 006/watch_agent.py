@@ -11,8 +11,18 @@ For vector mode agents, this displays a custom visualization showing:
 - Tire dynamics (slip angles and slip ratios for each wheel)
 
 Usage:
-    # Watch agent from checkpoint (default: both game and vector views)
+    # Watch agent with deterministic policy (default)
     python watch_agent.py --checkpoint checkpoints/best_model.pt
+
+    # Watch with stochastic policy (sample from distribution)
+    python watch_agent.py --checkpoint checkpoints/best_model.pt --stochastic
+
+    # Watch with stochastic policy and custom temperature
+    # Higher temperature = more exploration/randomness
+    python watch_agent.py --checkpoint checkpoints/best_model.pt --stochastic --temperature 1.5
+
+    # Lower temperature = less exploration (more deterministic)
+    python watch_agent.py --checkpoint checkpoints/best_model.pt --stochastic --temperature 0.5
 
     # Watch with only game view
     python watch_agent.py --checkpoint checkpoints/best_model.pt --view game
@@ -43,6 +53,49 @@ from sac import SACAgent
 from utils.display import format_action, get_car_speed
 
 
+def select_action_with_temperature(agent, state, temperature=1.0, stochastic=False):
+    """
+    Select action with optional temperature-scaled stochastic sampling.
+
+    Args:
+        agent: SACAgent instance
+        state: Current state
+        temperature: Temperature parameter for stochastic sampling (default: 1.0)
+                    - temperature = 1.0: Normal stochastic sampling (policy as trained)
+                    - temperature > 1.0: More exploration (wider distribution)
+                    - temperature < 1.0: Less exploration (sharper distribution)
+                    - temperature → 0: Approaches deterministic (mean)
+        stochastic: If False, use deterministic policy (ignores temperature)
+
+    Returns:
+        action: Action to take
+    """
+    if not stochastic:
+        # Deterministic: use mean action
+        return agent.select_action(state, evaluate=True)
+
+    # Stochastic with temperature scaling
+    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(agent.device)
+
+    with torch.no_grad():
+        mean, log_std = agent.actor(state_tensor)
+
+        # Apply temperature scaling to standard deviation
+        # temperature > 1 → wider distribution (more exploration)
+        # temperature < 1 → narrower distribution (less exploration)
+        # temperature → 0 → deterministic (std → 0)
+        std = log_std.exp() * temperature
+
+        # Sample from temperature-scaled distribution
+        normal = torch.distributions.Normal(mean, std)
+        z = normal.sample()
+
+        # Apply action bounds (tanh for both steering and acceleration)
+        action = torch.tanh(z)
+
+    return action.cpu().numpy()[0]
+
+
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Watch trained SAC agent play CarRacing-v3')
@@ -57,6 +110,14 @@ def parse_args():
                         help='Display FPS (default: 30)')
     parser.add_argument('--view', type=str, default='game', choices=['game', 'vector', 'both'],
                         help='Which view to show for vector mode: game, vector, or both (default: both)')
+
+    # Stochastic inference options
+    parser.add_argument('--stochastic', action='store_true',
+                        help='Use stochastic policy (sample from distribution) instead of deterministic (mean)')
+    parser.add_argument('--temperature', type=float, default=1.0,
+                        help='Temperature for stochastic sampling (default: 1.0). '
+                             'Higher = more exploration, lower = more deterministic. '
+                             'Only used with --stochastic flag.')
 
     return parser.parse_args()
 
@@ -274,7 +335,8 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     return img_bgr
 
 
-def render_frame(frame, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
+def render_frame(frame, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0,
+                 stochastic=False, temperature=1.0):
     """
     Render frame with overlay information.
 
@@ -287,6 +349,8 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha, spee
         action: Continuous action [steering, acceleration]
         alpha: Entropy coefficient
         speed_kmh: Car speed in km/h
+        stochastic: Whether using stochastic policy
+        temperature: Temperature parameter (only relevant if stochastic=True)
 
     Returns:
         Frame with overlay text
@@ -303,7 +367,15 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha, spee
     thickness = 1
     color = (255, 255, 255)
 
-    cv2.putText(frame, f"SAC AGENT (Deterministic Policy)", (10, 20), font, font_scale, (0, 255, 255), thickness)
+    # Policy mode indicator
+    if stochastic:
+        policy_text = f"SAC AGENT (Stochastic, T={temperature:.2f})"
+        policy_color = (255, 165, 0)  # Orange for stochastic
+    else:
+        policy_text = f"SAC AGENT (Deterministic)"
+        policy_color = (0, 255, 255)  # Cyan for deterministic
+
+    cv2.putText(frame, policy_text, (10, 20), font, font_scale, policy_color, thickness)
     cv2.putText(frame, f"Episode: {episode}", (10, 40), font, font_scale, color, thickness)
     cv2.putText(frame, f"Step: {step}", (10, 60), font, font_scale, color, thickness)
 
@@ -380,7 +452,19 @@ def watch_agent(args):
 
     print(f"\nAgent loaded successfully!")
     print(f"Agent alpha (entropy coefficient): {alpha_value:.4f}")
-    print(f"Using deterministic policy (mean action) for evaluation")
+
+    # Display policy mode
+    if args.stochastic:
+        print(f"Policy mode: STOCHASTIC (sampling from distribution)")
+        print(f"Temperature: {args.temperature:.2f}")
+        if args.temperature > 1.0:
+            print(f"  → Higher temperature = more exploration")
+        elif args.temperature < 1.0:
+            print(f"  → Lower temperature = less exploration")
+        else:
+            print(f"  → Normal stochastic sampling (policy as trained)")
+    else:
+        print(f"Policy mode: DETERMINISTIC (mean action)")
 
     if not args.no_render:
         print("\nControls:")
@@ -409,8 +493,12 @@ def watch_agent(args):
             while not done:
                 frame_start = time.time()
 
-                # Select action (deterministic, use mean)
-                action = agent.select_action(state, evaluate=True)
+                # Select action (with optional stochastic sampling and temperature)
+                action = select_action_with_temperature(
+                    agent, state,
+                    temperature=args.temperature,
+                    stochastic=args.stochastic
+                )
 
                 # Take step
                 next_state, reward, terminated, truncated, _ = env.step(action)
@@ -430,7 +518,8 @@ def watch_agent(args):
                         rgb_frame = env.render()
                         game_render = render_frame(
                             rgb_frame, episode + 1, step, reward, total_reward,
-                            action, alpha_value, speed_kmh
+                            action, alpha_value, speed_kmh,
+                            stochastic=args.stochastic, temperature=args.temperature
                         )
                         cv2.imshow('SAC Agent - Game View', game_render)
 

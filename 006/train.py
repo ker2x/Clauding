@@ -10,8 +10,20 @@ This script:
 6. Generates training progress plots
 
 Usage:
-    # Basic training
+    # Basic training (no domain randomization)
     python train.py
+
+    # Training with domain randomization (conservative)
+    python train.py --domain-randomization conservative
+
+    # Training with moderate domain randomization
+    python train.py --domain-randomization moderate
+
+    # Training with aggressive domain randomization
+    python train.py --domain-randomization aggressive
+
+    # Training for wet/slippery conditions
+    python train.py --domain-randomization wet
 
     # Custom configuration
     python train.py --episodes 2000 --learning-starts 5000
@@ -21,6 +33,9 @@ Usage:
 
     # Resume from checkpoint
     python train.py --resume checkpoints/best_model.pt --episodes 1000
+
+    # Combine options (training with domain randomization on CPU)
+    python train.py --domain-randomization moderate --device cpu --episodes 1000
 """
 
 import argparse
@@ -60,6 +75,13 @@ from preprocessing import make_carracing_env
 from sac import SACAgent, ReplayBuffer
 from training_utils import get_device, configure_cpu_threading, evaluate_agent, setup_logging
 from config.constants import *
+from config.domain_randomization import (
+    DomainRandomizationConfig,
+    conservative_randomization,
+    moderate_randomization,
+    aggressive_randomization,
+    wet_surface_conditions,
+)
 
 
 def parse_args():
@@ -95,6 +117,11 @@ def parse_args():
                         help='Use automatic entropy tuning (default: True)')
 
     # Environment parameters (vector mode only)
+
+    # Domain randomization
+    parser.add_argument('--domain-randomization', type=str, default='none',
+                        choices=['none', 'conservative', 'moderate', 'aggressive', 'wet'],
+                        help='Domain randomization preset: none (default), conservative, moderate, aggressive, or wet')
 
     # Resume training
     parser.add_argument('--resume', type=str, default=None,
@@ -221,6 +248,21 @@ def train(args):
     # Configure CPU threading for optimal performance
     configure_cpu_threading(device)
 
+    # Configure domain randomization
+    domain_rand_config = None
+    if args.domain_randomization != 'none':
+        if args.domain_randomization == 'conservative':
+            domain_rand_config = conservative_randomization()
+        elif args.domain_randomization == 'moderate':
+            domain_rand_config = moderate_randomization()
+        elif args.domain_randomization == 'aggressive':
+            domain_rand_config = aggressive_randomization()
+        elif args.domain_randomization == 'wet':
+            domain_rand_config = wet_surface_conditions()
+        print(f"Domain randomization: {args.domain_randomization}")
+    else:
+        print("Domain randomization: disabled")
+
     # Create training environment
     print("Creating CarRacing-v3 environment...")
     env = make_carracing_env(
@@ -231,7 +273,8 @@ def train(args):
         min_episode_steps=MIN_EPISODE_STEPS,
         short_episode_penalty=SHORT_EPISODE_PENALTY,
         max_episode_steps=MAX_EPISODE_STEPS,
-        verbose=args.verbose
+        verbose=args.verbose,
+        domain_randomization_config=domain_rand_config,
     )
 
     action_dim = env.action_space.shape[0]
@@ -244,6 +287,8 @@ def train(args):
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
     print(f"  Reward shaping enabled (penalty {SHORT_EPISODE_PENALTY} for episodes < {MIN_EPISODE_STEPS} steps)")
+    if domain_rand_config and domain_rand_config.enabled:
+        print(f"  Domain randomization: {args.domain_randomization} preset")
 
     # Create agent
     print("\nCreating SAC agent...")

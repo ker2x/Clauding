@@ -103,25 +103,6 @@ Input (36D state + 3D action = 39D) → FC(256) → LeakyReLU
 
 **Note**: Uses LeakyReLU (slope=0.01) instead of ReLU to prevent dead neurons and improve gradient flow.
 
-### Visual Mode (4×96×96 RGB)
-
-**Actor (VisualActor)**:
-```
-Input (4×96×96) → Conv(32, 8×8, stride 4) → ReLU
-→ Conv(64, 4×4, stride 2) → ReLU
-→ Conv(64, 3×3, stride 1) → ReLU
-→ Flatten → FC(512) → ReLU
-            ├─→ FC(3) → mean
-            └─→ FC(3) → log_std (clamped to [-20, 2])
-```
-
-**Critic (VisualCritic)** (×2 networks):
-```
-State: Input (4×96×96) → Conv layers → Flatten → 4096D
-Action: Input (3D) → concatenate with state features → FC(512) → ReLU
-→ FC(1) → Q-value
-```
-
 ---
 
 ## Hyperparameters
@@ -386,8 +367,7 @@ This section explains what happens when you change each hyperparameter and how t
     - May need lower learning rates
   - **When to use**: Limited memory, want faster iteration
 
-**For visual observations**: Smaller batches (128-256) due to memory constraints
-**For vector observations**: Larger batches (256-512) for stability
+**Recommended**: Larger batches (256-512) for stability with vector observations
 
 **Critical**: Batch size should be << buffer size. If batch_size = 256, buffer should be at least 10,000.
 
@@ -402,7 +382,7 @@ This section explains what happens when you change each hyperparameter and how t
     - Better sample efficiency
     - Reduces overfitting to recent experiences
   - **Cons**:
-    - More memory usage (~15GB for 1M visual obs)
+    - More memory usage (~1GB for 1M vector obs)
     - Slower sampling (more data to sample from)
     - May include outdated experiences
   - **When to use**: You have memory, want best sample efficiency
@@ -419,13 +399,12 @@ This section explains what happens when you change each hyperparameter and how t
   - **When to use**: Limited memory, or environment changes over time
 
 **Memory estimates**:
-- Vector (36D state): ~1GB for 1M transitions
-- Visual (4×96×96): ~15GB for 100k transitions
+- Vector (71D state): ~1GB for 1M transitions
 
 **Practical guideline**:
 - Use largest buffer that fits in RAM
-- For 16GB RAM: 100k visual or 1M vector
-- For 32GB RAM: 200k visual or 2M vector
+- For 16GB RAM: 1-2M transitions
+- For 32GB RAM: 2-4M transitions
 
 #### `learning_starts` (Default: 5,000)
 
@@ -456,9 +435,7 @@ This section explains what happens when you change each hyperparameter and how t
 **Rule of thumb**: `learning_starts` should be at least 2-5× `batch_size`
 - batch_size=256 → learning_starts ≥ 1000
 - Ensures enough diversity for initial training
-
-**For visual mode**: Use higher values (5k-10k) due to higher dimensionality
-**For vector mode**: Can use lower values (2k-5k)
+- Recommended: 2k-5k for vector observations
 
 ---
 
@@ -581,14 +558,10 @@ This section helps diagnose and fix common training issues by adjusting hyperpar
    - **Tradeoff**: Slightly less stable, but 2x faster updates
 
 2. **Reduce buffer size** (faster sampling)
-   - **Fix**: Try buffer_size=50k instead of 100k for visual
+   - **Fix**: Try buffer_size=50k instead of 100k
    - **Tradeoff**: Less diversity, but faster sampling
 
-3. **Use vector mode** instead of visual
-   - **Fix**: Switch to `state_mode='vector'`
-   - **Speedup**: 10-50x faster depending on hardware
-
-4. **Configure CPU threading** (for CPU training)
+3. **Configure CPU threading** (for CPU training)
    - **Fix**: Set `OMP_NUM_THREADS=<num_cores>` environment variable
    - **Why**: PyTorch defaults to using only 1-2 threads
 
