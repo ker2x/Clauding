@@ -1,11 +1,11 @@
 # CarRacing Environment - Custom Physics Engine
 
-This directory contains a custom implementation of the CarRacing-v3 environment with a clean 2D physics engine replacing Box2D.
+This directory contains a custom implementation of the CarRacing-v3 environment with a clean 2D physics engine.
 
 ## Overview
 
 The environment provides a realistic car racing simulation with:
-- **Custom 2D Physics**: Clean, interpretable physics without Box2D dependency
+- **Custom 2D Physics**: Clean, interpretable physics implementation
 - **Pacejka Magic Formula Tires**: Industry-standard tire model
 - **Realistic Load Transfer**: Physics-based weight distribution during cornering/braking
 - **Configurable Suspension**: Independent per-wheel spring-damper system

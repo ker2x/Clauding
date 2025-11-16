@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine** (no Box2D dependency). The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (71D) state representation** for training.
+This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine**. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (71D) state representation** for training.
 
 ### Key Features
 
