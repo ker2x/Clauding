@@ -382,10 +382,8 @@ def train(args):
             total_steps += 1
 
             # Train agent (only after learning_starts steps)
-            # Perform 4 gradient updates per environment step for better sample efficiency
             if total_steps >= args.learning_starts and len(replay_buffer) >= args.batch_size:
-                for _ in range(4):
-                    metrics = agent.update(replay_buffer, args.batch_size)
+                metrics = agent.update(replay_buffer, args.batch_size)
                 episode_metrics['actor_loss'].append(metrics['actor_loss'])
                 episode_metrics['critic_1_loss'].append(metrics['critic_1_loss'])
                 episode_metrics['critic_2_loss'].append(metrics['critic_2_loss'])
