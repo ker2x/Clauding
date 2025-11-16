@@ -115,6 +115,8 @@ def parse_args():
                         help=f'Training batch size (default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Use automatic entropy tuning (default: True)')
+    parser.add_argument('--no-layernorm', action='store_true', default=False,
+                        help='Disable LayerNorm in networks (for performance testing)')
 
     # Environment parameters (vector mode only)
 
@@ -301,6 +303,7 @@ def train(args):
         gamma=args.gamma,
         tau=args.tau,
         auto_entropy_tuning=args.auto_entropy_tuning,
+        use_layernorm=not args.no_layernorm,  # Invert the flag (--no-layernorm → use_layernorm=False)
         device=device
     )
 
@@ -546,6 +549,16 @@ def train(args):
     print(f"Final alpha: {avg_alpha:.4f}")
     print(f"Best evaluation reward: {best_avg_reward:.2f}")
     print(f"Final evaluation reward: {final_eval_mean:.2f}")
+
+    # Performance analysis
+    print("\nPerformance Analysis:")
+    hours, remainder = divmod(int(total_time), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    time_per_step = (total_time * 1000) / total_steps if total_steps > 0 else 0
+    print(f"  - Total time: {hours}:{minutes:02d}:{seconds:02d} ({total_time:.2f}s)")
+    print(f"  - Total steps: {total_steps:,}")
+    print(f"  - Time/step: {time_per_step:.2f} ms/step")
+
     print(f"\nCheckpoints saved in: {args.checkpoint_dir}")
     print(f"Logs saved in: {args.log_dir}")
     print("=" * 60)
@@ -561,7 +574,11 @@ def train(args):
     log_handle.write(f"Final alpha: {avg_alpha:.4f}\n")
     log_handle.write(f"Best evaluation reward: {best_avg_reward:.2f}\n")
     log_handle.write(f"Final evaluation reward: {final_eval_mean:.2f} (±{final_eval_std:.2f})\n")
-    log_handle.write(f"Checkpoints saved in: {args.checkpoint_dir}\n")
+    log_handle.write("\nPerformance Analysis:\n")
+    log_handle.write(f"  - Total time: {hours}:{minutes:02d}:{seconds:02d} ({total_time:.2f}s)\n")
+    log_handle.write(f"  - Total steps: {total_steps:,}\n")
+    log_handle.write(f"  - Time/step: {time_per_step:.2f} ms/step\n")
+    log_handle.write(f"\nCheckpoints saved in: {args.checkpoint_dir}\n")
     log_handle.write(f"Logs saved in: {args.log_dir}\n")
     log_handle.write("=" * 70 + "\n")
 

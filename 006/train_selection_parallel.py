@@ -90,6 +90,8 @@ def parse_args():
                         help=f'Target network update rate (default: {DEFAULT_TAU})')
     parser.add_argument('--auto-entropy-tuning', action='store_true', default=True,
                         help='Automatically tune entropy coefficient')
+    parser.add_argument('--no-layernorm', action='store_true', default=False,
+                        help='Disable LayerNorm in networks (for performance testing)')
     parser.add_argument('--buffer-size', type=int, default=DEFAULT_BUFFER_SIZE,
                         help=f'Replay buffer size (default: {DEFAULT_BUFFER_SIZE})')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
@@ -183,6 +185,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
         gamma=args.gamma,
         tau=args.tau,
         auto_entropy_tuning=args.auto_entropy_tuning,
+        use_layernorm=not args.no_layernorm,  # Invert the flag
         device=device
     )
 
@@ -671,12 +674,25 @@ def main():
 
             # Check if done
             if min(agent_episode_counts) >= args.episodes:
+                total_time = time.time() - start_time
+                total_steps = sum(agent_total_steps)
+
                 print(f"\n{'='*60}")
                 print("Training Complete!")
                 print(f"{'='*60}")
                 print(f"Total generations: {generation}")
-                print(f"Total time: {(time.time() - start_time)/60:.1f} minutes")
+                print(f"Total time: {total_time/60:.1f} minutes")
                 print(f"Best overall reward: {best_overall_reward:.2f}")
+
+                # Performance analysis
+                print("\nPerformance Analysis:")
+                hours, remainder = divmod(int(total_time), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                time_per_step = (total_time * 1000) / total_steps if total_steps > 0 else 0
+                print(f"  - Total time: {hours}:{minutes:02d}:{seconds:02d} ({total_time:.2f}s)")
+                print(f"  - Total steps (all agents): {total_steps:,}")
+                print(f"  - Time/step: {time_per_step:.2f} ms/step")
+                print(f"  - Parallel agents: {args.num_agents}")
                 print(f"{'='*60}\n")
                 break
 

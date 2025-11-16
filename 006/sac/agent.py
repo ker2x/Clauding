@@ -25,8 +25,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
 
-from .actor import VectorActor
-from .critic import VectorCritic
+from .actor import VectorActor, VectorActorNoLN
+from .critic import VectorCritic, VectorCriticNoLN
 
 
 class SACAgent:
@@ -51,6 +51,7 @@ class SACAgent:
         tau=0.005,
         alpha=0.2,
         auto_entropy_tuning=True,
+        use_layernorm=True,
         device=None
     ):
         """
@@ -64,20 +65,31 @@ class SACAgent:
             tau: Soft update coefficient for target networks
             alpha: Initial entropy coefficient (if not auto-tuning)
             auto_entropy_tuning: Whether to automatically tune alpha
+            use_layernorm: Whether to use LayerNorm (default: True)
             device: torch device (cuda/mps/cpu)
         """
         self.action_dim = action_dim
         self.state_dim = state_dim
         self.gamma = gamma
         self.tau = tau
+        self.use_layernorm = use_layernorm
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Create networks
-        self.actor = VectorActor(state_dim, action_dim).to(self.device)
-        self.critic_1 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_2 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_target_1 = VectorCritic(state_dim, action_dim).to(self.device)
-        self.critic_target_2 = VectorCritic(state_dim, action_dim).to(self.device)
+        # Create networks (choose architecture based on use_layernorm flag)
+        if use_layernorm:
+            ActorClass = VectorActor
+            CriticClass = VectorCritic
+            print("Using architecture: WITH LayerNorm")
+        else:
+            ActorClass = VectorActorNoLN
+            CriticClass = VectorCriticNoLN
+            print("Using architecture: WITHOUT LayerNorm")
+
+        self.actor = ActorClass(state_dim, action_dim).to(self.device)
+        self.critic_1 = CriticClass(state_dim, action_dim).to(self.device)
+        self.critic_2 = CriticClass(state_dim, action_dim).to(self.device)
+        self.critic_target_1 = CriticClass(state_dim, action_dim).to(self.device)
+        self.critic_target_2 = CriticClass(state_dim, action_dim).to(self.device)
 
         # Initialize target networks
         self.critic_target_1.load_state_dict(self.critic_1.state_dict())

@@ -189,7 +189,7 @@ def test_agent():
     print("=" * 60)
 
     try:
-        from sac_agent import SACAgent, ReplayBuffer
+        from sac import SACAgent, ReplayBuffer
         import numpy as np
         import torch
 
