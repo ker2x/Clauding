@@ -39,9 +39,9 @@ except (ImportError, RuntimeError) as e:
     MATPLOTLIB_AVAILABLE = False
 
 from preprocessing import make_carracing_env
-from sac_agent import SACAgent, ReplayBuffer
+from sac import SACAgent, ReplayBuffer
 from training_utils import evaluate_agent, setup_logging
-from constants import *
+from config.constants import *
 
 
 def parse_args():

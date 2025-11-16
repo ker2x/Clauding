@@ -26,6 +26,7 @@ import numpy as np
 import time
 
 from preprocessing import make_carracing_env
+from utils.display import format_action
 
 
 def parse_args():
@@ -40,43 +41,6 @@ def parse_args():
                         help='Disable rendering (just compute rewards)')
 
     return parser.parse_args()
-
-
-def format_action(action):
-    """
-    Format continuous action for display.
-
-    Args:
-        action: Continuous action [steering, acceleration]
-               steering: -1 (left) to +1 (right)
-               acceleration: -1 (brake) to +1 (gas)
-
-    Returns:
-        Human-readable action description
-    """
-    steering, acceleration = action
-
-    # Convert acceleration to gas/brake for display
-    gas = max(0.0, acceleration)
-    brake = max(0.0, -acceleration)
-
-    # Describe steering
-    if steering < -0.3:
-        steer_desc = f"LEFT({steering:.2f})"
-    elif steering > 0.3:
-        steer_desc = f"RIGHT({steering:.2f})"
-    else:
-        steer_desc = f"STRAIGHT({steering:.2f})"
-
-    # Describe gas/brake
-    if brake > 0.1:
-        pedal_desc = f"BRAKE({brake:.2f})"
-    elif gas > 0.1:
-        pedal_desc = f"GAS({gas:.2f})"
-    else:
-        pedal_desc = "COAST"
-
-    return f"{steer_desc} + {pedal_desc}"
 
 
 def render_frame(frame, episode, step, reward, total_reward, action):

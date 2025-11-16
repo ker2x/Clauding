@@ -39,6 +39,7 @@ import sys
 import csv
 from datetime import datetime
 from preprocessing import make_carracing_env
+from utils.display import format_action, get_car_speed
 
 
 class TelemetryLogger:
@@ -286,42 +287,6 @@ class TelemetryGUI:
             pygame.draw.rect(surface, (80, 80, 85), (load_bar_x, y_load, load_bar_width, load_bar_height), 1)
 
 
-def format_action(action):
-    """Format continuous action for display."""
-    if len(action) == 2:
-        steering, accel = action
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        if accel > 0.1:
-            pedal_desc = f"GAS({accel:.2f})"
-        elif accel < -0.1:
-            pedal_desc = f"BRAKE({-accel:.2f})"
-        else:
-            pedal_desc = "COAST"
-    else:
-        steering, gas, brake = action
-        if steering < -0.3:
-            steer_desc = f"LEFT({steering:.2f})"
-        elif steering > 0.3:
-            steer_desc = f"RIGHT({steering:.2f})"
-        else:
-            steer_desc = f"STRAIGHT({steering:.2f})"
-
-        if brake > 0.1:
-            pedal_desc = f"BRAKE({brake:.2f})"
-        elif gas > 0.1:
-            pedal_desc = f"GAS({gas:.2f})"
-        else:
-            pedal_desc = "COAST"
-
-    return f"{steer_desc} + {pedal_desc}"
-
-
 def render_info(screen, font, episode, step, reward, total_reward, action, speed_kmh=0.0, info_y_offset=0):
     """Render text overlay onto the pygame screen."""
     info_area_height = 100
@@ -348,21 +313,6 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     draw_text_right(f"Reward: {reward:+.2f}", y_base + 10)
     draw_text_right(f"Total: {total_reward:+.2f}", y_base + 30)
     draw_text_right(f"Speed: {speed_kmh:.1f} km/h", y_base + 50, (255, 255, 100))
-
-
-def get_car_speed(env):
-    """Extract car speed from the environment and convert to km/h."""
-    speed_kmh = 0.0
-
-    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
-        car = env.unwrapped.car
-        if car is not None and hasattr(car, 'vx') and hasattr(car, 'vy'):
-            # Calculate speed magnitude from velocity components (m/s)
-            speed_ms = np.sqrt(car.vx**2 + car.vy**2)
-            # Convert m/s to km/h
-            speed_kmh = speed_ms * 3.6
-
-    return speed_kmh
 
 
 def get_wheel_data(env):
