@@ -22,7 +22,7 @@ This document provides a comprehensive explanation of the Soft Actor-Critic (SAC
 
 ### Why SAC for CarRacing?
 
-- **Continuous Control**: Naturally handles continuous actions (steering, gas, brake)
+- **Continuous Control**: Naturally handles continuous actions (steering, acceleration)
 - **Sample Efficient**: Learns from off-policy data using replay buffer
 - **Stable**: Automatic entropy tuning prevents premature convergence
 - **Robust**: Works well across diverse environments
@@ -86,19 +86,19 @@ This adjusts α to maintain a target entropy level, balancing exploration vs exp
 
 ## Network Architecture
 
-### Vector Mode (36D State)
+### Vector Mode (71D State)
 
 **Actor (VectorActor)**:
 ```
-Input (36D) → FC(256) → LeakyReLU → FC(256) → LeakyReLU → FC(256) → LeakyReLU
-            ├─→ FC(3) → mean
-            └─→ FC(3) → log_std (clamped to [-20, 2])
+Input (71D) → FC(128) → LayerNorm → LeakyReLU → FC(128) → LeakyReLU
+            ├─→ FC(2) → mean
+            └─→ FC(2) → log_std (clamped to [-20, 2])
 ```
 
 **Critic (VectorCritic)** (×2 networks):
 ```
-Input (36D state + 3D action = 39D) → FC(256) → LeakyReLU
-→ FC(256) → LeakyReLU → FC(256) → LeakyReLU → FC(256) → LeakyReLU → FC(1) → Q-value
+Input (71D state + 2D action = 73D) → FC(128) → LayerNorm → LeakyReLU
+→ FC(128) → LeakyReLU → FC(128) → LeakyReLU → FC(1) → Q-value
 ```
 
 **Note**: Uses LeakyReLU (slope=0.01) instead of ReLU to prevent dead neurons and improve gradient flow.
@@ -125,7 +125,7 @@ Input (36D state + 3D action = 39D) → FC(256) → LeakyReLU
 | `tau` | 0.005 | Soft target network update rate |
 | `alpha_init` | 0.2 | Initial entropy coefficient (auto-tuned during training) |
 | `auto_entropy_tuning` | True | Automatically adjust alpha to maintain target entropy |
-| `target_entropy` | -3.0 | Target entropy = -action_dim (for 3D action space) |
+| `target_entropy` | -2.0 | Target entropy = -action_dim (for 2D action space) |
 
 ### Training Parameters
 
@@ -140,10 +140,9 @@ Input (36D state + 3D action = 39D) → FC(256) → LeakyReLU
 | Action | Min | Max | Description |
 |--------|-----|-----|-------------|
 | Steering | -1.0 | +1.0 | Left (-1) to Right (+1) |
-| Gas | 0.0 | 1.0 | No gas (0) to Full throttle (1) |
-| Brake | 0.0 | 1.0 | No brake (0) to Full brake (1) |
+| Acceleration | -1.0 | +1.0 | Full brake (-1) to Full throttle (+1) |
 
-**Note**: The policy outputs actions in [-1, 1] range using tanh squashing. The environment internally converts the 3D continuous actions to the appropriate ranges.
+**Note**: The policy outputs actions in [-1, 1] range using tanh squashing. Acceleration is a single continuous value where negative values apply braking and positive values apply throttle.
 
 ---
 
@@ -319,24 +318,24 @@ This section explains what happens when you change each hyperparameter and how t
 - **Bad**: Drops to <0.001 quickly (over-exploitation)
 - **Bad**: Stays >0.5 for 200+ episodes (over-exploration)
 
-#### `target_entropy` (Default: -action_dim = -3.0)
+#### `target_entropy` (Default: -action_dim = -2.0)
 
 **What it controls**: Target level of randomness in the policy.
 
 **Mathematical meaning**: Negative of action dimensionality is a heuristic that works well.
 
 **Effects of changing**:
-- **More negative** (-4 to -5):
+- **More negative** (-3 to -4):
   - Encourages more exploration
   - Policy stays more stochastic longer
   - **Use when**: Complex exploration needed
 
-- **Less negative** (-1 to -2):
+- **Less negative** (-0.5 to -1.5):
   - Encourages earlier determinism
   - Faster convergence to deterministic policy
   - **Risk**: Premature convergence
 
-**Default of -3.0 for 3D actions is usually optimal.** Only change if you have specific exploration needs.
+**Default of -2.0 for 2D actions is usually optimal.** Only change if you have specific exploration needs.
 
 ### Training Parameters
 
@@ -729,7 +728,7 @@ tau = 0.002  # Slow target updates
 | `alpha` | Entropy coefficient | Decreases over time. High α = more exploration, low α = more exploitation |
 | `alpha_loss` | Entropy tuning loss | Adjusts alpha to maintain target entropy |
 
-**Target Entropy**: -3.0 (negative of 3D action space)
+**Target Entropy**: -2.0 (negative of 2D action space)
 - Alpha starts high (~0.2-0.8) for exploration
 - Decreases to ~0.01-0.2 as policy converges
 - Prevents premature convergence to deterministic policy
@@ -816,7 +815,7 @@ Raw actions are unbounded Gaussian samples. They're squashed using tanh:
 action_bounded = tanh(action_unbounded)
 ```
 
-This ensures actions stay within [-1, 1] for steering and [0, 1] for gas/brake.
+This ensures actions stay within [-1, 1] for both steering and acceleration.
 
 ### Soft Target Updates
 
