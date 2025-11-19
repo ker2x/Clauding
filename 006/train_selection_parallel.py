@@ -214,13 +214,9 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 # Load new weights from coordinator
                 new_state_dict = state_dict_queue.get()
                 agent.load_state_dict(new_state_dict)
-                # Clear replay buffer on selection (fresh start with new weights)
-                buffer = ReplayBuffer(
-                    capacity=args.buffer_size,
-                    state_shape=state_dim,
-                    action_dim=action_dim,
-                    device=device
-                )
+                # DO NOT clear replay buffer on selection
+                # We want to keep the experience from previous generation
+                # This improves sample efficiency significantly
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
                 eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
@@ -308,12 +304,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
                 elif command == 'LOAD_WEIGHTS':
                     new_state_dict = state_dict_queue.get()
                     agent.load_state_dict(new_state_dict)
-                    buffer = ReplayBuffer(
-                        capacity=args.buffer_size,
-                        state_shape=state_dim,
-                        action_dim=action_dim,
-                        device=device
-                    )
+                    # DO NOT clear replay buffer on selection
                 elif command == 'EVALUATE':
                     eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
                     result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
