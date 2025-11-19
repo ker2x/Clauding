@@ -306,6 +306,10 @@ class MX5TelemetryDisplay:
 
     def _setup_display(self):
         """Setup the display layout."""
+        # Disable matplotlib's default 'S' key (save screenshot) to allow brake control
+        if 's' in plt.rcParams['keymap.save']:
+            plt.rcParams['keymap.save'].remove('s')
+
         # Create figure with dark theme
         plt.style.use('dark_background')
         self.fig = plt.figure(figsize=(16, 10))

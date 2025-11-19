@@ -89,6 +89,10 @@ class EngineOnlyTelemetry:
 
     def _setup_display(self):
         """Setup the telemetry display."""
+        # Disable matplotlib's default 'S' key (save screenshot) to allow throttle control
+        if 's' in plt.rcParams['keymap.save']:
+            plt.rcParams['keymap.save'].remove('s')
+
         plt.style.use('dark_background')
         self.fig = plt.figure(figsize=(16, 10))
         self.fig.patch.set_facecolor('#0a0a0a')

@@ -79,8 +79,9 @@ class MX5Engine:
     ENGINE_INERTIA = 0.25
 
     # Engine friction and pumping losses
-    FRICTION_COEFFICIENT = 0.015  # Nm/(RPM²)
-    PUMPING_LOSS = 5.0  # Nm (constant)
+    FRICTION_COEFFICIENT = 13.5  # Static friction (Nm) - Base mechanical drag
+    VISCOUS_DRAG = 1.8  # Linear factor (Nm per 1000 RPM) - Oil drag
+    PUMPING_LOSS = 0.45  # Quadratic factor (Nm per 1000 RPM^2) - Air drag
 
     def __init__(self):
         """Initialize the engine at idle."""
@@ -94,6 +95,8 @@ class MX5Engine:
 
         # Build torque curve lookup table
         self._build_torque_curve()
+
+        self.current_effective_torque = 0.0
 
     def _build_torque_curve(self):
         """
@@ -147,14 +150,16 @@ class MX5Engine:
         if self.rpm >= self.FUEL_CUT_RPM:
             self._fuel_cut_active = True
             self._fuel_cut_cooldown = 0.1  # 100ms fuel cut
-            return 0.0
+            # Fuel is cut but engine braking still applies
+            return self._calculate_engine_braking()
 
         # Fuel cut cooldown (prevents immediate recovery)
         if self._fuel_cut_active:
             if self.rpm < self.FUEL_CUT_RPM - 200:  # Resume at -200 RPM
                 self._fuel_cut_active = False
             else:
-                return 0.0
+                # Still applying engine braking during cooldown
+                return self._calculate_engine_braking()
 
         # Interpolate torque curve at current RPM
         max_torque = np.interp(self.rpm, self._torque_rpm, self._torque_nm)
@@ -163,11 +168,19 @@ class MX5Engine:
         # Real engines have non-linear throttle maps, but this is close enough
         engine_torque = max_torque * throttle
 
-        # Engine braking when throttle is closed
-        if throttle < 0.01:
-            # Pumping losses and friction create engine braking
+        # Smooth transition to engine braking when throttle is closed
+        # Blend between engine torque and braking torque in the range [0.0, 0.1]
+        BLEND_THRESHOLD = 0.1  # Throttle position where blending starts
+
+        if throttle < BLEND_THRESHOLD:
+            # Calculate engine braking torque
             braking_torque = self._calculate_engine_braking()
-            engine_torque = braking_torque  # Negative torque
+
+            # Blend factor: 0.0 at throttle=BLEND_THRESHOLD, 1.0 at throttle=0.0
+            blend = 1.0 - (throttle / BLEND_THRESHOLD)
+
+            # Smooth transition: engine_torque gradually becomes braking_torque
+            engine_torque = engine_torque * (1.0 - blend) + braking_torque * blend
 
         return engine_torque
 
@@ -184,15 +197,18 @@ class MX5Engine:
             float: Negative torque in Nm
         """
         # Pumping losses increase with RPM (vacuum is higher)
-        pumping_loss = -self.PUMPING_LOSS * (self.rpm / 1000.0)
-
-        # Friction losses increase with RPM²
-        friction_loss = -self.FRICTION_COEFFICIENT * (self.rpm / 1000.0) ** 2
-
-        total_braking = pumping_loss + friction_loss
-
-        # Clamp to reasonable values
-        return max(total_braking, -80.0)  # Max ~80 Nm engine braking
+        _rpm = self.rpm / 1000.0
+        total_braking = self.FRICTION_COEFFICIENT + (self.VISCOUS_DRAG * _rpm ) + (self.PUMPING_LOSS * (_rpm ** 2))
+        return -total_braking  # Return as negative value
+#        pumping_loss = -self.PUMPING_LOSS * (self.rpm / 1000.0)
+#
+#        # Friction losses increase with RPM²
+#        friction_loss = -self.FRICTION_COEFFICIENT * (self.rpm / 1000.0) ** 2
+#
+#        total_braking = pumping_loss + friction_loss
+#
+#        # Clamp to reasonable values
+#        return max(total_braking, -80.0)  # Max ~80 Nm engine braking
 
     def update(self, dt, wheel_rpm, gear_ratio, clutch_engaged=True):
         """
