@@ -512,17 +512,30 @@ class EngineOnlyTelemetry:
                 # Update inputs
                 self.update_inputs()
 
-                # Get engine torque at current throttle
+                # Get engine torque at current throttle (respects fuel cut at 7500 RPM!)
                 engine_torque = self.powertrain.engine.get_torque(self.throttle)
 
-                # Calculate a simple "wheel RPM" based on throttle
-                # In engine-only mode, we're simulating as if there's a load on the engine
-                # Higher throttle = higher RPM (simplified, no real physics)
-                target_rpm = 800 + (self.throttle * 6500)  # 800 idle, up to 7300 at full throttle
+                # Simulate engine acceleration based on torque
+                # Positive torque = RPM increases, zero torque (fuel cut) = RPM decreases
+                if engine_torque > 0:
+                    # Engine producing power - RPM increases
+                    # More torque = faster RPM increase
+                    # At full throttle (205 Nm), should reach 7500 RPM in ~5-6 seconds
+                    rpm_acceleration = engine_torque * 20.0  # RPM/s increase rate
+                    self.powertrain.engine.rpm += rpm_acceleration * self.dt
+                else:
+                    # Fuel cut active or no throttle - RPM decreases (engine braking)
+                    # Decay back toward idle (slower decay to simulate flywheel inertia)
+                    target_rpm = 800  # Idle RPM
+                    rpm_diff = target_rpm - self.powertrain.engine.rpm
+                    self.powertrain.engine.rpm += rpm_diff * 0.08 * self.dt * 50  # Smooth decay
 
-                # Smooth RPM transition
-                rpm_diff = target_rpm - self.powertrain.engine.rpm
-                self.powertrain.engine.rpm += rpm_diff * 0.1
+                # Clamp RPM to valid range (can't go below idle, respects max RPM)
+                self.powertrain.engine.rpm = np.clip(
+                    self.powertrain.engine.rpm,
+                    self.powertrain.engine.IDLE_RPM,
+                    self.powertrain.engine.MAX_RPM
+                )
 
                 # Update gearbox
                 self.powertrain.gearbox.update(self.dt)
