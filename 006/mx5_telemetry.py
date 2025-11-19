@@ -645,13 +645,22 @@ class InteractiveDriveSimulator:
 
     def update_physics(self):
         """Update vehicle physics."""
-        # Get wheel torque from powertrain
-        wheel_torque = self.powertrain.get_wheel_torque(self.throttle, self.wheel_rpm)
+        # When coasting (no throttle, no brake), disengage clutch to prevent engine braking
+        # This gives a more arcade-like feel where releasing throttle lets you coast freely
+        if self.throttle < 0.01 and self.brake < 0.01:
+            # Coasting mode: no engine connection, just drag forces
+            wheel_force = 0.0
+            # Update powertrain with clutch disengaged (neutral)
+            self.powertrain.update(self.dt, self.wheel_rpm)
+        else:
+            # Active driving: apply engine/brake forces
+            # Get wheel torque from powertrain
+            wheel_torque = self.powertrain.get_wheel_torque(self.throttle, self.wheel_rpm)
+            wheel_force = wheel_torque / self.wheel_radius
+            # Update powertrain normally
+            self.powertrain.update(self.dt, self.wheel_rpm)
 
-        # Calculate forces
-        wheel_force = wheel_torque / self.wheel_radius
-
-        # Braking force (simplified)
+        # Braking force (only when brake pedal is pressed)
         brake_force = -self.brake * 8000.0  # Newtons
 
         # Drag force (F = 0.5 * rho * Cd * A * v^2)
@@ -672,9 +681,6 @@ class InteractiveDriveSimulator:
         # Calculate wheel RPM
         wheel_angular_velocity = speed_ms / self.wheel_radius  # rad/s
         self.wheel_rpm = wheel_angular_velocity * 60 / (2 * math.pi)
-
-        # Update powertrain
-        self.powertrain.update(self.dt, self.wheel_rpm)
 
     def run(self):
         """Run the interactive simulator."""
