@@ -495,9 +495,13 @@ class MX5Powertrain:
         """Shift to specific gear."""
         self.gearbox.shift_to(gear)
 
-    def get_state(self):
+    def get_state(self, throttle=1.0):
         """
         Get complete powertrain state for telemetry.
+
+        Args:
+            throttle (float): Current throttle position [0.0-1.0] for accurate torque display
+                            Defaults to 1.0 for backward compatibility
 
         Returns:
             dict: Dictionary with all telemetry values
@@ -505,7 +509,7 @@ class MX5Powertrain:
         return {
             # Engine
             'engine_rpm': self.engine.rpm,
-            'engine_torque_nm': self.engine.get_torque(throttle=1.0),
+            'engine_torque_nm': self.engine.get_torque(throttle),
             'engine_power_kw': self.engine.get_power_kw(),
             'engine_power_hp': self.engine.get_power_hp(),
             'engine_temp_c': self.engine.temperature,

@@ -353,7 +353,7 @@ class EngineOnlyTelemetry:
 
     def update_display(self):
         """Update all display elements."""
-        state = self.powertrain.get_state()
+        state = self.powertrain.get_state(throttle=self.throttle)
 
         rpm = state['engine_rpm']
         gear = state['current_gear']
@@ -374,8 +374,19 @@ class EngineOnlyTelemetry:
         self.update_gauge_needle(self.power_needle, self.power_needle_tip, power_hp, 0, 200)
         self.power_text.set_text(f'{int(power_hp)}')
 
-        self.update_gauge_needle(self.torque_needle, self.torque_needle_tip, torque_nm, 0, 250)
+        # Torque gauge handles positive and negative (engine braking)
+        # Clamp to display range but show actual value in text
+        torque_display = np.clip(torque_nm, -80, 250)
+        self.update_gauge_needle(self.torque_needle, self.torque_needle_tip, torque_display, -80, 250)
         self.torque_text.set_text(f'{int(torque_nm)}')
+
+        # Change needle color for negative torque (engine braking)
+        if torque_nm < 0:
+            self.torque_needle.set_color('#FF4444')  # Red for braking
+            self.torque_needle_tip.set_color('#FF4444')
+        else:
+            self.torque_needle.set_color('#FFD700')  # Gold for power
+            self.torque_needle_tip.set_color('#FFD700')
 
         # Gear display
         gear_text = 'N' if gear == 0 else str(gear)

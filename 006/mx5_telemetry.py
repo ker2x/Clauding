@@ -709,8 +709,8 @@ class InteractiveDriveSimulator:
                 # Update physics
                 self.update_physics()
 
-                # Get powertrain state
-                state = self.powertrain.get_state()
+                # Get powertrain state (pass throttle for accurate torque display)
+                state = self.powertrain.get_state(throttle=self.throttle)
                 state['speed_kmh'] = self.speed_kmh
                 state['throttle'] = self.throttle
                 state['brake'] = self.brake
