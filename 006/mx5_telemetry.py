@@ -14,9 +14,20 @@ Features:
 - Engine temperature and oil pressure gauges
 - Live time-series charts for RPM, speed, throttle/brake
 - Professional dark theme with motorsport aesthetics
+- Interactive controls for engine and gearbox (AZERTY keyboard)
+
+Interactive Controls (AZERTY keyboard):
+    Z          - Accelerate (increase throttle)
+    S          - Brake (apply brakes)
+    A          - Shift down
+    E          - Shift up
+    1-6        - Select gear directly (1st through 6th)
+    N          - Neutral
+    Space      - Release throttle and brake
+    ESC        - Quit
 
 Usage:
-    # Standalone demo with simulated data
+    # Interactive mode with manual controls
     python mx5_telemetry.py
 
     # Integration with powertrain simulation
@@ -519,104 +530,226 @@ class MX5TelemetryDisplay:
         plt.close(self.fig)
 
 
+class InteractiveDriveSimulator:
+    """
+    Interactive driving simulator with manual controls.
+
+    Allows user to control throttle, brake, and gearbox using keyboard.
+    """
+
+    def __init__(self):
+        """Initialize interactive simulator."""
+        # Import powertrain
+        try:
+            from mx5_powertrain import MX5Powertrain
+        except ImportError:
+            print("ERROR: Cannot import mx5_powertrain.py")
+            print("Make sure mx5_powertrain.py is in the same directory.")
+            raise
+
+        # Create telemetry and powertrain
+        self.telemetry = MX5TelemetryDisplay()
+        self.powertrain = MX5Powertrain()
+
+        # Control inputs
+        self.throttle = 0.0
+        self.brake = 0.0
+        self.throttle_increment = 0.05
+        self.brake_increment = 0.05
+
+        # Vehicle state
+        self.speed_kmh = 0.0
+        self.wheel_rpm = 0.0
+
+        # Physics constants
+        self.wheel_radius = 0.305  # meters
+        self.vehicle_mass = 1062  # kg
+        self.drag_coefficient = 0.5  # Simplified drag
+
+        # Simulation
+        self.dt = 0.02  # 50Hz update rate
+        self.time = 0.0
+        self.running = False
+
+        # Key press state tracking
+        self.keys_pressed = set()
+
+    def on_key_press(self, event):
+        """Handle key press events (AZERTY layout)."""
+        key = event.key.lower()
+
+        # ESC to quit
+        if key == 'escape':
+            print("\n[ESC] Exiting...")
+            self.running = False
+            plt.close(self.telemetry.fig)
+            return
+
+        # Add to pressed keys
+        self.keys_pressed.add(key)
+
+        # Gear shifting
+        if key == 'a':  # Shift down (AZERTY: A key)
+            self.powertrain.shift_down()
+            print(f"[A] Shifted DOWN to gear {self.powertrain.gearbox.current_gear}")
+
+        elif key == 'e':  # Shift up (AZERTY: E key)
+            self.powertrain.shift_up()
+            print(f"[E] Shifted UP to gear {self.powertrain.gearbox.current_gear}")
+
+        # Direct gear selection
+        elif key in ['1', '2', '3', '4', '5', '6']:
+            gear = int(key)
+            self.powertrain.shift_to(gear)
+            print(f"[{key}] Selected gear {gear}")
+
+        elif key == 'n':  # Neutral
+            self.powertrain.shift_to(0)
+            print(f"[N] Neutral")
+
+        # Space to release all inputs
+        elif key == ' ':
+            self.throttle = 0.0
+            self.brake = 0.0
+            print("[SPACE] Released throttle and brake")
+
+    def on_key_release(self, event):
+        """Handle key release events."""
+        key = event.key.lower()
+        if key in self.keys_pressed:
+            self.keys_pressed.remove(key)
+
+    def update_inputs(self):
+        """Update throttle and brake based on held keys."""
+        # Z key - Accelerate (AZERTY layout)
+        if 'z' in self.keys_pressed:
+            self.throttle = min(1.0, self.throttle + self.throttle_increment)
+            self.brake = 0.0  # Release brake when accelerating
+
+        # S key - Brake (AZERTY layout)
+        elif 's' in self.keys_pressed:
+            self.brake = min(1.0, self.brake + self.brake_increment)
+            self.throttle = 0.0  # Release throttle when braking
+
+        # Natural throttle/brake decay when keys released
+        else:
+            # Smooth release
+            self.throttle *= 0.95
+            self.brake *= 0.95
+
+            # Snap to zero when very small
+            if self.throttle < 0.01:
+                self.throttle = 0.0
+            if self.brake < 0.01:
+                self.brake = 0.0
+
+    def update_physics(self):
+        """Update vehicle physics."""
+        # Get wheel torque from powertrain
+        wheel_torque = self.powertrain.get_wheel_torque(self.throttle, self.wheel_rpm)
+
+        # Calculate forces
+        wheel_force = wheel_torque / self.wheel_radius
+
+        # Braking force (simplified)
+        brake_force = -self.brake * 8000.0  # Newtons
+
+        # Drag force (F = 0.5 * rho * Cd * A * v^2)
+        speed_ms = self.speed_kmh / 3.6
+        drag_force = -self.drag_coefficient * speed_ms * abs(speed_ms)
+
+        # Total force
+        total_force = wheel_force + brake_force + drag_force
+
+        # Acceleration (F = ma)
+        acceleration = total_force / self.vehicle_mass
+
+        # Update speed
+        speed_ms += acceleration * self.dt
+        speed_ms = max(0.0, speed_ms)  # Can't go backwards
+        self.speed_kmh = speed_ms * 3.6
+
+        # Calculate wheel RPM
+        wheel_angular_velocity = speed_ms / self.wheel_radius  # rad/s
+        self.wheel_rpm = wheel_angular_velocity * 60 / (2 * math.pi)
+
+        # Update powertrain
+        self.powertrain.update(self.dt, self.wheel_rpm)
+
+    def run(self):
+        """Run the interactive simulator."""
+        print("="*70)
+        print("MX-5 Powertrain Telemetry - INTERACTIVE MODE")
+        print("="*70)
+        print("\nControls (AZERTY keyboard):")
+        print("  Z          - Accelerate (hold to increase throttle)")
+        print("  S          - Brake (hold to apply brakes)")
+        print("  A          - Shift DOWN")
+        print("  E          - Shift UP")
+        print("  1-6        - Select gear directly")
+        print("  N          - Neutral")
+        print("  Space      - Release throttle and brake")
+        print("  ESC        - Quit")
+        print("\nStarting in gear 1. Press Z to accelerate!")
+        print("="*70 + "\n")
+
+        # Connect keyboard events
+        self.telemetry.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
+        self.telemetry.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
+
+        # Show display (non-blocking)
+        plt.ion()
+        self.telemetry.show(block=False)
+
+        self.running = True
+
+        try:
+            while self.running and plt.fignum_exists(self.telemetry.fig.number):
+                # Update inputs based on held keys
+                self.update_inputs()
+
+                # Update physics
+                self.update_physics()
+
+                # Get powertrain state
+                state = self.powertrain.get_state()
+                state['speed_kmh'] = self.speed_kmh
+                state['throttle'] = self.throttle
+                state['brake'] = self.brake
+
+                # Update telemetry display
+                self.telemetry.update(state)
+
+                # Increment time
+                self.time += self.dt
+
+                # Control update rate
+                plt.pause(self.dt)
+
+        except KeyboardInterrupt:
+            print("\nInterrupted by user.")
+
+        print("\nSession complete!")
+        print(f"Total time: {self.time:.1f}s")
+        print(f"Max speed: {max(self.telemetry.speed_buffer) if self.telemetry.speed_buffer else 0:.1f} km/h")
+
+        plt.ioff()
+        plt.show()  # Block to keep window open
+
+
 def demo():
     """
-    Demonstration mode with simulated data.
+    Interactive demonstration mode with manual controls.
 
-    Simulates an acceleration run through the gears.
+    Allows user to control the MX-5 using keyboard inputs.
     """
-    print("="*70)
-    print("MX-5 Powertrain Telemetry - DEMO MODE")
-    print("="*70)
-    print("\nSimulating acceleration run through gears...")
-    print("Close the window to exit.\n")
-
-    # Import powertrain
     try:
-        from mx5_powertrain import MX5Powertrain
-    except ImportError:
-        print("ERROR: Cannot import mx5_powertrain.py")
-        print("Make sure mx5_powertrain.py is in the same directory.")
-        return
-
-    # Create telemetry and powertrain
-    telemetry = MX5TelemetryDisplay()
-    powertrain = MX5Powertrain()
-
-    # Show display (non-blocking)
-    plt.ion()
-    telemetry.show(block=False)
-
-    # Simulation parameters
-    dt = 0.02  # 50Hz update rate
-    throttle = 0.0
-    speed_kmh = 0.0
-    wheel_rpm = 0.0
-
-    # Shift points (RPM)
-    shift_rpm = 7200
-
-    try:
-        time = 0.0
-        while plt.fignum_exists(telemetry.fig.number):
-            # Simulate throttle (ramp up to full)
-            if time < 0.5:
-                throttle = time / 0.5
-            else:
-                throttle = 1.0
-
-            # Get wheel torque
-            wheel_torque = powertrain.get_wheel_torque(throttle, wheel_rpm)
-
-            # Simple vehicle dynamics (very simplified)
-            # Assume wheel radius = 0.305m, vehicle mass = 1062kg
-            wheel_radius = 0.305
-            vehicle_mass = 1062
-            wheel_force = wheel_torque / wheel_radius
-
-            # Acceleration (F = ma, ignoring drag for demo)
-            acceleration = wheel_force / vehicle_mass * 0.5  # Scale down for demo
-
-            # Update speed
-            speed_ms = speed_kmh / 3.6
-            speed_ms += acceleration * dt
-            speed_kmh = speed_ms * 3.6
-
-            # Calculate wheel RPM
-            wheel_angular_velocity = speed_ms / wheel_radius  # rad/s
-            wheel_rpm = wheel_angular_velocity * 60 / (2 * math.pi)
-
-            # Auto shift at redline
-            if powertrain.engine.rpm > shift_rpm and powertrain.gearbox.current_gear < 6:
-                powertrain.shift_up()
-                print(f"[{time:.1f}s] Shifted to gear {powertrain.gearbox.current_gear} "
-                      f"@ {powertrain.engine.rpm:.0f} RPM")
-
-            # Update powertrain
-            powertrain.update(dt, wheel_rpm)
-
-            # Get state
-            state = powertrain.get_state()
-            state['speed_kmh'] = speed_kmh
-            state['throttle'] = throttle
-            state['brake'] = 0.0
-
-            # Update telemetry
-            telemetry.update(state)
-
-            # Limit speed for demo
-            if speed_kmh > 200:
-                break
-
-            time += dt
-            plt.pause(dt)
-
-    except KeyboardInterrupt:
-        print("\nDemo interrupted by user.")
-
-    print("\nDemo complete!")
-    plt.ioff()
-    plt.show()  # Block to keep window open
+        simulator = InteractiveDriveSimulator()
+        simulator.run()
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
