@@ -36,6 +36,7 @@ References:
 import numpy as np
 from env.tire_model import PacejkaTire
 from config.physics_config import PhysicsConfig
+from mx5_powertrain import MX5Powertrain
 
 
 class Car:
@@ -180,6 +181,21 @@ class Car:
             E_lon=self.PACEJKA_E_LON
         )
 
+        # MX5 Powertrain (replaces placeholder engine)
+        self.powertrain = MX5Powertrain()
+        # Start in 2nd gear (1st is too short for racing)
+        self.powertrain.shift_to(2)
+
+        # Automatic shifting thresholds with hysteresis
+        self.SHIFT_UP_RPM = 6500  # Shift up before redline
+        self.SHIFT_DOWN_RPM = 2500  # Shift down to avoid lugging
+        self.SHIFT_DOWN_RPM_HYSTERESIS = 1800  # Lower threshold after upshift (prevents hunting)
+
+        # Shift cooldown to prevent rapid shifting
+        self.shift_cooldown = 0.0  # Time since last shift (seconds)
+        self.MIN_SHIFT_INTERVAL = 0.5  # Minimum time between shifts (seconds)
+        self.last_shift_was_upshift = False  # Track shift direction for hysteresis
+
         # For rendering
         self.hull = type('Body', (), {})()
         self.hull.position = (init_x, init_y)
@@ -236,6 +252,38 @@ class Car:
 
         # Update wheel angular velocities (uses previous tire forces)
         self._update_wheel_dynamics(dt)
+
+        # Update MX5 powertrain state (engine RPM, gearbox)
+        # Use average rear wheel RPM (convert from rad/s to RPM)
+        rear_wheel_rpm_avg = (self.wheel_omega[2] + self.wheel_omega[3]) / 2.0 * 9.5493
+        self.powertrain.update(dt, rear_wheel_rpm_avg)
+
+        # Update shift cooldown timer
+        self.shift_cooldown += dt
+
+        # Automatic gear shifting with hysteresis to prevent hunting
+        current_gear = self.powertrain.gearbox.current_gear
+        engine_rpm = self.powertrain.engine.rpm
+
+        # Only allow shifting if cooldown has expired
+        if self.shift_cooldown >= self.MIN_SHIFT_INTERVAL:
+            # Upshift logic
+            if engine_rpm > self.SHIFT_UP_RPM and current_gear < 6:
+                self.powertrain.shift_up()
+                self.shift_cooldown = 0.0  # Reset cooldown
+                self.last_shift_was_upshift = True  # Track for hysteresis
+
+            # Downshift logic with hysteresis
+            # Use lower threshold if we just upshifted (prevents hunting)
+            elif current_gear > 2:
+                downshift_threshold = (self.SHIFT_DOWN_RPM_HYSTERESIS if self.last_shift_was_upshift
+                                      else self.SHIFT_DOWN_RPM)
+
+                if engine_rpm < downshift_threshold:
+                    # Don't shift below 2nd gear (1st is too short for racing)
+                    self.powertrain.shift_down()
+                    self.shift_cooldown = 0.0  # Reset cooldown
+                    self.last_shift_was_upshift = False  # Track for hysteresis
 
         # Compute tire forces
         tire_friction = self._get_surface_friction()
@@ -322,13 +370,15 @@ class Car:
                 # Brakes can only slow wheels to zero, not reverse them
                 wheel.omega = max(0.0, new_omega)
 
-            # 2. Apply Engine (rear-wheel drive)
-            elif is_rear and self._gas > 0:
-                # Engine torque (positive)
-                if abs(wheel.omega) < self.POWER_TRANSITION_OMEGA:
-                    engine_torque = self.MAX_TORQUE_PER_WHEEL * self._gas
-                else:
-                    engine_torque = (self.ENGINE_POWER / 2) * self._gas / abs(wheel.omega)
+            # 2. Apply Engine (rear-wheel drive with MX5 powertrain)
+            elif is_rear:
+                # Calculate wheel RPM for powertrain (rad/s to RPM)
+                wheel_rpm = abs(wheel.omega) * 9.5493  # 60 / (2π)
+
+                # Get wheel torque from MX5 powertrain (includes engine braking when throttle closed)
+                # The powertrain returns TOTAL wheel torque, divide by 2 for each rear wheel
+                total_wheel_torque = self.powertrain.get_wheel_torque(self._gas, wheel_rpm)
+                engine_torque = total_wheel_torque / 2.0  # Divide by 2 for each rear wheel
 
                 # CORRECT PHYSICS WITH TIRE FORCE FEEDBACK
                 # ==========================================
@@ -342,6 +392,9 @@ class Car:
                 #
                 # The tire force feedback is now FILTERED (alpha=0.15) to prevent oscillations
                 # This provides smooth, stable traction control without additional damping
+                #
+                # NOTE: Engine braking is now realistic (from MX5 powertrain)
+                # When throttle = 0, engine_torque will be negative (engine braking)
                 net_torque = engine_torque - tire_force_torque
 
                 # Note: Speed-dependent damping removed - filtered tire forces provide

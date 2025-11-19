@@ -151,7 +151,7 @@ class TelemetryLogger:
 class TelemetryGUI:
     """GUI for displaying real-time vehicle telemetry."""
 
-    def __init__(self, width=420, height=240):
+    def __init__(self, width=420, height=310):
         self.width = width
         self.height = height
         self.font = pygame.font.Font(None, 18)
@@ -165,10 +165,19 @@ class TelemetryGUI:
             3: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},  # RR
         }
 
-    def update_data(self, wheel_data):
-        """Update wheel telemetry data from the environment."""
+        # Powertrain telemetry data (updated each frame)
+        self.powertrain_data = {
+            'gear': 0,
+            'torque': 0.0,
+            'hp': 0.0,
+        }
+
+    def update_data(self, wheel_data, powertrain_data=None):
+        """Update wheel and powertrain telemetry data from the environment."""
         if wheel_data:
             self.wheel_data = wheel_data
+        if powertrain_data:
+            self.powertrain_data = powertrain_data
 
     def draw(self, surface, speed_kmh=0.0):
         """Draw telemetry panel."""
@@ -184,11 +193,87 @@ class TelemetryGUI:
         speed_text = self.font.render(f"{speed_kmh:.1f} km/h", True, (255, 255, 100))
         surface.blit(speed_text, (self.width - speed_text.get_width() - 10, 5))
 
+        # === POWERTRAIN TELEMETRY ===
+        powertrain_y = 28
+
+        # Get powertrain data
+        gear = self.powertrain_data.get('gear', 0)
+        torque = self.powertrain_data.get('torque', 0.0)
+        hp = self.powertrain_data.get('hp', 0.0)
+
+        # Line 1: Gear and Torque
+        # Gear display
+        gear_label = self.font_small.render("Gear:", True, (200, 200, 200))
+        surface.blit(gear_label, (10, powertrain_y))
+
+        gear_text = self.font.render(f"{gear}", True, (100, 255, 255))
+        surface.blit(gear_text, (50, powertrain_y - 2))
+
+        # Torque display with bar
+        torque_label_x = 90
+        torque_text = self.font_small.render(f"Torque: {torque:.0f}Nm", True, (255, 200, 150))
+        surface.blit(torque_text, (torque_label_x, powertrain_y))
+
+        # Torque bar (0 to 210 Nm max)
+        torque_bar_x = torque_label_x + 105
+        torque_bar_width = 200
+        torque_bar_height = 10
+        max_torque = 210.0
+
+        pygame.draw.rect(surface, (40, 40, 45), (torque_bar_x, powertrain_y, torque_bar_width, torque_bar_height))
+
+        # Fill based on torque (support negative torque for engine braking)
+        if torque >= 0:
+            fill_ratio = min(abs(torque) / max_torque, 1.0)
+            fill_width = int(fill_ratio * torque_bar_width)
+            bar_color = (255, 150, 100)  # Orange for positive torque
+            pygame.draw.rect(surface, bar_color, (torque_bar_x, powertrain_y, fill_width, torque_bar_height))
+        else:
+            # Negative torque (engine braking)
+            fill_ratio = min(abs(torque) / 80.0, 1.0)  # Max 80 Nm engine braking
+            fill_width = int(fill_ratio * torque_bar_width)
+            bar_color = (100, 150, 255)  # Blue for engine braking
+            pygame.draw.rect(surface, bar_color, (torque_bar_x, powertrain_y, fill_width, torque_bar_height))
+
+        pygame.draw.rect(surface, (80, 80, 85), (torque_bar_x, powertrain_y, torque_bar_width, torque_bar_height), 1)
+
+        # Line 2: HP display with bar
+        hp_y = powertrain_y + 18
+        hp_text = self.font_small.render(f"Power: {hp:.0f}hp", True, (150, 255, 150))
+        surface.blit(hp_text, (90, hp_y))
+
+        # HP bar (0 to 185 hp max)
+        hp_bar_x = 90 + 85
+        hp_bar_width = 220
+        hp_bar_height = 10
+        max_hp = 185.0
+
+        pygame.draw.rect(surface, (40, 40, 45), (hp_bar_x, hp_y, hp_bar_width, hp_bar_height))
+
+        fill_ratio = min(abs(hp) / max_hp, 1.0)
+        fill_width = int(fill_ratio * hp_bar_width)
+
+        # Color based on power output
+        if hp < max_hp * 0.3:
+            bar_color = (100, 200, 100)  # Green (low power)
+        elif hp < max_hp * 0.7:
+            bar_color = (255, 255, 100)  # Yellow (medium power)
+        else:
+            bar_color = (255, 150, 100)  # Orange (high power)
+
+        pygame.draw.rect(surface, bar_color, (hp_bar_x, hp_y, fill_width, hp_bar_height))
+        pygame.draw.rect(surface, (80, 80, 85), (hp_bar_x, hp_y, hp_bar_width, hp_bar_height), 1)
+
+        # Separator line
+        separator_y = powertrain_y + 40
+        pygame.draw.line(surface, (60, 60, 70), (5, separator_y), (self.width - 5, separator_y), 1)
+
+        # === WHEEL TELEMETRY ===
         # Wheel labels and positions
         wheel_names = ['FL', 'FR', 'RL', 'RR']
         wheel_colors = [(100, 150, 255), (100, 255, 150), (255, 150, 100), (255, 100, 150)]
 
-        y_start = 28
+        y_start = separator_y + 8
         row_height = 50  # Height per wheel row (2 lines: slip angle/ratio + normal force)
 
         for i, (name, color) in enumerate(zip(wheel_names, wheel_colors)):
@@ -360,6 +445,25 @@ def get_car_state(env):
     return car_state
 
 
+def get_powertrain_data(env, throttle=0.0):
+    """Extract powertrain telemetry data from the environment."""
+    powertrain_data = {
+        'gear': 0,
+        'torque': 0.0,
+        'hp': 0.0,
+    }
+
+    if hasattr(env, 'unwrapped') and hasattr(env.unwrapped, 'car'):
+        car = env.unwrapped.car
+        if car is not None and hasattr(car, 'powertrain'):
+            powertrain = car.powertrain
+            powertrain_data['gear'] = powertrain.gearbox.current_gear
+            powertrain_data['torque'] = powertrain.engine.get_torque(throttle)
+            powertrain_data['hp'] = powertrain.engine.get_power_hp()
+
+    return powertrain_data
+
+
 def play_human_gui(args):
     """Play episodes with real-time telemetry GUI."""
 
@@ -369,7 +473,7 @@ def play_human_gui(args):
     font = pygame.font.Font(None, 24)
 
     # Create GUI
-    gui = TelemetryGUI(width=420, height=240)
+    gui = TelemetryGUI(width=420, height=310)
 
     # Create telemetry logger if requested
     logger = None
@@ -520,9 +624,12 @@ def play_human_gui(args):
                 total_reward += reward
                 step += 1
 
-                # --- Get wheel data and car speed ---
+                # --- Get wheel data, powertrain data, and car speed ---
                 wheel_data = get_wheel_data(env)
-                gui.update_data(wheel_data)
+                # Extract throttle from action for accurate torque display
+                throttle = max(0.0, acceleration) if acceleration > 0 else 0.0
+                powertrain_data = get_powertrain_data(env, throttle)
+                gui.update_data(wheel_data, powertrain_data)
                 speed_kmh = get_car_speed(env)
 
                 # --- Log telemetry if enabled ---
