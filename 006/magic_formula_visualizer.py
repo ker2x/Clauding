@@ -178,7 +178,7 @@ class MagicFormulaVisualizer:
         lateral_forces = []
 
         for sa in slip_angles:
-            sa_clip = np.clip(sa, -np.pi / 2, np.pi / 2)
+            sa_clip = min(np.pi / 2, max(-np.pi / 2, sa))
             arg = self.params['B_lat'] * sa_clip
             F = (self.params['D_lat'] * normal_force * max_friction *
                  np.sin(self.params['C_lat'] * np.arctan(
@@ -212,7 +212,7 @@ class MagicFormulaVisualizer:
         longitudinal_forces = []
 
         for sr in slip_ratios:
-            sr_clip = np.clip(sr, -1.0, 1.0)
+            sr_clip = min(1.0, max(-1.0, sr))
             arg = self.params['B_lon'] * sr_clip
             F = (self.params['D_lon'] * normal_force * max_friction *
                  np.sin(self.params['C_lon'] * np.arctan(

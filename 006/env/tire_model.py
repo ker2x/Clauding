@@ -74,7 +74,7 @@ class PacejkaTire:
         # There is no physical scenario where the lateral (sideways) slip angle can be
         # greater than 90 degrees. An angle of, for example, 100 degrees would imply the
         # wheel is also rolling backward, which is handled by the longitudinal force model.
-        sa = np.clip(slip_angle, -np.pi / 2, np.pi / 2)
+        sa = min(np.pi / 2, max(-np.pi / 2, slip_angle))
 
         # Use LATERAL coefficients
         arg = self.B_lat * sa   # B_lat is stiffness factor (Lateral)
@@ -110,7 +110,7 @@ class PacejkaTire:
         Returns:
             Longitudinal force (N)
         """
-        sr = np.clip(slip_ratio, -1.0, 1.0)
+        sr = min(1.0, max(-1.0, slip_ratio))
 
         # Use LONGITUDINAL coefficients
         # This is the same as the LATERAL force formula but uses slip_ratio

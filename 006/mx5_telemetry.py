@@ -182,7 +182,7 @@ class Gauge:
         Args:
             value: New value to display
         """
-        self.current_value = np.clip(value, self.min_val, self.max_val)
+        self.current_value = min(self.max_val, max(self.min_val, value))
 
         # Calculate needle angle
         value_range = self.max_val - self.min_val
@@ -262,7 +262,7 @@ class BarGauge:
         Args:
             value: New value (0.0 to 1.0)
         """
-        self.current_value = np.clip(value, 0.0, 1.0)
+        self.current_value = min(1.0, max(0.0, value))
         self.bar.set_width(0.8 * self.current_value)
 
 

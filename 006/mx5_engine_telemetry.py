@@ -343,7 +343,7 @@ class EngineOnlyTelemetry:
 
     def update_gauge_needle(self, needle, needle_tip, value, min_val, max_val):
         """Update a gauge needle position."""
-        value = np.clip(value, min_val, max_val)
+        value = min(max_val, max(min_val, value))
         fraction = (value - min_val) / (max_val - min_val)
 
         angle_deg = 225 - (fraction * 270)  # 225° to -45°
@@ -380,7 +380,7 @@ class EngineOnlyTelemetry:
 
         # Torque gauge handles positive and negative (engine braking)
         # Clamp to display range but show actual value in text
-        torque_display = np.clip(torque_nm, -80, 250)
+        torque_display = min(250, max(-80, torque_nm))
         self.update_gauge_needle(self.torque_needle, self.torque_needle_tip, torque_display, -80, 250)
         self.torque_text.set_text(f'{int(torque_nm)}')
 
@@ -546,10 +546,9 @@ class EngineOnlyTelemetry:
                     self.powertrain.engine.rpm += rpm_diff * 0.08 * self.dt * 50  # Smooth decay
 
                 # Clamp RPM to valid range (can't go below idle, respects max RPM)
-                self.powertrain.engine.rpm = np.clip(
-                    self.powertrain.engine.rpm,
-                    self.powertrain.engine.IDLE_RPM,
-                    self.powertrain.engine.MAX_RPM
+                self.powertrain.engine.rpm = min(
+                    self.powertrain.engine.MAX_RPM,
+                    max(self.powertrain.engine.IDLE_RPM, self.powertrain.engine.rpm)
                 )
 
                 # Update gearbox

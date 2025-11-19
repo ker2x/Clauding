@@ -120,7 +120,7 @@ class EngineDyno:
             # At peak efficiency ~250 g/kWh, worse at high/low RPM
             if power_kw > 0.1:
                 efficiency = 1.0 - abs(rpm - 4500) / 10000.0  # Best at 4500 RPM
-                efficiency = np.clip(efficiency, 0.6, 1.0)
+                efficiency = min(1.0, max(0.6, efficiency))
                 bsfc = 240 / efficiency  # g/kWh
             else:
                 bsfc = 0

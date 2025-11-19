@@ -959,7 +959,7 @@ class CarRacing(gym.Env, EzPickle):
             action = action.astype(np.float64)
             # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
             steer_action = -action[0]
-            accel = np.clip(action[1], -1.0, 1.0)
+            accel = min(1.0, max(-1.0, action[1]))
 
             # Convert acceleration to gas/brake
             if accel > 0:
@@ -1185,7 +1185,7 @@ class CarRacing(gym.Env, EzPickle):
 
                 # Apply continuous action to this car
                 steer_action = -car_action[0]
-                accel = np.clip(car_action[1], -1.0, 1.0)
+                accel = min(1.0, max(-1.0, car_action[1]))
                 gas = accel if accel > 0 else 0.0
                 brake = -accel if accel < 0 else 0.0
                 car.steer(steer_action)
@@ -1427,12 +1427,12 @@ class CarRacing(gym.Env, EzPickle):
             # t is the projection parameter [0, 1] along the segment
             t = ((car_world_pos[0] - x1) * (x2 - x1) + (car_world_pos[1] - y1) * (y2 - y1)) / (seg_len**2)
             # Clamp t to [0, 1] to keep it bounded
-            t = np.clip(t, 0.0, 1.0)
+            t = min(1.0, max(0.0, t))
         else:
             t = 0.0
 
         # Normalize distance to center by track width (0 = center, 1 = edge, >1 = off track)
-        dist_to_center_norm = np.clip(dist_to_center / TRACK_WIDTH, 0.0, 2.0)  # Clip at 2x track width
+        dist_to_center_norm = min(2.0, max(0.0, dist_to_center / TRACK_WIDTH))  # Clip at 2x track width
 
         # Normalize segment length by typical track detail step
         seg_len_norm = seg_len / TRACK_DETAIL_STEP
