@@ -32,7 +32,7 @@ Usage:
 
     # Integration with powertrain simulation
     from mx5_telemetry import MX5TelemetryDisplay
-    from mx5_powertrain import MX5Powertrain
+    from env.mx5_powertrain import MX5Powertrain
 
     powertrain = MX5Powertrain()
     telemetry = MX5TelemetryDisplay()
@@ -444,8 +444,8 @@ class MX5TelemetryDisplay:
                 - speed_kmh (optional)
                 - throttle (optional, 0-1)
                 - brake (optional, 0-1)
-                - engine_temp_c
-                - oil_pressure_bar
+                - engine_temp_c (deprecated, uses default 90.0)
+                - oil_pressure_bar (deprecated, uses default 0.0)
         """
         # Extract values
         self.current_rpm = state.get('engine_rpm', 0)
@@ -545,10 +545,10 @@ class InteractiveDriveSimulator:
         """Initialize interactive simulator."""
         # Import powertrain
         try:
-            from mx5_powertrain import MX5Powertrain
+            from env.mx5_powertrain import MX5Powertrain
         except ImportError:
-            print("ERROR: Cannot import mx5_powertrain.py")
-            print("Make sure mx5_powertrain.py is in the same directory.")
+            print("ERROR: Cannot import env.mx5_powertrain.py")
+            print("Make sure mx5_powertrain.py is in the env/ directory.")
             raise
 
         # Create telemetry and powertrain

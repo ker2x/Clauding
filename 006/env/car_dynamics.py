@@ -36,7 +36,7 @@ References:
 import numpy as np
 from env.tire_model import PacejkaTire
 from config.physics_config import PhysicsConfig
-from mx5_powertrain import MX5Powertrain
+from env.mx5_powertrain import MX5Powertrain
 
 
 class Car:

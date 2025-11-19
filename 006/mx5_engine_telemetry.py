@@ -54,10 +54,10 @@ class EngineOnlyTelemetry:
         """
         # Import powertrain
         try:
-            from mx5_powertrain import MX5Powertrain
+            from env.mx5_powertrain import MX5Powertrain
         except ImportError:
-            print("ERROR: Cannot import mx5_powertrain.py")
-            print("Make sure mx5_powertrain.py is in the same directory.")
+            print("ERROR: Cannot import env.mx5_powertrain.py")
+            print("Make sure mx5_powertrain.py is in the env/ directory.")
             raise
 
         self.powertrain = MX5Powertrain()
