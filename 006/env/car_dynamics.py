@@ -646,8 +646,13 @@ class Car:
         # vx += ax * dt
         # vy += ay * dt
         # The Centripetal Term: self.vx * self.yaw_rate
-        self.vx += (ax + self.vy * self.yaw_rate) * dt  # Forward
-        self.vy += (ay - self.vx * self.yaw_rate) * dt  # Lateral
+        # Use temporary variables to ensure simultaneous update (symplectic Euler)
+        # Otherwise, updating vx then using new vx to update vy introduces bias
+        old_vx = self.vx
+        old_vy = self.vy
+        
+        self.vx += (ax + old_vy * self.yaw_rate) * dt  # Forward
+        self.vy += (ay - old_vx * self.yaw_rate) * dt  # Lateral
         # If the operator was a "+" This meant turning left would magically
         # pull the car into the turn (a positive ay),
         # which is the opposite of reality.
