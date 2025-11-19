@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Mazda MX-5 ND (2016+) Powertrain Simulation
 ===========================================
@@ -40,8 +42,10 @@ References:
 - SKYACTIV-G Engine Technical Data
 """
 
-import numpy as np
 import math
+
+import numpy as np
+import numpy.typing as npt
 
 
 class MX5Engine:
@@ -80,20 +84,24 @@ class MX5Engine:
     VISCOUS_DRAG = 1.8  # Linear factor (Nm per 1000 RPM) - Oil drag
     PUMPING_LOSS = 0.45  # Quadratic factor (Nm per 1000 RPM^2) - Air drag
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the engine at idle."""
-        self.rpm = self.IDLE_RPM
+        self.rpm: float = self.IDLE_RPM
 
         # Rev limiter state
-        self._fuel_cut_active = False
-        self._fuel_cut_cooldown = 0.0
+        self._fuel_cut_active: bool = False
+        self._fuel_cut_cooldown: float = 0.0
+
+        # Torque curve lookup tables
+        self._torque_rpm: npt.NDArray[np.float64]
+        self._torque_nm: npt.NDArray[np.float64]
 
         # Build torque curve lookup table
         self._build_torque_curve()
 
-        self.current_effective_torque = 0.0
+        self.current_effective_torque: float = 0.0
 
-    def _build_torque_curve(self):
+    def _build_torque_curve(self) -> None:
         """
         Build a realistic torque curve based on MX-5 ND dyno data.
 
@@ -129,7 +137,7 @@ class MX5Engine:
         self._torque_rpm = rpm_points
         self._torque_nm = torque_points
 
-    def get_torque(self, throttle):
+    def get_torque(self, throttle: float) -> float:
         """
         Get engine torque output at current RPM and throttle position.
 
@@ -179,7 +187,7 @@ class MX5Engine:
 
         return engine_torque
 
-    def _calculate_engine_braking(self):
+    def _calculate_engine_braking(self) -> float:
         """
         Calculate engine braking torque (negative torque when throttle closed).
 
@@ -205,7 +213,7 @@ class MX5Engine:
 #        # Clamp to reasonable values
 #        return max(total_braking, -80.0)  # Max ~80 Nm engine braking
 
-    def update(self, dt, wheel_rpm, gear_ratio, clutch_engaged=True):
+    def update(self, dt: float, wheel_rpm: float, gear_ratio: float, clutch_engaged: bool = True) -> None:
         """
         Update engine state based on drivetrain connection.
 
@@ -237,7 +245,7 @@ class MX5Engine:
         if self._fuel_cut_cooldown > 0:
             self._fuel_cut_cooldown -= dt
 
-    def get_power_kw(self):
+    def get_power_kw(self) -> float:
         """
         Get current power output in kilowatts.
 
@@ -252,7 +260,7 @@ class MX5Engine:
         power_w = torque * angular_velocity
         return power_w / 1000.0  # Convert to kW
 
-    def get_power_hp(self):
+    def get_power_hp(self) -> float:
         """Get current power output in horsepower."""
         return self.get_power_kw() * 1.341  # 1 kW = 1.341 hp
 
@@ -290,30 +298,30 @@ class MX5Gearbox:
     # Synchromesh limits (RPM difference for clean shifts)
     MAX_SYNCHRO_RPM_DIFF = 500  # Modern synchros can handle large differences
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize gearbox in neutral."""
-        self.current_gear = 1  # Start in 1st gear (car is ready to go)
-        self.clutch_position = 0.0  # 0 = engaged, 1 = disengaged
+        self.current_gear: int = 1  # Start in 1st gear (car is ready to go)
+        self.clutch_position: float = 0.0  # 0 = engaged, 1 = disengaged
 
         # Shift state
-        self._shifting = False
-        self._shift_timer = 0.0
-        self._target_gear = 1
+        self._shifting: bool = False
+        self._shift_timer: float = 0.0
+        self._target_gear: int = 1
 
         # Clutch state
-        self._clutch_engaged = True
+        self._clutch_engaged: bool = True
 
-    def shift_up(self):
+    def shift_up(self) -> None:
         """Shift to the next higher gear."""
         if not self._shifting and self.current_gear < 6:
             self._start_shift(self.current_gear + 1)
 
-    def shift_down(self):
+    def shift_down(self) -> None:
         """Shift to the next lower gear."""
         if not self._shifting and self.current_gear > 1:
             self._start_shift(self.current_gear - 1)
 
-    def shift_to(self, gear):
+    def shift_to(self, gear: int) -> None:
         """
         Shift to a specific gear.
 
@@ -323,7 +331,7 @@ class MX5Gearbox:
         if not self._shifting and 0 <= gear <= 6:
             self._start_shift(gear)
 
-    def _start_shift(self, target_gear):
+    def _start_shift(self, target_gear: int) -> None:
         """Begin a gear change."""
         self._shifting = True
         self._target_gear = target_gear
@@ -331,7 +339,7 @@ class MX5Gearbox:
         self.clutch_position = 1.0  # Disengage clutch during shift
         self._clutch_engaged = False
 
-    def update(self, dt):
+    def update(self, dt: float) -> None:
         """
         Update gearbox state (handles shift timing).
 
@@ -359,7 +367,7 @@ class MX5Gearbox:
         # Update clutch state
         self._clutch_engaged = (self.clutch_position < 0.1)
 
-    def get_current_ratio(self):
+    def get_current_ratio(self) -> float:
         """
         Get the current overall gear ratio (gear ratio × final drive).
 
@@ -376,7 +384,7 @@ class MX5Gearbox:
         clutch_engagement = 1.0 - self.clutch_position
         return overall_ratio * clutch_engagement
 
-    def get_wheel_torque(self, engine_torque, clutch_override=None):
+    def get_wheel_torque(self, engine_torque: float, clutch_override: float | None = None) -> float:
         """
         Convert engine torque to wheel torque through the transmission.
 
@@ -408,15 +416,15 @@ class MX5Gearbox:
 
         return wheel_torque
 
-    def is_clutch_engaged(self):
+    def is_clutch_engaged(self) -> bool:
         """Check if clutch is fully engaged."""
         return self._clutch_engaged
 
-    def is_shifting(self):
+    def is_shifting(self) -> bool:
         """Check if currently shifting gears."""
         return self._shifting
 
-    def get_gear_ratio(self, gear=None):
+    def get_gear_ratio(self, gear: int | None = None) -> float:
         """
         Get gear ratio for a specific gear (without final drive).
 
@@ -449,12 +457,12 @@ class MX5Powertrain:
         powertrain.shift_up()
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize powertrain with engine and gearbox."""
-        self.engine = MX5Engine()
-        self.gearbox = MX5Gearbox()
+        self.engine: MX5Engine = MX5Engine()
+        self.gearbox: MX5Gearbox = MX5Gearbox()
 
-    def get_wheel_torque(self, throttle, wheel_rpm, clutch=0.0):
+    def get_wheel_torque(self, throttle: float, wheel_rpm: float, clutch: float = 0.0) -> float:
         """
         Get torque at the wheels based on throttle and wheel speed.
 
@@ -474,7 +482,7 @@ class MX5Powertrain:
 
         return wheel_torque
 
-    def update(self, dt, wheel_rpm):
+    def update(self, dt: float, wheel_rpm: float) -> None:
         """
         Update powertrain state.
 
@@ -490,19 +498,19 @@ class MX5Powertrain:
         clutch_engaged = self.gearbox.is_clutch_engaged()
         self.engine.update(dt, wheel_rpm, gear_ratio, clutch_engaged)
 
-    def shift_up(self):
+    def shift_up(self) -> None:
         """Shift to next higher gear."""
         self.gearbox.shift_up()
 
-    def shift_down(self):
+    def shift_down(self) -> None:
         """Shift to next lower gear."""
         self.gearbox.shift_down()
 
-    def shift_to(self, gear):
+    def shift_to(self, gear: int) -> None:
         """Shift to specific gear."""
         self.gearbox.shift_to(gear)
 
-    def get_state(self, throttle=1.0):
+    def get_state(self, throttle: float = 1.0) -> dict[str, float | bool | int]:
         """
         Get complete powertrain state for telemetry.
 

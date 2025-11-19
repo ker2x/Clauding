@@ -29,6 +29,8 @@ Requirements:
     pip install matplotlib numpy
 """
 
+from __future__ import annotations
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -36,6 +38,8 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Wedge, Rectangle, Circle, FancyBboxPatch
 from collections import deque
 import math
+from typing import Any
+import numpy.typing as npt
 
 
 class EngineOnlyTelemetry:
@@ -45,7 +49,7 @@ class EngineOnlyTelemetry:
     Controls engine throttle directly and shows RPM, gear, and power output.
     """
 
-    def __init__(self, history_length=500):
+    def __init__(self, history_length: int = 500) -> None:
         """
         Initialize engine-only telemetry.
 
@@ -87,7 +91,7 @@ class EngineOnlyTelemetry:
         # Create display
         self._setup_display()
 
-    def _setup_display(self):
+    def _setup_display(self) -> None:
         """Setup the telemetry display."""
         # Disable matplotlib's default 'S' key (save screenshot) to allow throttle control
         if 's' in plt.rcParams['keymap.save']:
@@ -129,7 +133,7 @@ class EngineOnlyTelemetry:
         self._create_info_panel()
         self._create_charts()
 
-    def _create_rpm_gauge(self):
+    def _create_rpm_gauge(self) -> None:
         """Create RPM gauge."""
         ax = self.ax_rpm
         ax.set_xlim(-1.2, 1.2)
@@ -169,7 +173,7 @@ class EngineOnlyTelemetry:
 
         ax.set_title('ENGINE RPM', fontsize=11, fontweight='bold', color='white', pad=10)
 
-    def _create_gear_display(self):
+    def _create_gear_display(self) -> None:
         """Create large gear display."""
         ax = self.ax_gear
         ax.set_xlim(0, 1)
@@ -189,7 +193,7 @@ class EngineOnlyTelemetry:
         ax.text(0.5, 0.15, 'GEAR', ha='center', va='center',
                fontsize=14, color='#888888', fontweight='bold')
 
-    def _create_power_gauge(self):
+    def _create_power_gauge(self) -> None:
         """Create power gauge."""
         ax = self.ax_power
         ax.set_xlim(-1.2, 1.2)
@@ -224,7 +228,7 @@ class EngineOnlyTelemetry:
 
         ax.set_title('POWER', fontsize=11, fontweight='bold', color='white', pad=10)
 
-    def _create_torque_gauge(self):
+    def _create_torque_gauge(self) -> None:
         """Create torque gauge."""
         ax = self.ax_torque
         ax.set_xlim(-1.2, 1.2)
@@ -259,7 +263,7 @@ class EngineOnlyTelemetry:
 
         ax.set_title('TORQUE', fontsize=11, fontweight='bold', color='white', pad=10)
 
-    def _create_throttle_bar(self):
+    def _create_throttle_bar(self) -> None:
         """Create throttle position bar."""
         ax = self.ax_throttle
         ax.set_xlim(0, 1)
@@ -283,7 +287,7 @@ class EngineOnlyTelemetry:
         self.throttle_pct_text = ax.text(0.5, 0.5, '0%', ha='center', va='center',
                                          fontsize=24, color='white', fontweight='bold')
 
-    def _create_info_panel(self):
+    def _create_info_panel(self) -> None:
         """Create info panel."""
         ax = self.ax_info
         ax.set_xlim(0, 1)
@@ -300,7 +304,7 @@ class EngineOnlyTelemetry:
                                 fontsize=11, color='white', family='monospace',
                                 linespacing=1.8, fontweight='bold')
 
-    def _create_charts(self):
+    def _create_charts(self) -> None:
         """Create time series charts."""
         # RPM chart
         ax = self.ax_rpm_chart
@@ -341,7 +345,7 @@ class EngineOnlyTelemetry:
         ax3.tick_params(colors='#FFD700')
         self.torque_line, = ax3.plot([], [], color='#FFD700', linewidth=2, alpha=0.8, label='Torque')
 
-    def update_gauge_needle(self, needle, needle_tip, value, min_val, max_val):
+    def update_gauge_needle(self, needle: Any, needle_tip: Any, value: float, min_val: float, max_val: float) -> None:
         """Update a gauge needle position."""
         value = min(max_val, max(min_val, value))
         fraction = (value - min_val) / (max_val - min_val)
@@ -355,7 +359,7 @@ class EngineOnlyTelemetry:
         needle.set_data([0, x], [0, y])
         needle_tip.center = (x, y)
 
-    def update_display(self):
+    def update_display(self) -> None:
         """Update all display elements."""
         state = self.powertrain.get_state(throttle=self.throttle)
 
@@ -452,7 +456,7 @@ class EngineOnlyTelemetry:
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
 
-    def on_key_press(self, event):
+    def on_key_press(self, event: Any) -> None:
         """Handle key press (AZERTY)."""
         key = event.key.lower()
 
@@ -482,20 +486,20 @@ class EngineOnlyTelemetry:
             self.throttle = 0.0
             print("[SPACE] Throttle cut")
 
-    def on_key_release(self, event):
+    def on_key_release(self, event: Any) -> None:
         """Handle key release."""
         key = event.key.lower()
         if key in self.keys_pressed:
             self.keys_pressed.remove(key)
 
-    def update_inputs(self):
+    def update_inputs(self) -> None:
         """Update throttle based on keys."""
         if 'z' in self.keys_pressed:
             self.throttle = min(1.0, self.throttle + self.throttle_increment)
         elif 's' in self.keys_pressed:
             self.throttle = max(0.0, self.throttle - self.throttle_increment)
 
-    def run(self):
+    def run(self) -> None:
         """Run the engine telemetry."""
         print("="*70)
         print("MX-5 Engine & Gearbox Telemetry - ENGINE-ONLY MODE")
@@ -574,7 +578,7 @@ class EngineOnlyTelemetry:
         plt.show()
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     try:
         telemetry = EngineOnlyTelemetry()

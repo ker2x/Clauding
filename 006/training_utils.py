@@ -8,15 +8,20 @@ This module contains common functions used across different training scripts:
 - setup_logging: Configure logging infrastructure for training
 """
 
+from __future__ import annotations
+
 import os
 import csv
 import multiprocessing
+from typing import Any
 import torch
 import numpy as np
+import numpy.typing as npt
+import gymnasium as gym
 from datetime import datetime
 
 
-def get_device(device_arg='auto'):
+def get_device(device_arg: str = 'auto') -> torch.device:
     """
     Determine which device to use for training.
 
@@ -37,7 +42,7 @@ def get_device(device_arg='auto'):
         return torch.device(device_arg)
 
 
-def configure_cpu_threading(device):
+def configure_cpu_threading(device: torch.device) -> None:
     """
     Configure PyTorch CPU threading for optimal performance.
 
@@ -67,8 +72,15 @@ def configure_cpu_threading(device):
         print(f"\nDevice is {device.type}, skipping CPU threading configuration\n")
 
 
-def evaluate_agent(agent, env, n_episodes=5, log_handle=None, seed_offset=None,
-                   max_steps_per_episode=None, return_details=False):
+def evaluate_agent(
+    agent: Any,
+    env: gym.Env,
+    n_episodes: int = 5,
+    log_handle: Any = None,
+    seed_offset: int | None = None,
+    max_steps_per_episode: int | None = None,
+    return_details: bool = False,
+) -> float | tuple[float, float, list[float]]:
     """
     Evaluate agent performance over multiple episodes.
 
@@ -137,7 +149,14 @@ def evaluate_agent(agent, env, n_episodes=5, log_handle=None, seed_offset=None,
         return mean_reward
 
 
-def setup_logging(log_dir, args, mode='standard', env=None, agent=None, config=None):
+def setup_logging(
+    log_dir: str,
+    args: Any,
+    mode: str = 'standard',
+    env: gym.Env | None = None,
+    agent: Any = None,
+    config: dict[str, Any] | None = None,
+) -> tuple[str, str] | tuple[str, str, Any]:
     """
     Setup logging infrastructure for training.
 

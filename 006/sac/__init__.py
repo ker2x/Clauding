@@ -13,4 +13,4 @@ from .critic import VectorCritic
 from .buffer import ReplayBuffer
 from .agent import SACAgent
 
-__all__ = ['VectorActor', 'VectorCritic', 'ReplayBuffer', 'SACAgent']
+__all__ = ['VectorActor', 'VectorCritic', 'VectorCritic', 'ReplayBuffer', 'SACAgent']

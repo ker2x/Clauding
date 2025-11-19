@@ -20,6 +20,11 @@ References:
 - Haarnoja et al., 2019: "Soft Actor-Critic Algorithms and Applications"
 """
 
+from __future__ import annotations
+
+from typing import Any
+import numpy as np
+import numpy.typing as npt
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -27,6 +32,7 @@ from torch.distributions import Normal
 
 from .actor import VectorActor
 from .critic import VectorCritic
+from .buffer import ReplayBuffer
 
 
 class SACAgent:
@@ -42,17 +48,17 @@ class SACAgent:
 
     def __init__(
         self,
-        state_dim,
-        action_dim,
-        lr_actor=3e-4,
-        lr_critic=3e-4,
-        lr_alpha=3e-4,
-        gamma=0.99,
-        tau=0.005,
-        alpha=0.2,
-        auto_entropy_tuning=True,
-        device=None
-    ):
+        state_dim: int,
+        action_dim: int,
+        lr_actor: float = 3e-4,
+        lr_critic: float = 3e-4,
+        lr_alpha: float = 3e-4,
+        gamma: float = 0.99,
+        tau: float = 0.005,
+        alpha: float = 0.2,
+        auto_entropy_tuning: bool = True,
+        device: torch.device | None = None,
+    ) -> None:
         """
         Args:
             state_dim: Dimension of state vector (71 for current version)
@@ -99,7 +105,7 @@ class SACAgent:
         else:
             self.alpha = torch.tensor(alpha, device=self.device)
 
-    def _apply_action_bounds(self, z):
+    def _apply_action_bounds(self, z: torch.Tensor) -> torch.Tensor:
         """
         Apply proper bounds to sampled actions (native action space):
         - Steering (dim 0): tanh → [-1, 1]
@@ -115,7 +121,9 @@ class SACAgent:
         action = torch.tanh(z)
         return action
 
-    def select_action(self, state, evaluate=False):
+    def select_action(
+        self, state: npt.NDArray[np.float32], evaluate: bool = False
+    ) -> npt.NDArray[np.float32]:
         """
         Select action from policy.
 
@@ -143,7 +151,7 @@ class SACAgent:
 
         return action.cpu().numpy()[0]
 
-    def _sample_action(self, state):
+    def _sample_action(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Sample action and compute log probability.
         Used during training for policy updates.
@@ -171,7 +179,7 @@ class SACAgent:
 
         return action, log_prob
 
-    def update(self, replay_buffer, batch_size):
+    def update(self, replay_buffer: ReplayBuffer, batch_size: int) -> dict[str, float]:
         """
         Update actor and critics using a batch from replay buffer.
 
@@ -271,12 +279,14 @@ class SACAgent:
             'mean_log_prob': log_probs.mean().item()
         }
 
-    def _soft_update(self, source, target):
+    def _soft_update(
+        self, source: torch.nn.Module, target: torch.nn.Module
+    ) -> None:
         """Soft update target network parameters."""
         for target_param, source_param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
 
-    def save(self, filepath):
+    def save(self, filepath: str) -> None:
         """Save agent checkpoint."""
         torch.save({
             'actor': self.actor.state_dict(),
@@ -293,7 +303,7 @@ class SACAgent:
             'state_dim': self.state_dim
         }, filepath)
 
-    def load(self, filepath):
+    def load(self, filepath: str) -> None:
         """Load agent checkpoint (LayerNorm architecture only)."""
         checkpoint = torch.load(filepath, map_location=self.device)
 
@@ -323,7 +333,7 @@ class SACAgent:
             self.alpha_optimizer.load_state_dict(checkpoint['alpha_optimizer'])
             self.alpha = self.log_alpha.exp()
 
-    def get_state_dict(self):
+    def get_state_dict(self) -> dict[str, Any]:
         """Get agent state dictionary (for in-memory cloning)."""
         import copy
         return {
@@ -339,7 +349,7 @@ class SACAgent:
             'alpha_optimizer': copy.deepcopy(self.alpha_optimizer.state_dict()) if self.auto_entropy_tuning else None,
         }
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Load agent state from dictionary (for in-memory cloning)."""
         # Check if source has LayerNorm architecture
         source_has_ln = 'ln1.weight' in state_dict['actor']

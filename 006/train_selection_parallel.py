@@ -19,11 +19,14 @@ Advantages:
 Recommended: Use 8 agents with 8+ CPU cores for optimal performance.
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import os
 import time
 from datetime import datetime
+from typing import Any
 import numpy as np
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Event
@@ -51,7 +54,7 @@ from config.domain_randomization import (
 )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description='Train SAC agents with TRUE PARALLEL selection-based evolution'
@@ -118,7 +121,16 @@ def parse_args():
     return parser.parse_args()
 
 
-def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue, episode_offset, threads_per_agent=1, checkpoint_queue=None):
+def worker_process(
+    agent_id: int,
+    args: argparse.Namespace,
+    result_queue: Queue[tuple[str, int, Any, ...]],
+    command_queue: Queue[str],
+    state_dict_queue: Queue[dict[str, Any]],
+    episode_offset: int,
+    threads_per_agent: int = 1,
+    checkpoint_queue: Queue[int] | None = None
+) -> None:
     """
     Worker process that trains a single agent.
 
@@ -319,7 +331,7 @@ def worker_process(agent_id, args, result_queue, command_queue, state_dict_queue
     env.close()
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     # Force CPU for multiprocessing (GPU sharing across processes is complex)

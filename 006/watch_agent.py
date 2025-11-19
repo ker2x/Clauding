@@ -37,7 +37,11 @@ Usage:
     python watch_agent.py --checkpoint checkpoints/best_model.pt --no-render
 """
 
+from __future__ import annotations
+
 import argparse
+from typing import Any
+import numpy.typing as npt
 import cv2
 import numpy as np
 import time
@@ -47,13 +51,19 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, FancyArrow, Rectangle
 from matplotlib.collections import LineCollection
+import gymnasium as gym
 
 from preprocessing import make_carracing_env
 from sac import SACAgent
 from utils.display import format_action, get_car_speed
 
 
-def select_action_with_temperature(agent, state, temperature=1.0, stochastic=False):
+def select_action_with_temperature(
+    agent: SACAgent,
+    state: npt.NDArray[np.float32],
+    temperature: float = 1.0,
+    stochastic: bool = False
+) -> npt.NDArray[np.float32]:
     """
     Select action with optional temperature-scaled stochastic sampling.
 
@@ -96,7 +106,7 @@ def select_action_with_temperature(agent, state, temperature=1.0, stochastic=Fal
     return action.cpu().numpy()[0]
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Watch trained SAC agent play CarRacing-v3')
 
@@ -122,7 +132,16 @@ def parse_args():
     return parser.parse_args()
 
 
-def visualize_vector_state(state_vector, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0):
+def visualize_vector_state(
+    state_vector: npt.NDArray[np.float32],
+    episode: int,
+    step: int,
+    reward: float,
+    total_reward: float,
+    action: npt.NDArray[np.float32],
+    alpha: float,
+    speed_kmh: float = 0.0
+) -> npt.NDArray[np.uint8]:
     """
     Visualize the 71D vector state to show what the model sees.
 
@@ -335,8 +354,18 @@ def visualize_vector_state(state_vector, episode, step, reward, total_reward, ac
     return img_bgr
 
 
-def render_frame(frame, episode, step, reward, total_reward, action, alpha, speed_kmh=0.0,
-                 stochastic=False, temperature=1.0):
+def render_frame(
+    frame: npt.NDArray[np.uint8],
+    episode: int,
+    step: int,
+    reward: float,
+    total_reward: float,
+    action: npt.NDArray[np.float32],
+    alpha: float,
+    speed_kmh: float = 0.0,
+    stochastic: bool = False,
+    temperature: float = 1.0
+) -> npt.NDArray[np.uint8]:
     """
     Render frame with overlay information.
 
@@ -390,7 +419,7 @@ def render_frame(frame, episode, step, reward, total_reward, action, alpha, spee
     return frame
 
 
-def watch_agent(args):
+def watch_agent(args: argparse.Namespace) -> None:
     """Watch agent play episodes."""
     # Load checkpoint and verify it's vector mode
     checkpoint = torch.load(args.checkpoint, map_location='cpu')

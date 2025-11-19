@@ -5,10 +5,14 @@ This module provides shared utility functions for formatting and displaying
 information about the car's state and actions.
 """
 
+from __future__ import annotations
+
 import numpy as np
+import numpy.typing as npt
+import gymnasium as gym
 
 
-def format_action(action):
+def format_action(action: npt.NDArray[np.float32]) -> str:
     """
     Format continuous action for display.
 
@@ -60,7 +64,7 @@ def format_action(action):
     return f"{steer_desc} + {pedal_desc}"
 
 
-def get_car_speed(env):
+def get_car_speed(env: gym.Env) -> float:
     """
     Extract car speed from the environment and convert to km/h.
 

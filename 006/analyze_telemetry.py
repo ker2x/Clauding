@@ -11,15 +11,18 @@ Requirements:
     pip install pandas  (optional but recommended for better analysis)
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import statistics
+from typing import Any
 
 
-def load_telemetry(filename):
+def load_telemetry(filename: str) -> list[dict[str, Any]] | None:
     """Load telemetry CSV file."""
     try:
-        data = []
+        data: list[dict[str, Any]] = []
         with open(filename, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -47,7 +50,7 @@ def load_telemetry(filename):
         return None
 
 
-def analyze_summary(data):
+def analyze_summary(data: list[dict[str, Any]]) -> None:
     """Print summary statistics."""
     print("\n" + "="*60)
     print("SUMMARY STATISTICS")
@@ -86,7 +89,7 @@ def analyze_summary(data):
     print(f"  Coast frames: {coast_count} ({coast_count/len(accel)*100:.1f}%)")
 
 
-def analyze_wheels(data):
+def analyze_wheels(data: list[dict[str, Any]]) -> None:
     """Analyze wheel telemetry."""
     print("\n" + "="*60)
     print("WHEEL ANALYSIS")
@@ -125,7 +128,7 @@ def analyze_wheels(data):
             print(f"  Suspension: mean={statistics.mean(susp_values):.1f}mm, max={max(susp_values):.1f}mm, min={min(susp_values):.1f}mm")
 
 
-def analyze_suspension(data):
+def analyze_suspension(data: list[dict[str, Any]]) -> None:
     """Analyze suspension behavior."""
     print("\n" + "="*60)
     print("SUSPENSION DYNAMICS")
@@ -156,7 +159,7 @@ def analyze_suspension(data):
             print(f"  Max nose-up: {max(pitch_diff):.2f}mm")
 
 
-def find_interesting_moments(data):
+def find_interesting_moments(data: list[dict[str, Any]]) -> None:
     """Find interesting moments in the telemetry."""
     print("\n" + "="*60)
     print("INTERESTING MOMENTS")
@@ -194,7 +197,7 @@ def find_interesting_moments(data):
                 print(f"  Speed: {min_nf_row['speed_kmh']:.2f} km/h")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Analyze telemetry data from play_human_gui.py')
     parser.add_argument('filename', type=str, help='CSV telemetry file to analyze')
     parser.add_argument('--summary', action='store_true', help='Show summary statistics (default if no flags)')
@@ -203,7 +206,7 @@ def main():
     parser.add_argument('--moments', action='store_true', help='Find interesting moments')
     parser.add_argument('--all', action='store_true', help='Show all analyses')
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     # Load data
     data = load_telemetry(args.filename)

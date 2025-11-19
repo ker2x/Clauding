@@ -20,16 +20,20 @@ Usage:
     python watch_random_agent.py --fps 60
 """
 
+from __future__ import annotations
+
 import argparse
+import numpy.typing as npt
 import cv2
 import numpy as np
 import time
+import gymnasium as gym
 
 from preprocessing import make_carracing_env
 from utils.display import format_action
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Watch random agent play CarRacing-v3')
 
@@ -43,7 +47,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def render_frame(frame, episode, step, reward, total_reward, action):
+def render_frame(
+    frame: npt.NDArray[np.uint8],
+    episode: int,
+    step: int,
+    reward: float,
+    total_reward: float,
+    action: npt.NDArray[np.float32]
+) -> npt.NDArray[np.uint8]:
     """
     Render frame with overlay information.
 
@@ -84,7 +95,7 @@ def render_frame(frame, episode, step, reward, total_reward, action):
     return frame
 
 
-def watch_random_agent(args):
+def watch_random_agent(args: argparse.Namespace) -> None:
     """Watch random agent play episodes."""
     # Create environment with rendering
     # Note: make_carracing_env always uses vector mode (not visual)

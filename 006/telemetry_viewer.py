@@ -22,11 +22,15 @@ Requirements:
     pip install matplotlib numpy
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import sys
 import math
+from typing import Any
 import numpy as np
+import numpy.typing as npt
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Slider, Button
@@ -37,13 +41,13 @@ import matplotlib.patches as mpatches
 class TelemetryData:
     """Container for telemetry data."""
 
-    def __init__(self, filename):
-        self.filename = filename
-        self.data = []
-        self.timestamps = []
+    def __init__(self, filename: str) -> None:
+        self.filename: str = filename
+        self.data: list[dict[str, Any]] = []
+        self.timestamps: list[str] = []
         self.load_data()
 
-    def load_data(self):
+    def load_data(self) -> None:
         """Load telemetry CSV file."""
         try:
             with open(self.filename, 'r') as f:
@@ -73,11 +77,11 @@ class TelemetryData:
             print(f"✗ Error loading file: {e}")
             sys.exit(1)
 
-    def get_column(self, column_name):
+    def get_column(self, column_name: str) -> npt.NDArray[np.float64]:
         """Extract a column as numpy array."""
         return np.array([row.get(column_name, 0) for row in self.data])
 
-    def get_value_at_index(self, idx):
+    def get_value_at_index(self, idx: int) -> dict[str, Any] | None:
         """Get data row at specific index."""
         if 0 <= idx < len(self.data):
             return self.data[idx]
@@ -87,18 +91,18 @@ class TelemetryData:
 class TelemetryViewer:
     """Interactive telemetry visualization application."""
 
-    def __init__(self, telemetry_files):
-        self.telemetries = [TelemetryData(f) for f in telemetry_files]
-        self.current_file = 0
-        self.current_data = self.telemetries[self.current_file]
+    def __init__(self, telemetry_files: list[str]) -> None:
+        self.telemetries: list[TelemetryData] = [TelemetryData(f) for f in telemetry_files]
+        self.current_file: int = 0
+        self.current_data: TelemetryData = self.telemetries[self.current_file]
 
         # Animation state
-        self.current_index = 0
-        self.playing = False
-        self.animation_timer = None
+        self.current_index: int = 0
+        self.playing: bool = False
+        self.animation_timer: Any = None
 
         # Color scheme - professional motorsport colors
-        self.colors = {
+        self.colors: dict[str, str] = {
             'speed': '#00D9FF',      # Cyan
             'steering': '#FFD700',   # Gold
             'accel': '#00FF00',      # Green
@@ -117,7 +121,7 @@ class TelemetryViewer:
         self.setup_ui()
         self.connect_events()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         """Create the user interface."""
         # Create figure with dark theme
         plt.style.use('dark_background')
@@ -163,7 +167,7 @@ class TelemetryViewer:
         self.fig.suptitle(title, fontsize=14, fontweight='bold',
                          color=self.colors['text'])
 
-    def plot_track_map(self):
+    def plot_track_map(self) -> None:
         """Plot the track map with speed overlay."""
         ax = self.ax_track
         ax.clear()
@@ -217,7 +221,7 @@ class TelemetryViewer:
         ax.tick_params(colors=self.colors['text'])
         ax.grid(True, alpha=0.2, color=self.colors['grid'])
 
-    def plot_speed(self):
+    def plot_speed(self) -> None:
         """Plot speed over time."""
         ax = self.ax_speed
         ax.clear()
@@ -242,7 +246,7 @@ class TelemetryViewer:
         ax.legend(loc='upper right', facecolor=self.colors['bg'],
                  edgecolor=self.colors['grid'])
 
-    def plot_inputs(self):
+    def plot_inputs(self) -> None:
         """Plot steering and acceleration inputs."""
         ax = self.ax_inputs
         ax.clear()
@@ -280,7 +284,7 @@ class TelemetryViewer:
                  edgecolor=self.colors['grid'], ncol=3)
         ax.set_ylim(-1.1, 1.1)
 
-    def plot_wheel_telemetry(self):
+    def plot_wheel_telemetry(self) -> None:
         """Plot wheel slip angles, slip ratios, and forces."""
         data = self.current_data
         steps = data.get_column('step')
@@ -348,7 +352,7 @@ class TelemetryViewer:
         ax.legend(loc='upper right', facecolor=self.colors['bg'],
                  edgecolor=self.colors['grid'], ncol=4)
 
-    def update_info_panel(self):
+    def update_info_panel(self) -> None:
         """Update the information panel with current data."""
         ax = self.ax_info
         ax.clear()
@@ -380,7 +384,7 @@ class TelemetryViewer:
                facecolor=self.colors['bg'], edgecolor=self.colors['grid'],
                linewidth=2, pad=10))
 
-    def update_position(self, index):
+    def update_position(self, index: int) -> None:
         """Update the current position marker across all plots."""
         self.current_index = int(index)
         row = self.current_data.get_value_at_index(self.current_index)
@@ -424,12 +428,12 @@ class TelemetryViewer:
 
         self.fig.canvas.draw_idle()
 
-    def connect_events(self):
+    def connect_events(self) -> None:
         """Connect keyboard and mouse events."""
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
 
-    def on_key_press(self, event):
+    def on_key_press(self, event: Any) -> None:
         """Handle keyboard input."""
         if event.key == 'q':
             plt.close(self.fig)
@@ -442,7 +446,7 @@ class TelemetryViewer:
         elif event.key == 'r':
             self.reset_zoom()
 
-    def on_click(self, event):
+    def on_click(self, event: Any) -> None:
         """Handle mouse clicks on plots."""
         # Check if click is on a time series plot
         for ax in self.time_series_axes:
@@ -453,17 +457,17 @@ class TelemetryViewer:
                 self.update_position(idx)
                 break
 
-    def step_forward(self):
+    def step_forward(self) -> None:
         """Move one step forward in time."""
         if self.current_index < len(self.current_data.data) - 1:
             self.update_position(self.current_index + 1)
 
-    def step_backward(self):
+    def step_backward(self) -> None:
         """Move one step backward in time."""
         if self.current_index > 0:
             self.update_position(self.current_index - 1)
 
-    def toggle_playback(self):
+    def toggle_playback(self) -> None:
         """Toggle animation playback."""
         self.playing = not self.playing
         if self.playing:
@@ -472,7 +476,7 @@ class TelemetryViewer:
             if self.animation_timer:
                 self.animation_timer.stop()
 
-    def animate(self):
+    def animate(self) -> None:
         """Animate through the data."""
         if self.playing and self.current_index < len(self.current_data.data) - 1:
             self.step_forward()
@@ -482,7 +486,7 @@ class TelemetryViewer:
         else:
             self.playing = False
 
-    def reset_zoom(self):
+    def reset_zoom(self) -> None:
         """Reset zoom on all plots."""
         for ax in [self.ax_track, self.ax_speed, self.ax_inputs,
                    self.ax_slip_angle, self.ax_slip_ratio, self.ax_forces]:
@@ -490,7 +494,7 @@ class TelemetryViewer:
             ax.autoscale()
         self.fig.canvas.draw_idle()
 
-    def show(self):
+    def show(self) -> None:
         """Display the viewer."""
         print("\n" + "="*60)
         print("CONTROLS:")
@@ -505,7 +509,7 @@ class TelemetryViewer:
         plt.show()
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description='Professional Interactive Telemetry Viewer',
@@ -526,7 +530,7 @@ Controls:
     parser.add_argument('files', nargs='+', metavar='FILE',
                        help='Telemetry CSV file(s) to visualize')
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     # Create and show viewer
     viewer = TelemetryViewer(args.files)

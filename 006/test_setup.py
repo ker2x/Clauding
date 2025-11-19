@@ -11,16 +11,18 @@ This script checks:
 Run this before training to ensure everything is set up correctly.
 """
 
+from __future__ import annotations
+
 import sys
 
 
-def test_imports():
+def test_imports() -> bool:
     """Test that all required packages can be imported."""
     print("=" * 60)
     print("Testing imports...")
     print("=" * 60)
 
-    required_packages = {
+    required_packages: dict[str, str] = {
         'gymnasium': 'gymnasium',
         'torch': 'torch',
         'numpy': 'numpy',
@@ -49,7 +51,7 @@ def test_imports():
     return True
 
 
-def test_versions():
+def test_versions() -> None:
     """Print version information for key packages."""
     print("\n" + "=" * 60)
     print("Package versions:")
@@ -64,7 +66,7 @@ def test_versions():
     print(f"NumPy:     {numpy.__version__}")
 
 
-def test_device():
+def test_device() -> None:
     """Test PyTorch device availability."""
     print("\n" + "=" * 60)
     print("Testing PyTorch device:")
@@ -91,7 +93,7 @@ def test_device():
     print(f"\n✅ Will use device: {device.upper()}")
 
 
-def test_environment():
+def test_environment() -> bool:
     """Test CarRacing-v3 environment creation and basic functionality."""
     print("\n" + "=" * 60)
     print("Testing CarRacing-v3 environment:")
@@ -135,7 +137,7 @@ def test_environment():
         return False
 
 
-def test_preprocessing():
+def test_preprocessing() -> bool:
     """Test preprocessing pipeline."""
     print("\n" + "=" * 60)
     print("Testing preprocessing pipeline:")
@@ -182,7 +184,7 @@ def test_preprocessing():
         return False
 
 
-def test_agent():
+def test_agent() -> bool:
     """Test SAC agent initialization."""
     print("\n" + "=" * 60)
     print("Testing SAC agent:")
@@ -233,13 +235,13 @@ def test_agent():
         return False
 
 
-def main():
+def main() -> None:
     """Run all tests."""
     print("\n" + "=" * 60)
     print("CarRacing-v3 SAC Setup Verification")
     print("=" * 60)
 
-    results = {
+    results: dict[str, bool] = {
         'imports': test_imports(),
     }
 

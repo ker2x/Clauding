@@ -31,13 +31,19 @@ CSV Format:
     data (slip angle, slip ratio, normal force).
 """
 
+from __future__ import annotations
+
 import argparse
+from typing import Any
+import numpy.typing as npt
 import numpy as np
 import time
 import pygame
 import sys
 import csv
 from datetime import datetime
+import gymnasium as gym
+
 from preprocessing import make_carracing_env
 from utils.display import format_action, get_car_speed
 
@@ -45,7 +51,7 @@ from utils.display import format_action, get_car_speed
 class TelemetryLogger:
     """Log vehicle telemetry data to CSV file."""
 
-    def __init__(self, filename=None, log_interval=1):
+    def __init__(self, filename: str | None = None, log_interval: int = 1) -> None:
         """
         Initialize telemetry logger.
 
@@ -77,15 +83,24 @@ class TelemetryLogger:
 
         self._open_file()
 
-    def _open_file(self):
+    def _open_file(self) -> None:
         """Open CSV file and write header."""
         self.file = open(self.filename, 'w', newline='')
         self.writer = csv.DictWriter(self.file, fieldnames=self.fieldnames)
         self.writer.writeheader()
         self.file.flush()
 
-    def log_frame(self, episode, step, speed_kmh, action, reward, total_reward,
-                  wheel_data, car_state=None):
+    def log_frame(
+        self,
+        episode: int,
+        step: int,
+        speed_kmh: float,
+        action: npt.NDArray[np.float32],
+        reward: float,
+        total_reward: float,
+        wheel_data: dict[int, dict[str, float]],
+        car_state: dict[str, float] | None = None
+    ) -> None:
         """
         Log a single frame of telemetry data.
 
@@ -141,7 +156,7 @@ class TelemetryLogger:
         self.writer.writerow(row)
         self.file.flush()  # Ensure data is written immediately
 
-    def close(self):
+    def close(self) -> None:
         """Close the log file."""
         if self.file:
             self.file.close()
@@ -151,7 +166,7 @@ class TelemetryLogger:
 class TelemetryGUI:
     """GUI for displaying real-time vehicle telemetry."""
 
-    def __init__(self, width=420, height=310):
+    def __init__(self, width: int = 420, height: int = 310) -> None:
         self.width = width
         self.height = height
         self.font = pygame.font.Font(None, 18)
@@ -172,14 +187,18 @@ class TelemetryGUI:
             'hp': 0.0,
         }
 
-    def update_data(self, wheel_data, powertrain_data=None):
+    def update_data(
+        self,
+        wheel_data: dict[int, dict[str, float]] | None,
+        powertrain_data: dict[str, Any] | None = None
+    ) -> None:
         """Update wheel and powertrain telemetry data from the environment."""
         if wheel_data:
             self.wheel_data = wheel_data
         if powertrain_data:
             self.powertrain_data = powertrain_data
 
-    def draw(self, surface, speed_kmh=0.0):
+    def draw(self, surface: Any, speed_kmh: float = 0.0) -> None:
         """Draw telemetry panel."""
         # Background
         surface.fill((25, 25, 30))
@@ -372,7 +391,17 @@ class TelemetryGUI:
             pygame.draw.rect(surface, (80, 80, 85), (load_bar_x, y_load, load_bar_width, load_bar_height), 1)
 
 
-def render_info(screen, font, episode, step, reward, total_reward, action, speed_kmh=0.0, info_y_offset=0):
+def render_info(
+    screen: Any,
+    font: Any,
+    episode: int,
+    step: int,
+    reward: float,
+    total_reward: float,
+    action: npt.NDArray[np.float32],
+    speed_kmh: float = 0.0,
+    info_y_offset: int = 0
+) -> None:
     """Render text overlay onto the pygame screen."""
     info_area_height = 100
     w = screen.get_size()[0]
@@ -380,11 +409,11 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     # Clear the info bar
     screen.fill((0, 0, 0), (0, info_y_offset, w, info_area_height))
 
-    def draw_text(text, y, color=(255, 255, 255)):
+    def draw_text(text: str, y: int, color: tuple[int, int, int] = (255, 255, 255)) -> None:
         text_surf = font.render(text, True, color)
         screen.blit(text_surf, (10, y))
 
-    def draw_text_right(text, y, color=(255, 255, 255)):
+    def draw_text_right(text: str, y: int, color: tuple[int, int, int] = (255, 255, 255)) -> None:
         text_surf = font.render(text, True, color)
         screen.blit(text_surf, (w - text_surf.get_width() - 10, y))
 
@@ -400,7 +429,7 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     draw_text_right(f"Speed: {speed_kmh:.1f} km/h", y_base + 50, (255, 255, 100))
 
 
-def get_wheel_data(env):
+def get_wheel_data(env: gym.Env) -> dict[int, dict[str, float]]:
     """Extract wheel telemetry data from the environment."""
     wheel_data = {
         0: {'slip_angle': 0.0, 'slip_ratio': 0.0, 'normal_force': 0.0},
@@ -425,7 +454,7 @@ def get_wheel_data(env):
     return wheel_data
 
 
-def get_car_state(env):
+def get_car_state(env: gym.Env) -> dict[str, float]:
     """Extract detailed car state for logging."""
     car_state = {
         'x': 0.0, 'y': 0.0, 'angle': 0.0,
@@ -445,7 +474,8 @@ def get_car_state(env):
     return car_state
 
 
-def get_powertrain_data(env, throttle=0.0):
+
+def get_powertrain_data(env: gym.Env, throttle: float = 0.0) -> dict[str, Any]:
     """Extract powertrain telemetry data from the environment."""
     powertrain_data = {
         'gear': 0,
@@ -464,7 +494,7 @@ def get_powertrain_data(env, throttle=0.0):
     return powertrain_data
 
 
-def play_human_gui(args):
+def play_human_gui(args: argparse.Namespace) -> None:
     """Play episodes with real-time telemetry GUI."""
 
     # Initialize Pygame
@@ -508,13 +538,13 @@ def play_human_gui(args):
     else:
         print(f"Telemetry logging: DISABLED (use --log-telemetry to enable)")
     print("=" * 80)
-    print("\nKEYBOARD CONTROLS (AZERTY):")
+    print("\\nKEYBOARD CONTROLS (AZERTY):")
     print("  - Steering:   Q / D or Left / Right Arrow")
     print("  - Gas:        Z or Up Arrow")
     print("  - Brake:      S or Down Arrow")
     print("  - Reset:      R")
     print("  - Quit:       ESC")
-    print("\nTELEMETRY DISPLAY:")
+    print("\\nTELEMETRY DISPLAY:")
     print("  - Slip angle (SA) and slip ratio (SR) per wheel")
     print("  - Normal force (tire load) per wheel")
     print("=" * 80)
@@ -536,7 +566,7 @@ def play_human_gui(args):
             current_gas = 0.0
             current_brake = 0.0
 
-            print(f"\n{'-' * 80}")
+            print(f"\\n{'-' * 80}")
             print(f"Episode {episode + 1}/{args.episodes}")
             print(f"{'-' * 80}")
             print("Ready! Use keyboard to control the car (smooth progressive controls)")
@@ -547,7 +577,7 @@ def play_human_gui(args):
                 # --- Pygame Event Handling ---
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
-                        print("\nQuitting...")
+                        print("\\nQuitting...")
                         env.close()
                         pygame.quit()
                         sys.exit()
@@ -557,7 +587,7 @@ def play_human_gui(args):
                             print("Resetting episode...")
                             done = True
                         if event.key == pygame.K_ESCAPE:
-                            print("\nQuitting...")
+                            print("\\nQuitting...")
                             env.close()
                             pygame.quit()
                             sys.exit()
@@ -694,7 +724,7 @@ def play_human_gui(args):
             print(f"  Average reward so far: {np.mean(episode_rewards):.2f}")
 
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        print("\\nInterrupted by user")
     finally:
         if logger:
             logger.close()
@@ -702,7 +732,7 @@ def play_human_gui(args):
         pygame.quit()
 
     # Final statistics
-    print("\n" + "=" * 80)
+    print("\\n" + "=" * 80)
     print("GAME SUMMARY")
     print("=" * 80)
     print(f"Episodes completed: {len(episode_rewards)}")
@@ -714,7 +744,7 @@ def play_human_gui(args):
     print("=" * 80)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description='Play CarRacing-v3 with real-time telemetry display'
@@ -740,3 +770,4 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     play_human_gui(args)
+

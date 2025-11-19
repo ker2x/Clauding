@@ -5,6 +5,8 @@ The actor network outputs a stochastic policy using a Gaussian distribution.
 It uses the reparameterization trick for training with gradient descent.
 """
 
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,7 +26,7 @@ class VectorActor(nn.Module):
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
     """
-    def __init__(self, state_dim, action_dim, hidden_dim=128):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128) -> None:
         super(VectorActor, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
@@ -33,7 +35,7 @@ class VectorActor(nn.Module):
         self.mean = nn.Linear(hidden_dim, action_dim)
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
-    def forward(self, state):
+    def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
 

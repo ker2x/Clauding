@@ -38,11 +38,14 @@ Usage:
     python train.py --domain-randomization moderate --device cpu --episodes 1000
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import time
 import csv
 from datetime import datetime
+from typing import Any
 import numpy as np
 import torch
 import multiprocessing
@@ -84,7 +87,7 @@ from config.domain_randomization import (
 )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Train SAC agent on CarRacing-v3')
 
@@ -144,7 +147,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def plot_training_progress(episode_rewards, metrics, save_path):
+def plot_training_progress(
+    episode_rewards: list[float], metrics: dict[str, list[float]], save_path: str
+) -> None:
     """
     Plot training metrics and save to file.
 
@@ -227,7 +232,7 @@ def plot_training_progress(episode_rewards, metrics, save_path):
         traceback.print_exc()
 
 
-def train(args):
+def train(args: argparse.Namespace) -> None:
     """Main training loop."""
     # Environment configuration (using constants from constants.py)
     TERMINATE_STATIONARY = DEFAULT_TERMINATE_STATIONARY

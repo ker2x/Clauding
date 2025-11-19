@@ -9,7 +9,10 @@ References:
 - Pacejka, H. B. (2012). Tire and Vehicle Dynamics. 3rd Edition.
 """
 
+from __future__ import annotations
+
 import numpy as np
+import numpy.typing as npt
 
 
 class PacejkaTire:
@@ -32,9 +35,17 @@ class PacejkaTire:
     See ../TIRE_PARAMETERS.md for validation against real-world performance data.
     """
 
-    def __init__(self,
-                 B_lat=8.5, C_lat=1.9, D_lat=0.95, E_lat=0.97,
-                 B_lon=8.0, C_lon=1.9, D_lon=1.15, E_lon=0.97):
+    def __init__(
+        self,
+        B_lat: float = 8.5,
+        C_lat: float = 1.9,
+        D_lat: float = 0.95,
+        E_lat: float = 0.97,
+        B_lon: float = 8.0,
+        C_lon: float = 1.9,
+        D_lon: float = 1.15,
+        E_lon: float = 0.97,
+    ) -> None:
         """
         Args:
             B_lat: Stiffness factor (Lateral)
@@ -55,7 +66,9 @@ class PacejkaTire:
         self.D_lon = D_lon
         self.E_lon = E_lon
 
-    def lateral_force(self, slip_angle, normal_force, max_friction=1.0):
+    def lateral_force(
+        self, slip_angle: float, normal_force: float, max_friction: float = 1.0
+    ) -> float:
         """
         Calculate lateral (cornering) force using Pacejka formula.
 
@@ -94,7 +107,9 @@ class PacejkaTire:
              np.sin(self.C_lat * np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))))
         return F
 
-    def longitudinal_force(self, slip_ratio, normal_force, max_friction=1.0):
+    def longitudinal_force(
+        self, slip_ratio: float, normal_force: float, max_friction: float = 1.0
+    ) -> float:
         """
         Calculate longitudinal (traction) force using Pacejka formula.
 

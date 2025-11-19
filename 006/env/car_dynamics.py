@@ -33,7 +33,11 @@ References:
 - Pacejka, H. B. (2012). Tire and Vehicle Dynamics. 3rd Edition.
 """
 
+from __future__ import annotations
+
+from typing import Any
 import numpy as np
+import numpy.typing as npt
 from env.tire_model import PacejkaTire
 from config.physics_config import PhysicsConfig
 from env.mx5_powertrain import MX5Powertrain
@@ -60,7 +64,14 @@ class Car:
     See config/physics_config.py for parameter documentation and default values.
     """
 
-    def __init__(self, world, init_angle, init_x, init_y, physics_config=None):
+    def __init__(
+        self,
+        world: Any,
+        init_angle: float,
+        init_x: float,
+        init_y: float,
+        physics_config: PhysicsConfig | None = None,
+    ) -> None:
         """
         Initialize car at position with given heading.
 
@@ -141,7 +152,7 @@ class Car:
         self.steer_input = 0.0
 
         # Wheels contact with track (for friction)
-        self.wheels = []
+        self.wheels: list[Any] = []
         wheel_pos_local = [
             (self.LF, self.WIDTH / 2),     # FL - (longitudinal, lateral) - left is positive y
             (self.LF, -self.WIDTH / 2),    # FR - right is negative y
@@ -197,7 +208,7 @@ class Car:
         self.last_shift_was_upshift = False  # Track shift direction for hysteresis
 
         # For rendering
-        self.hull = type('Body', (), {})()
+        self.hull: Any = type('Body', (), {})()
         self.hull.position = (init_x, init_y)
         self.hull.angle = init_angle
         self.hull.linearVelocity = (0, 0)
@@ -225,22 +236,22 @@ class Car:
         self.drawlist = self.wheels + [self.hull]
         self.particles = []
 
-    def gas(self, throttle):
+    def gas(self, throttle: float) -> None:
         """Apply throttle (0 to 1)."""
         self._gas = min(1, max(0, throttle))
 
-    def brake(self, brake_force):
+    def brake(self, brake_force: float) -> None:
         """Apply brake (0 to 1)."""
         self._brake = min(1, max(0, brake_force))
 
-    def steer(self, steer_input):
+    def steer(self, steer_input: float) -> None:
         """
         Apply steering input (-1 to 1).
         Smoothly ramps to target angle.
         """
         self.steer_input = min(1, max(-1, steer_input))
 
-    def step(self, dt):
+    def step(self, dt: float) -> dict[str, Any]:
         """
         Integrate dynamics forward by dt seconds.
         """
@@ -314,7 +325,7 @@ class Car:
         integration_results['tire_forces'] = forces
         return integration_results
 
-    def _update_wheel_dynamics(self, dt):
+    def _update_wheel_dynamics(self, dt: float) -> None:
         """
         Update wheel angular velocities based on engine, brake, and tire forces.
 
@@ -429,7 +440,7 @@ class Car:
             # Update phase (rotation angle)
             wheel.phase += wheel.omega * dt
 
-    def _get_surface_friction(self):
+    def _get_surface_friction(self) -> float:
         """Get average friction coefficient from wheels' contact surfaces."""
         friction = self.BASE_FRICTION
         contact_count = 0
@@ -451,7 +462,7 @@ class Car:
 
         return friction
 
-    def _compute_normal_forces(self):
+    def _compute_normal_forces(self) -> npt.NDArray[np.float64]:
         """
         Compute per-wheel normal forces using a rigid-body load transfer model.
 
@@ -505,7 +516,7 @@ class Car:
 
         return normal_forces
 
-    def _compute_tire_forces(self, friction):
+    def _compute_tire_forces(self, friction: float) -> dict[int, dict[str, float]]:
         """
         Compute tire forces using Pacejka model with load transfer.
 
@@ -583,7 +594,9 @@ class Car:
 
         return forces
 
-    def _integrate_state(self, forces, dt):
+    def _integrate_state(
+        self, forces: dict[int, dict[str, float]], dt: float
+    ) -> dict[str, float]:
         """
         Integrate vehicle state forward using forces.
         Uses simple Euler integration.
@@ -696,7 +709,7 @@ class Car:
             'ax': ax, 'ay': ay, 'ang_accel': ang_accel
         }
 
-    def _update_hull(self):
+    def _update_hull(self) -> None:
         """Update hull position/velocity for rendering and compatibility."""
         self.hull.position = (self.x, self.y)
         self.hull.angle = self.yaw
@@ -728,7 +741,14 @@ class Car:
             wheel.omega = self.wheel_omega[i]
             wheel.phase += wheel.omega * 0.02  # Approximate dt
 
-    def draw(self, surface, zoom, translation, angle, draw_particles=True):
+    def draw(
+        self,
+        surface: Any,
+        zoom: float,
+        translation: tuple[float, float],
+        angle: float,
+        draw_particles: bool = True,
+    ) -> None:
         """
         Draw car and particles (compatible with original interface).
         This is a simplified version - full drawing would need pygame.
@@ -737,6 +757,6 @@ class Car:
         # The actual rendering happens in car_racing.py using pygame
         pass
 
-    def destroy(self):
+    def destroy(self) -> None:
         """Clean up (no resources to clean up in this implementation)."""
         pass

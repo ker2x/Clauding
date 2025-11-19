@@ -13,34 +13,38 @@ Controls:
     - Press ESC to quit, R to reset
 """
 
+from __future__ import annotations
+
 import pygame
 import numpy as np
+import numpy.typing as npt
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import sys
+from typing import Any
 
 
 class MagicFormulaVisualizer:
     """Interactive visualizer for Pacejka Magic Formula parameters."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         pygame.init()
         pygame.font.init()
 
-        self.font = pygame.font.Font(None, 24)
-        self.font_small = pygame.font.Font(None, 18)
+        self.font: Any = pygame.font.Font(None, 24)
+        self.font_small: Any = pygame.font.Font(None, 18)
 
         # Window size
-        self.panel_width = 450
-        self.graph_width = 1000
-        self.height = 700
-        self.screen = pygame.display.set_mode((self.panel_width + self.graph_width, self.height))
+        self.panel_width: int = 450
+        self.graph_width: int = 1000
+        self.height: int = 700
+        self.screen: Any = pygame.display.set_mode((self.panel_width + self.graph_width, self.height))
         pygame.display.set_caption("Magic Formula Visualizer")
 
         # Default Pacejka parameters
-        self.params = {
+        self.params: dict[str, float] = {
             'B_lat': 10.0,
             'C_lat': 1.9,
             'D_lat': 1.1,
@@ -52,7 +56,7 @@ class MagicFormulaVisualizer:
         }
 
         # Parameter ranges
-        self.param_ranges = {
+        self.param_ranges: dict[str, tuple[float, float]] = {
             'B_lat': (3.0, 25.0),
             'C_lat': (1.0, 3.0),
             'D_lat': (0.5, 2.0),
@@ -64,7 +68,7 @@ class MagicFormulaVisualizer:
         }
 
         # Parameter descriptions
-        self.descriptions = {
+        self.descriptions: dict[str, str] = {
             'B_lat': 'Stiffness - initial slope',
             'C_lat': 'Shape - curve peakiness',
             'D_lat': 'Peak - max grip multiplier',
@@ -76,9 +80,9 @@ class MagicFormulaVisualizer:
         }
 
         # Create sliders
-        self.sliders = []
-        y_start = 80
-        y_spacing = 70
+        self.sliders: list[dict[str, Any]] = []
+        y_start: int = 80
+        y_spacing: int = 70
 
         # Lateral parameters
         for i, param in enumerate(['B_lat', 'C_lat', 'D_lat', 'E_lat']):
@@ -104,29 +108,36 @@ class MagicFormulaVisualizer:
             })
 
         # Create matplotlib figure
+        self.fig: Any
+        self.ax_lat: Any
+        self.ax_lon: Any
         self.fig, (self.ax_lat, self.ax_lon) = plt.subplots(2, 1, figsize=(10, 7))
         self.fig.tight_layout(pad=3.0)
-        self.canvas = FigureCanvasAgg(self.fig)
+        self.canvas: Any = FigureCanvasAgg(self.fig)
 
         self.update_graphs()
-        self.running = True
-        self.clock = pygame.time.Clock()
+        self.running: bool = True
+        self.clock: Any = pygame.time.Clock()
 
-    def get_slider_value(self, slider):
+    def get_slider_value(self, slider: dict[str, Any]) -> float:
         """Get normalized value (0-1) for a slider."""
-        param_name = slider['param']
-        value = self.params[param_name]
+        param_name: str = slider['param']
+        value: float = self.params[param_name]
+        min_val: float
+        max_val: float
         min_val, max_val = self.param_ranges[param_name]
         return (value - min_val) / (max_val - min_val)
 
-    def set_slider_value(self, slider, normalized_value):
+    def set_slider_value(self, slider: dict[str, Any], normalized_value: float) -> None:
         """Set parameter value from normalized slider position."""
-        param_name = slider['param']
+        param_name: str = slider['param']
+        min_val: float
+        max_val: float
         min_val, max_val = self.param_ranges[param_name]
         self.params[param_name] = min_val + normalized_value * (max_val - min_val)
         self.update_graphs()
 
-    def handle_events(self):
+    def handle_events(self) -> None:
         """Handle pygame events."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

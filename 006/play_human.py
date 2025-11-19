@@ -15,17 +15,22 @@ Controls:
     - Quit:       ESC or Q
 """
 
+from __future__ import annotations
+
 import argparse
+from typing import Any
+import numpy.typing as npt
 import numpy as np
 import time
 import pygame
 import sys
+import gymnasium as gym
 
 from preprocessing import make_carracing_env
 from utils.display import format_action, get_car_speed
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Play CarRacing-v3 as a human')
     parser.add_argument('--episodes', type=int, default=5,
@@ -37,7 +42,16 @@ def parse_args():
     return parser.parse_args()
 
 
-def render_info(screen, font, episode, step, reward, total_reward, action, speed_kmh=0.0):
+def render_info(
+    screen: Any,
+    font: Any,
+    episode: int,
+    step: int,
+    reward: float,
+    total_reward: float,
+    action: npt.NDArray[np.float32],
+    speed_kmh: float = 0.0
+) -> None:
     """Render text overlay onto the pygame screen."""
     info_area_height = 130
     w, h = screen.get_size()
@@ -45,11 +59,11 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     # Clear the top info bar
     screen.fill((0, 0, 0), (0, 0, w, info_area_height))
 
-    def draw_text(text, y, color=(255, 255, 255)):
+    def draw_text(text: str, y: int, color: tuple[int, int, int] = (255, 255, 255)) -> None:
         text_surf = font.render(text, True, color)
         screen.blit(text_surf, (10, y))
 
-    def draw_text_right(text, y, color=(255, 255, 255)):
+    def draw_text_right(text: str, y: int, color: tuple[int, int, int] = (255, 255, 255)) -> None:
         text_surf = font.render(text, True, color)
         screen.blit(text_surf, (w - text_surf.get_width() - 10, y))
 
@@ -66,7 +80,7 @@ def render_info(screen, font, episode, step, reward, total_reward, action, speed
     draw_text_right(f"Speed: {speed_kmh:.1f} km/h", 70, (255, 255, 100))
 
 
-def play_human(args):
+def play_human(args: argparse.Namespace) -> None:
     """Play episodes as a human using arcade-style controls."""
 
     # Initialize Pygame

@@ -30,12 +30,16 @@ Requirements:
     pip install matplotlib numpy
 """
 
+from __future__ import annotations
+
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle, FancyBboxPatch
 import datetime
+from typing import Any
+import numpy.typing as npt
 
 
 class EngineDyno:
@@ -46,7 +50,7 @@ class EngineDyno:
     across the full RPM range at various throttle positions.
     """
 
-    def __init__(self, engine):
+    def __init__(self, engine: Any) -> None:
         """
         Initialize dyno with an engine to test.
 
@@ -68,7 +72,7 @@ class EngineDyno:
         # Vehicle specs for performance calculations
         self.vehicle_mass_kg = 1062  # MX-5 ND curb weight
 
-    def run_test(self, throttle=1.0, rpm_start=1000, rpm_end=8000, rpm_step=100):
+    def run_test(self, throttle: float = 1.0, rpm_start: int = 1000, rpm_end: int = 8000, rpm_step: int = 100) -> dict[str, Any]:
         """
         Run a full dyno test across RPM range.
 
@@ -137,7 +141,7 @@ class EngineDyno:
 
         return results
 
-    def _print_summary(self, results):
+    def _print_summary(self, results: dict[str, Any]) -> None:
         """Print test summary statistics."""
         if len(results['rpm']) == 0:
             return
@@ -167,7 +171,7 @@ class EngineDyno:
         print(f"  Power:  {power_diff:+.1f} hp ({power_diff/self.factory_specs['peak_power_hp']*100:+.1f}%)")
         print("="*60 + "\n")
 
-    def run_throttle_sweep(self, throttle_positions=None):
+    def run_throttle_sweep(self, throttle_positions: list[float] | None = None) -> None:
         """
         Run multiple tests at different throttle positions.
 
@@ -180,7 +184,7 @@ class EngineDyno:
         for throttle in throttle_positions:
             self.run_test(throttle=throttle)
 
-    def estimate_acceleration(self):
+    def estimate_acceleration(self) -> dict[str, float] | None:
         """
         Estimate 0-60 mph and 0-100 km/h times based on power curve.
 
@@ -235,11 +239,11 @@ class EngineDyno:
 class DynoVisualization:
     """Professional dyno sheet visualization."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize visualization."""
         self.fig = None
 
-    def create_dyno_sheet(self, dyno, save_path=None):
+    def create_dyno_sheet(self, dyno: EngineDyno, save_path: str | None = None) -> None:
         """
         Create a professional dyno sheet similar to Dynojet/Mustang Dyno.
 
@@ -283,7 +287,7 @@ class DynoVisualization:
 
         plt.show()
 
-    def _draw_header(self, dyno):
+    def _draw_header(self, dyno: EngineDyno) -> None:
         """Draw dyno sheet header."""
         # Get current date
         date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -298,7 +302,7 @@ class DynoVisualization:
         self.fig.text(0.5, 0.94, subtitle, ha='center', fontsize=11,
                      color='#888888')
 
-    def _draw_main_plot(self, ax, dyno):
+    def _draw_main_plot(self, ax: Any, dyno: EngineDyno) -> None:
         """Draw main torque and power curves."""
         ax.set_facecolor('#1a1a1a')
 
@@ -366,7 +370,7 @@ class DynoVisualization:
         ax2.spines['right'].set_color(color_power)
         ax2.spines['right'].set_linewidth(2)
 
-    def _draw_info_panel(self, ax, dyno):
+    def _draw_info_panel(self, ax: Any, dyno: EngineDyno) -> None:
         """Draw test information panel."""
         ax.axis('off')
         ax.set_xlim(0, 1)
@@ -409,7 +413,7 @@ class DynoVisualization:
                fontsize=10, color='white', family='monospace',
                linespacing=1.6, fontweight='bold')
 
-    def _draw_specs_panel(self, ax, dyno):
+    def _draw_specs_panel(self, ax: Any, dyno: EngineDyno) -> None:
         """Draw specifications comparison panel."""
         ax.axis('off')
         ax.set_xlim(0, 1)
@@ -455,7 +459,7 @@ class DynoVisualization:
                fontsize=10, color='white', family='monospace',
                linespacing=1.6, fontweight='bold')
 
-    def _draw_performance_panel(self, ax, dyno):
+    def _draw_performance_panel(self, ax: Any, dyno: EngineDyno) -> None:
         """Draw performance estimates panel."""
         ax.axis('off')
         ax.set_xlim(0, 1)
@@ -502,7 +506,7 @@ class DynoVisualization:
                linespacing=1.6, fontweight='bold')
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description='Professional Engine Dynamometer for MX-5 SKYACTIV-G',

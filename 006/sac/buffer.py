@@ -5,8 +5,11 @@ The replay buffer stores past experiences and samples random batches for trainin
 This implementation uses pre-allocated torch tensors for efficiency.
 """
 
+from __future__ import annotations
+
 import torch
 import numpy as np
+import numpy.typing as npt
 
 
 class ReplayBuffer:
@@ -24,7 +27,13 @@ class ReplayBuffer:
     Performance improvement: ~5-8x faster sampling (20ms → 2-4ms)
     Memory usage: Only batch size * state_size on device (vs full buffer on device)
     """
-    def __init__(self, capacity, state_shape, action_dim, device):
+    def __init__(
+        self,
+        capacity: int,
+        state_shape: int | tuple[int, ...],
+        action_dim: int,
+        device: torch.device,
+    ) -> None:
         self.capacity = capacity
         self.device = device
         self.action_dim = action_dim
@@ -52,7 +61,14 @@ class ReplayBuffer:
         self.ptr = 0  # Current write position
         self.size = 0  # Current buffer size (until we fill capacity)
 
-    def push(self, state, action, reward, next_state, done):
+    def push(
+        self,
+        state: npt.NDArray[np.float32] | torch.Tensor,
+        action: npt.NDArray[np.float32] | torch.Tensor,
+        reward: float,
+        next_state: npt.NDArray[np.float32] | torch.Tensor,
+        done: bool,
+    ) -> None:
         """
         Add experience to buffer.
 
@@ -78,7 +94,9 @@ class ReplayBuffer:
         self.ptr = (self.ptr + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def sample(self, batch_size):
+    def sample(
+        self, batch_size: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Sample a batch of experiences.
 
@@ -98,5 +116,5 @@ class ReplayBuffer:
             self.dones[indices].to(self.device)
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.size

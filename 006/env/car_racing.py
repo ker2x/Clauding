@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 __credits__ = ["Laurent Laborde"]
 
 import math
 import time
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -104,11 +108,13 @@ class FrictionDetector:
     - _vectorized_point_in_polygon_batch(): Batch point-in-polygon test (all wheels × all tiles)
     - _vectorized_distance_to_edge_batch(): Batch distance calculation (all wheels × all tiles)
     """
-    def __init__(self, env, lap_complete_percent):
+    def __init__(self, env: CarRacing, lap_complete_percent: float) -> None:
         self.env = env
         self.lap_complete_percent = lap_complete_percent
 
-    def _vectorized_point_in_polygon_batch(self, points, polygons):
+    def _vectorized_point_in_polygon_batch(
+        self, points: npt.NDArray[np.float64], polygons: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.bool_]:
         """
         Vectorized point-in-polygon for multiple points and multiple polygons.
 
@@ -158,7 +164,9 @@ class FrictionDetector:
 
         return inside
 
-    def _vectorized_distance_to_edge_batch(self, points, polygons):
+    def _vectorized_distance_to_edge_batch(
+        self, points: npt.NDArray[np.float64], polygons: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
         """
         Vectorized distance-to-edge for multiple points and multiple polygons.
 
@@ -215,7 +223,7 @@ class FrictionDetector:
 
         return min_dist
 
-    def update_contacts(self, car, road_tiles):
+    def update_contacts(self, car: Car, road_tiles: list[Any]) -> None:
         """
         Update wheel-tile contacts based on accurate polygon geometry.
         Uses spatial partitioning + vectorized batch processing for performance.
@@ -508,18 +516,18 @@ class CarRacing(gym.Env, EzPickle):
         self.isopen = True
         self.invisible_state_window = None
         self.invisible_video_window = None
-        self.road = None
+        self.road: list[Any] | None = None
 
         # Multi-car support: cars list + backward compatibility
-        self.cars = []  # List of Car instances (multi-car mode)
+        self.cars: list[Car] = []  # List of Car instances (multi-car mode)
         self.car: Car | None = None  # Single car reference (backward compatibility)
 
         # Per-car tracking (multi-car mode)
-        self.car_rewards = []
-        self.car_prev_rewards = []
-        self.car_tile_visited_counts = []
-        self.car_last_checkpoints = []
-        self.car_frames_since_progress = []
+        self.car_rewards: list[float] = []
+        self.car_prev_rewards: list[float] = []
+        self.car_tile_visited_counts: list[int] = []
+        self.car_last_checkpoints: list[int] = []
+        self.car_frames_since_progress: list[int] = []
         self.car_total_steps = []
 
         # Single-car tracking (backward compatibility)
@@ -567,7 +575,7 @@ class CarRacing(gym.Env, EzPickle):
 
         self.render_mode = render_mode
 
-    def _destroy(self):
+    def _destroy(self) -> None:
         if not self.road:
             return
         # Tiles are just objects now, no Box2D bodies to destroy
@@ -579,13 +587,13 @@ class CarRacing(gym.Env, EzPickle):
         self.cars = []
         self.car = None
 
-    def _init_colors(self):
+    def _init_colors(self) -> None:
         # Default track colors
         self.road_color = np.array([102, 102, 102])
         self.bg_color = np.array([102, 204, 102])
         self.grass_color = np.array([102, 230, 102])
 
-    def _get_car_color(self, car_idx):
+    def _get_car_color(self, car_idx: int) -> tuple[float, float, float]:
         """Return distinct color for each car (for rendering)."""
         colors = [
             (0.8, 0.0, 0.0),  # Red
@@ -599,7 +607,7 @@ class CarRacing(gym.Env, EzPickle):
         ]
         return colors[car_idx % len(colors)]
 
-    def _get_all_observations(self):
+    def _get_all_observations(self) -> npt.NDArray[np.float32]:
         """Get observations for all cars."""
         if self.num_cars == 1:
             return self._create_vector_state()
@@ -614,7 +622,7 @@ class CarRacing(gym.Env, EzPickle):
                 observations.append(obs)
             return np.array(observations, dtype=np.float32)
 
-    def _create_track(self):
+    def _create_track(self) -> bool:
         CHECKPOINTS = 12
 
         # Create checkpoints
@@ -815,8 +823,8 @@ class CarRacing(gym.Env, EzPickle):
         self,
         *,
         seed: int | None = None,
-        options: dict | None = None,
-    ):
+        options: dict[str, Any] | None = None,
+    ) -> tuple[npt.NDArray[np.float32], dict[str, Any]]:
         super().reset(seed=seed)
         self._destroy()
         # Recreate friction detector for new episode
@@ -920,7 +928,15 @@ class CarRacing(gym.Env, EzPickle):
         else:
             return self.step(None)[0], {}
 
-    def step(self, action: np.ndarray | int | None):
+    def step(
+        self, action: npt.NDArray[np.float32] | int | None
+    ) -> tuple[
+        npt.NDArray[np.float32],
+        float | npt.NDArray[np.float32],
+        bool | npt.NDArray[np.bool_],
+        bool | npt.NDArray[np.bool_],
+        dict[str, Any] | list[dict[str, Any]],
+    ]:
         """
         Step environment with 1 or N cars.
 
@@ -943,7 +959,9 @@ class CarRacing(gym.Env, EzPickle):
             # Multi-car mode
             return self._step_multi_car(action)
 
-    def _step_single_car(self, action: np.ndarray | int | None):
+    def _step_single_car(
+        self, action: npt.NDArray[np.float32] | int | None
+    ) -> tuple[npt.NDArray[np.float32], float, bool, bool, dict[str, Any]]:
         """Original single-car step logic (backward compatible)."""
         assert self.car is not None
 
@@ -1154,7 +1172,15 @@ class CarRacing(gym.Env, EzPickle):
 
         return self.state, step_reward, terminated, truncated, info
 
-    def _step_multi_car(self, action: np.ndarray | None):
+    def _step_multi_car(
+        self, action: npt.NDArray[np.float32] | None
+    ) -> tuple[
+        npt.NDArray[np.float32],
+        npt.NDArray[np.float32],
+        npt.NDArray[np.bool_],
+        npt.NDArray[np.bool_],
+        list[dict[str, Any]],
+    ]:
         """
         Step all cars in parallel on the same track.
 
@@ -1296,7 +1322,7 @@ class CarRacing(gym.Env, EzPickle):
 
         return observations, step_rewards, terminated, truncated, infos
 
-    def render(self):
+    def render(self) -> npt.NDArray[np.uint8] | None:
         if self.render_mode is None:
             assert self.spec is not None
             gym.logger.warn(
@@ -1304,11 +1330,13 @@ class CarRacing(gym.Env, EzPickle):
                 "You can specify the render_mode at initialization, "
                 f'e.g. gym.make("{self.spec.id}", render_mode="rgb_array")'
             )
-            return
+            return None
         else:
             return self._render(self.render_mode)
 
-    def _find_closest_track_segment(self, car_pos):
+    def _find_closest_track_segment(
+        self, car_pos: tuple[float, float]
+    ) -> tuple[int, float, tuple[float, float]]:
         """
         Find the track segment closest to the car using vectorized search.
 
@@ -1353,7 +1381,7 @@ class CarRacing(gym.Env, EzPickle):
 
         return closest_idx, min_dist, closest_point
 
-    def _create_vector_state(self):
+    def _create_vector_state(self) -> npt.NDArray[np.float32]:
         """
         Create vector state representation (fast, informative).
 
@@ -1601,7 +1629,7 @@ class CarRacing(gym.Env, EzPickle):
 
         return state
 
-    def _render(self, mode: str):
+    def _render(self, mode: str) -> npt.NDArray[np.uint8] | bool | None:
         assert mode in self.metadata["render_modes"]
 
         pygame.font.init()
@@ -1654,7 +1682,9 @@ class CarRacing(gym.Env, EzPickle):
         else:
             return self.isopen
 
-    def _render_car(self, zoom, translation, angle, draw_particles=True):
+    def _render_car(
+        self, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True
+    ) -> None:
         """
         Render car(s) for full rendering. Handles both single and multi-car mode.
         """
@@ -1667,7 +1697,9 @@ class CarRacing(gym.Env, EzPickle):
             for car in self.cars:
                 self._render_single_car(car, zoom, translation, angle, draw_particles)
 
-    def _render_single_car(self, car, zoom, translation, angle, draw_particles=True):
+    def _render_single_car(
+        self, car: Car, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True
+    ) -> None:
         """
         Render a single car and its wheels (compatible with new physics engine).
         Draws the car body AND the four wheels, rotating the front wheels with steering.
@@ -1774,7 +1806,7 @@ class CarRacing(gym.Env, EzPickle):
             # Draw the wheel (black)
             gfxdraw.filled_polygon(self.surf, wheel_poly_screen, (0, 0, 0))
 
-    def _render_road(self, zoom, translation, angle):
+    def _render_road(self, zoom: float, translation: tuple[float, float], angle: float) -> None:
         bounds = PLAYFIELD
         field = [
             (bounds, bounds),
@@ -1812,7 +1844,7 @@ class CarRacing(gym.Env, EzPickle):
             color = [int(c) for c in color]
             self._draw_colored_polygon(self.surf, poly, color, zoom, translation, angle)
 
-    def _render_indicators(self, W, H):
+    def _render_indicators(self, W: int, H: int) -> None:
         s = W / 40.0
         h = H / 40.0
         color = (0, 0, 0)
@@ -1881,8 +1913,15 @@ class CarRacing(gym.Env, EzPickle):
         )
 
     def _draw_colored_polygon(
-        self, surface, poly, color, zoom, translation, angle, clip=True
-    ):
+        self,
+        surface: Any,
+        poly: list[tuple[float, float]],
+        color: list[int] | npt.NDArray[np.int32],
+        zoom: float,
+        translation: tuple[float, float],
+        angle: float,
+        clip: bool = True,
+    ) -> None:
         poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in poly]
         poly = [
             (c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in poly
@@ -1900,13 +1939,13 @@ class CarRacing(gym.Env, EzPickle):
             gfxdraw.aapolygon(self.surf, poly, color)
             gfxdraw.filled_polygon(self.surf, poly, color)
 
-    def _create_image_array(self, screen, size):
+    def _create_image_array(self, screen: Any, size: tuple[int, int]) -> npt.NDArray[np.uint8]:
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
             np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
         )
 
-    def close(self):
+    def close(self) -> None:
         if self.screen is not None:
             pygame.display.quit()
             self.isopen = False

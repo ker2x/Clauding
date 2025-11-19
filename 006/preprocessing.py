@@ -11,6 +11,8 @@ CarRacing-v3 uses a continuous action space: [steering, acceleration]
 Continuous actions are used directly with SAC - no discretization.
 """
 
+from __future__ import annotations
+
 import gymnasium as gym
 
 # Import local CarRacing environment
@@ -19,17 +21,17 @@ from config.domain_randomization import DomainRandomizationConfig
 
 
 def make_carracing_env(
-    terminate_stationary=True,
-    stationary_patience=100,
-    stationary_min_steps=50,
-    render_mode=None,
-    reward_shaping=True,
-    min_episode_steps=150,
-    short_episode_penalty=-10.0,
-    max_episode_steps=1500,
-    verbose=False,
-    num_cars=1,
-    domain_randomization_config=None,
+    terminate_stationary: bool = True,
+    stationary_patience: int = 100,
+    stationary_min_steps: int = 50,
+    render_mode: str | None = None,
+    reward_shaping: bool = True,
+    min_episode_steps: int = 150,
+    short_episode_penalty: float = -10.0,
+    max_episode_steps: int = 1500,
+    verbose: bool = False,
+    num_cars: int = 1,
+    domain_randomization_config: DomainRandomizationConfig | None = None,
 ) -> gym.Env:
     """
     Creates a CarRacing-v3 environment for SAC training in vector mode.

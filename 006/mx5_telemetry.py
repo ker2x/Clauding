@@ -46,6 +46,8 @@ Requirements:
     pip install matplotlib numpy
 """
 
+from __future__ import annotations
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -54,12 +56,14 @@ from matplotlib.patches import Wedge, Rectangle, Circle, FancyBboxPatch
 import matplotlib.animation as animation
 from collections import deque
 import math
+from typing import Any
+import numpy.typing as npt
 
 
 class Gauge:
     """Base class for circular gauge displays."""
 
-    def __init__(self, ax, min_val, max_val, units, redline=None):
+    def __init__(self, ax: Any, min_val: float, max_val: float, units: str, redline: float | None = None) -> None:
         """
         Initialize gauge.
 
@@ -84,7 +88,7 @@ class Gauge:
 
         self._draw_gauge()
 
-    def _draw_gauge(self):
+    def _draw_gauge(self) -> None:
         """Draw the static gauge elements."""
         # Background circle
         bg_circle = Circle((0, 0), 1.0, color='#1a1a1a', zorder=1)
@@ -541,7 +545,7 @@ class InteractiveDriveSimulator:
     Allows user to control throttle, brake, and gearbox using keyboard.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize interactive simulator."""
         # Import powertrain
         try:
@@ -578,7 +582,7 @@ class InteractiveDriveSimulator:
         # Key press state tracking
         self.keys_pressed = set()
 
-    def on_key_press(self, event):
+    def on_key_press(self, event: Any) -> None:
         """Handle key press events (AZERTY layout)."""
         key = event.key.lower()
 
@@ -617,13 +621,13 @@ class InteractiveDriveSimulator:
             self.brake = 0.0
             print("[SPACE] Released throttle and brake")
 
-    def on_key_release(self, event):
+    def on_key_release(self, event: Any) -> None:
         """Handle key release events."""
         key = event.key.lower()
         if key in self.keys_pressed:
             self.keys_pressed.remove(key)
 
-    def update_inputs(self):
+    def update_inputs(self) -> None:
         """Update throttle and brake based on held keys."""
         # Z key - Accelerate (AZERTY layout)
         if 'z' in self.keys_pressed:
@@ -647,7 +651,7 @@ class InteractiveDriveSimulator:
             if self.brake < 0.01:
                 self.brake = 0.0
 
-    def update_physics(self):
+    def update_physics(self) -> None:
         """Update vehicle physics."""
         # Get wheel torque from powertrain (includes engine braking when throttle released)
         wheel_torque = self.powertrain.get_wheel_torque(self.throttle, self.wheel_rpm)
@@ -678,7 +682,7 @@ class InteractiveDriveSimulator:
         wheel_angular_velocity = speed_ms / self.wheel_radius  # rad/s
         self.wheel_rpm = wheel_angular_velocity * 60 / (2 * math.pi)
 
-    def run(self):
+    def run(self) -> None:
         """Run the interactive simulator."""
         print("="*70)
         print("MX-5 Powertrain Telemetry - INTERACTIVE MODE")
@@ -739,7 +743,7 @@ class InteractiveDriveSimulator:
         plt.show()  # Block to keep window open
 
 
-def demo():
+def demo() -> None:
     """
     Interactive demonstration mode with manual controls.
 
