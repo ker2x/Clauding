@@ -433,12 +433,9 @@ class Car:
         normal_forces[3] -= lon_transfer_force / 2.0  # RR
 
         # 3. Lateral Load Transfer (Roll)
-        # F_transfer = ay * mass * h_cg / track_width
-        # This force is *subtracted* from inside wheels and *added* to outside wheels
         # During cornering, centripetal force causes body roll toward outside
         # Outside wheels compress, inside wheels extend
-        # FIX: Reversed sign - was backwards!
-        lat_transfer_force = -ay * self.MASS * self.CG_HEIGHT / self.WIDTH
+        lat_transfer_force = ay * self.MASS * self.CG_HEIGHT / self.WIDTH
 
         normal_forces[0] -= lat_transfer_force / 2.0  # FL
         normal_forces[1] += lat_transfer_force / 2.0  # FR
@@ -516,16 +513,7 @@ class Car:
             fy = -self.tire.lateral_force(slip_angle, normal_force, friction)
             fx = self.tire.longitudinal_force(slip_ratio, normal_force, friction)
 
-            # BACKWARD MOTION PENALTY (for passive rolling backward)
-            # Note: Active backward driving is impossible (wheels clamped to >= 0)
-            # This penalty handles passive backward rolling (e.g., down a hill)
-            # Real tires moving backward have reduced lateral grip (cornering is unstable)
-            # Longitudinal grip (braking) is less affected
-            if wheel_vx < -0.5:  # Significant backward rolling velocity
-                # Reduce lateral force significantly (unstable cornering when rolling backward)
-                # Keep longitudinal force mostly intact (can still brake to stop)
-                lateral_penalty = 0.3  # 70% reduction in lateral grip
-                fy *= lateral_penalty
+
 
             forces[i] = {
                 'fx': fx,
