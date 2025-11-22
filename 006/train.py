@@ -434,6 +434,7 @@ def train(args: argparse.Namespace) -> None:
         # Calculate stats
         elapsed_time = time.time() - start_time
         avg_reward_100 = np.mean(episode_rewards[-100:]) if len(episode_rewards) >= 100 else np.mean(episode_rewards)
+        std_reward_100 = np.std(episode_rewards[-100:]) if len(episode_rewards) >= 100 else np.std(episode_rewards)
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # Get latest Q-values and log_prob from last training step
@@ -477,7 +478,7 @@ def train(args: argparse.Namespace) -> None:
         if (episode + 1) % 10 == 0:
             print(f"Episode {episode + 1}/{start_episode + args.episodes} | "
                   f"Reward: {episode_reward:7.2f} | "
-                  f"Avg(100): {avg_reward_100:7.2f} | "
+                  f"Avg(100): {avg_reward_100:7.2f} ± {std_reward_100:6.2f} | "
                   f"Actor Loss: {avg_actor_loss:7.4f} | "
                   f"Critic Loss: {avg_critic_1_loss:7.4f} | "
                   f"Alpha: {avg_alpha:.4f} | "

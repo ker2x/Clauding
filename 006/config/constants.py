@@ -17,8 +17,8 @@ ACTION_DIM = 2  # Continuous action space: [steering, gas & brake]
 # ===========================
 
 # Learning rates (conservative values for initial learning to prevent collapse. you can easily multiply it by 10)
-DEFAULT_LR_ACTOR = 1e-5
-DEFAULT_LR_CRITIC = 1e-5
+DEFAULT_LR_ACTOR = 1e-4
+DEFAULT_LR_CRITIC = 1e-4
 DEFAULT_LR_ALPHA = 1e-4
 
 # SAC parameters
@@ -28,7 +28,7 @@ DEFAULT_ALPHA = 0.2       # Initial entropy coefficient (if not auto-tuning)
 
 # Experience replay
 DEFAULT_BUFFER_SIZE = 200000
-DEFAULT_BATCH_SIZE = 512
+DEFAULT_BATCH_SIZE = 256
 DEFAULT_LEARNING_STARTS = 10000  # Steps of random exploration before learning
 
 # Training schedule
@@ -69,6 +69,7 @@ DEFAULT_MIN_EPISODE_STEPS = 200   # if episode end before this, apply penalty
 # Reward shaping
 DEFAULT_REWARD_SHAPING = True
 DEFAULT_SHORT_EPISODE_PENALTY = -250.0
+MIN_EPISODE_REWARD = -500.0  # Cap worst-case total episode reward
 
 # ===========================
 # Reward Structure Configuration
@@ -76,7 +77,7 @@ DEFAULT_SHORT_EPISODE_PENALTY = -250.0
 
 # Progress and completion rewards
 PROGRESS_REWARD_SCALE = 2000.0  # Reward scale for track progress (full lap = 2000 points)
-LAP_COMPLETION_REWARD = 1000.0   # Large reward for completing a full lap (encourages finishing)
+LAP_COMPLETION_REWARD = 500.0   # Large reward for completing a full lap (encourages finishing)
 
 # Time and behavior penalties
 # STEP_PENALTY == ONTRACK_REWARD for initial learning. then set step penalty to 0.6 or more to push the ai to drive fast
@@ -88,8 +89,8 @@ STATIONARY_SPEED_THRESHOLD = 0.5  # Speed threshold (m/s) below which car is con
 ONTRACK_REWARD = 0.5            # Positive reward per frame for staying on track
 
 # Off-track penalties
-OFFTRACK_PENALTY = 5.0          # Penalty per wheel off track per frame
-OFFTRACK_THRESHOLD = 0          # Number of wheels that can be off track before penalty applies (0 = any wheel off is penalized)
+OFFTRACK_PENALTY = 1.0          # Penalty per wheel off track per frame
+OFFTRACK_THRESHOLD = 2          # Number of wheels that can be off track before penalty applies (0 = any wheel off is penalized)
 OFFTRACK_TERMINATION_PENALTY = 100.0  # Penalty when going completely off track
 
 # Speed-based rewards

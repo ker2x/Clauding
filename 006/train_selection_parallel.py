@@ -239,8 +239,8 @@ def worker_process(
                 # This improves sample efficiency significantly
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
-                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, frame_stack=frame_stack, base_state_dim=base_state_dim)
-                result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
+                eval_mean, eval_std, _ = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, return_details=True, frame_stack=frame_stack, base_state_dim=base_state_dim)
+                result_queue.put(('EVAL_RESULT', agent_id, eval_mean, eval_std))
                 continue
             elif command == 'GET_WEIGHTS':
                 # Send current weights to coordinator
@@ -328,8 +328,8 @@ def worker_process(
                     agent.load_state_dict(new_state_dict)
                     # DO NOT clear replay buffer on selection
                 elif command == 'EVALUATE':
-                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, frame_stack=frame_stack, base_state_dim=base_state_dim)
-                    result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
+                    eval_mean, eval_std, _ = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, return_details=True, frame_stack=frame_stack, base_state_dim=base_state_dim)
+                    result_queue.put(('EVAL_RESULT', agent_id, eval_mean, eval_std))
                 elif command == 'GET_WEIGHTS':
                     state_dict = agent.get_state_dict()
                     result_queue.put(('WEIGHTS', agent_id, state_dict))
@@ -467,6 +467,7 @@ def main() -> None:
                         # Calculate reward stats
                         current_rewards = []
                         avg_rewards_10 = []
+                        std_rewards_10 = []
                         for rewards in agent_recent_rewards:
                             if len(rewards) > 0:
                                 current_rewards.append(rewards[-1])
@@ -474,10 +475,13 @@ def main() -> None:
                                 current_rewards.append(0.0)
                             if len(rewards) >= 10:
                                 avg_rewards_10.append(np.mean(rewards[-10:]))
+                                std_rewards_10.append(np.std(rewards[-10:]))
                             elif len(rewards) > 0:
                                 avg_rewards_10.append(np.mean(rewards))
+                                std_rewards_10.append(np.std(rewards))
                             else:
                                 avg_rewards_10.append(0.0)
+                                std_rewards_10.append(0.0)
 
                         best_agent = np.argmax(avg_rewards_10)
 
@@ -487,10 +491,10 @@ def main() -> None:
                         print(f"\nEpisode {min_episodes}/{args.episodes} (per agent) | Gen {generation} | Time: {hours:.2f}h")
                         print(f"  Episode range: [{min_episodes}, {max_episodes}] across {args.num_agents} agents")
                         print(f"  Agents: [{', '.join([f'{r:6.1f}' for r in current_rewards])}]")
-                        print(f"  Best: Agent {best_agent} ({avg_rewards_10[best_agent]:7.2f}) | "
+                        print(f"  Best: Agent {best_agent} ({avg_rewards_10[best_agent]:7.2f} ± {std_rewards_10[best_agent]:6.2f}) | "
                               f"Avg: {np.mean(avg_rewards_10):7.2f} | "
                               f"Range: [{min(current_rewards):.1f}, {max(current_rewards):.1f}]")
-                        print(f"  Reward avg(10): {np.mean(avg_rewards_10):7.2f}")
+                        print(f"  Reward avg(10): {np.mean(avg_rewards_10):7.2f} ± {np.std(avg_rewards_10):6.2f}")
                         print(f"  Steps: {agent_episode_steps[best_agent]:4d} | "
                               f"Total: {agent_total_steps[best_agent]:7d} | "
                               f"Buffer: {agent_buffer_sizes[best_agent]:6d}")
@@ -545,6 +549,7 @@ def main() -> None:
 
                         # Collect evaluation results with timeout
                         eval_rewards = {}
+                        eval_stds = {}
                         eval_timeout = 600.0  # 10 minutes total timeout for all evaluations
                         eval_start_time = time.time()
 
@@ -557,14 +562,16 @@ def main() -> None:
                                 for aid in range(args.num_agents):
                                     if aid not in eval_rewards:
                                         eval_rewards[aid] = float('-inf')
+                                        eval_stds[aid] = 0.0
                                 break
 
                             try:
                                 msg_type, aid, *data = result_queue.get(timeout=min(10.0, remaining_time))
                                 if msg_type == 'EVAL_RESULT':
-                                    eval_reward = data[0]
-                                    eval_rewards[aid] = eval_reward
-                                    print(f"  Agent {aid}: {eval_reward:.2f} avg reward ({len(eval_rewards)}/{args.num_agents})", flush=True)
+                                    eval_mean, eval_std = data[0], data[1]
+                                    eval_rewards[aid] = eval_mean
+                                    eval_stds[aid] = eval_std
+                                    print(f"  Agent {aid}: {eval_mean:.2f} ± {eval_std:.2f} ({len(eval_rewards)}/{args.num_agents})", flush=True)
                                 else:
                                     print(f"  Unexpected message during evaluation: {msg_type} from agent {aid}", flush=True)
                             except queue.Empty:
@@ -587,7 +594,7 @@ def main() -> None:
 
                         winner_id, winner_reward = sorted_agents[0]
 
-                        print(f"\n  🏆 WINNER: Agent {winner_id} ({winner_reward:.2f})", flush=True)
+                        print(f"\n  🏆 WINNER: Agent {winner_id} ({winner_reward:.2f} ± {eval_stds[winner_id]:.2f})", flush=True)
 
                         if elite_count > 1:
                             # Elite preservation mode

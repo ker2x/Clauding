@@ -11,3 +11,6 @@ pillow>=10.0.0            # Image operations
 # System monitoring
 psutil>=5.9.0             # CPU/memory monitoring during training
 pygame>=2.1.0             # Required for environment rendering and window management
+
+# Network analysis
+weightwatcher>=0.7.0      # Neural network health and quality analysis using RMT

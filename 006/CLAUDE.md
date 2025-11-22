@@ -270,6 +270,59 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 - Animation playback mode
 - Professional motorsport color scheme
 
+### Network Health Analysis
+```bash
+# Install weightwatcher (first time only)
+pip install weightwatcher
+
+# Analyze a trained checkpoint
+python analyze_network_health.py --checkpoint checkpoints_selection_parallel/best_model.pt
+
+# Generate detailed reports and visualizations
+python analyze_network_health.py \
+    --checkpoint checkpoints_selection_parallel/best_model.pt \
+    --output-dir health_reports/
+
+# Compare multiple checkpoints over training
+python analyze_network_health.py \
+    --checkpoint \
+        checkpoints_selection_parallel/generation_100.pt \
+        checkpoints_selection_parallel/generation_200.pt \
+        checkpoints_selection_parallel/best_model.pt
+
+# Analyze specific networks only
+python analyze_network_health.py \
+    --checkpoint checkpoints_selection_parallel/best_model.pt \
+    --networks actor critic_1
+
+# Quick test
+bash test_network_health.sh
+```
+
+**Key Metrics Explained:**
+
+- **Alpha (α)** - Power law exponent indicating generalization quality:
+  - `α < 2.0`: Undertrained or random weights
+  - `α ∈ [2.0, 4.0)`: **IDEAL** - Well-trained with good generalization
+  - `α ∈ [4.0, 6.0)`: Borderline - May be overtraining
+  - `α > 6.0`: Likely overfit - Poor generalization
+
+- **Log Spectral Norm**: Layer conditioning (lower is better)
+- **Stable Rank**: Effective dimensionality of weight matrices
+
+**Output Files (with --output-dir):**
+- `network_health_report.txt`: Detailed text report
+- `{network}_details.csv`: Per-layer metrics
+- `{network}_health_metrics.png`: Visualization plots
+
+**Use Cases:**
+- Diagnose why an agent isn't learning (α < 2.0 = undertrained)
+- Detect overtraining (α > 4.0 = overfit)
+- Compare checkpoints to find best generalization
+- Monitor network health during training
+
+**For detailed guide:** See `NETWORK_HEALTH_GUIDE.md`
+
 ## Architecture Overview
 
 ### State Representation
@@ -331,14 +384,17 @@ Note: Network input dimension adjusts automatically based on observation and fra
 ├── play_human_gui.py       # Human playable with telemetry display
 ├── test_setup.py           # Verify installation
 │
-├── analyze_telemetry.py    # Text-based telemetry analysis
-├── telemetry_viewer.py     # Interactive telemetry visualization
+├── analyze_telemetry.py         # Text-based telemetry analysis
+├── telemetry_viewer.py          # Interactive telemetry visualization
 ├── magic_formula_visualizer.py  # Tire model parameter tuning
+├── analyze_network_health.py    # Network health analysis (WeightWatcher)
+├── test_network_health.sh       # Quick test for network health tool
 │
 ├── checkpoints_selection_parallel/  # Saved models (parallel selection)
 ├── logs_selection_parallel/         # Training logs
 │
 └── [Documentation files]
+    ├── NETWORK_HEALTH_GUIDE.md  # Comprehensive guide for network analysis
 ```
 
 ## Key Hyperparameters
