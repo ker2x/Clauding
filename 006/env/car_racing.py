@@ -45,7 +45,7 @@ from config.physics_config import (
 )
 
 # Import frame buffer for frame stacking
-from frame_buffer import FrameBuffer
+from .frame_buffer import FrameBuffer
 
 # Create module-level instance of normalization, steering, and observation parameters
 _NORM_PARAMS = NormalizationParams()
