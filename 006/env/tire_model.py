@@ -17,19 +17,21 @@ import numpy.typing as npt
 
 class PacejkaTire:
     """
-    Pacejka Magic Formula tire model for slip-based force calculation.
+    Pacejka Magic Formula tire model - FULLY UNIFIED.
 
-    Uses separate coefficients for lateral (cornering) and longitudinal (traction/braking) forces.
+    Implements proper traction circle physics where the combined force
+    magnitude is limited by the tire's peak friction coefficient:
+        sqrt(Fx² + Fy²) ≤ D × Fz
 
-    Magic Formula:
+    Magic Formula (same for both lateral and longitudinal):
         F = D × sin(C × arctan(B×α - E×(B×α - arctan(B×α))))
 
     Where:
         α = slip angle (lateral) or slip ratio (longitudinal)
-        B = Stiffness factor (initial slope)
-        C = Shape factor (curve peakiness)
-        D = Peak friction multiplier
-        E = Curvature factor (falloff after peak)
+        B = Stiffness factor (UNIFIED - same for both directions)
+        C = Shape factor (UNIFIED - same for both directions)
+        D = Peak friction multiplier (UNIFIED - traction circle radius)
+        E = Curvature factor (UNIFIED - same for both directions)
 
     Default parameters calibrated for 2022 Mazda MX-5 Sport with 195/50R16 street tires.
     See ../TIRE_PARAMETERS.md for validation against real-world performance data.
@@ -37,40 +39,31 @@ class PacejkaTire:
 
     def __init__(
         self,
-        B_lat: float = 8.5,
-        C_lat: float = 1.9,
-        D_lat: float = 0.95,
-        E_lat: float = 0.97,
-        B_lon: float = 8.0,
-        C_lon: float = 1.9,
-        D_lon: float = 1.15,
-        E_lon: float = 0.97,
+        B: float = 8.5,
+        C: float = 1.9,
+        D: float = 0.95,
+        E: float = 0.97,
     ) -> None:
         """
         Args:
-            B_lat: Stiffness factor (Lateral)
-            C_lat: Shape factor (Lateral)
-            D_lat: Peak friction coefficient (Lateral)
-            E_lat: Curvature factor (Lateral)
-            B_lon: Stiffness factor (Longitudinal)
-            C_lon: Shape factor (Longitudinal)
-            D_lon: Peak friction coefficient (Longitudinal)
-            E_lon: Curvature factor (Longitudinal)
+            B: Stiffness factor (unified for lateral and longitudinal)
+            C: Shape factor (unified for lateral and longitudinal)
+            D: Peak friction coefficient (unified - traction circle radius)
+            E: Curvature factor (unified for lateral and longitudinal)
         """
-        self.B_lat = B_lat
-        self.C_lat = C_lat
-        self.D_lat = D_lat
-        self.E_lat = E_lat
-        self.B_lon = B_lon
-        self.C_lon = C_lon
-        self.D_lon = D_lon
-        self.E_lon = E_lon
+        self.B = B
+        self.C = C
+        self.D = D
+        self.E = E
 
     def lateral_force(
         self, slip_angle: float, normal_force: float, max_friction: float = 1.0
     ) -> float:
         """
         Calculate lateral (cornering) force using Pacejka formula.
+
+        NOTE: This returns the unconstrained lateral force. Use combined_forces()
+        to get traction-circle-constrained forces.
 
         Args:
             slip_angle: Angle between wheel direction and velocity direction (rad)
@@ -79,7 +72,7 @@ class PacejkaTire:
             max_friction: Surface friction coefficient (default: 1.0 for asphalt)
 
         Returns:
-            Lateral force (N)
+            Lateral force (N) - unconstrained by traction circle
         """
         # The slip angle is the difference between the direction a wheel is pointing
         # and the direction it's actually traveling.
@@ -89,22 +82,12 @@ class PacejkaTire:
         # wheel is also rolling backward, which is handled by the longitudinal force model.
         sa = min(np.pi / 2, max(-np.pi / 2, slip_angle))
 
-        # Use LATERAL coefficients
-        arg = self.B_lat * sa   # B_lat is stiffness factor (Lateral)
+        # Use UNIFIED coefficients (same as longitudinal)
+        arg = self.B * sa
 
-        # Pacejka Magic Formula for lateral force:
-        # F is the lateral force
-        # sa is the slip angle (the input variable)
-        # D_lat is the peak friction coefficient (Lateral)
-        #   This is self.D_lat * normal_force * max_friction.
-        #   It scales the maximum possible force (the peak of the sine wave).
-        # C_lat is the shape factor (Lateral)
-        #   This is np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))
-        # E_lat is the curvature factor (Lateral)
-        #   This is self.E_lat * (arg - np.arctan(arg)).
-        #   It controls the curvature of the force curve near its peak.
-        F = (self.D_lat * normal_force * max_friction *
-             np.sin(self.C_lat * np.arctan(arg - self.E_lat * (arg - np.arctan(arg)))))
+        # Pacejka Magic Formula for lateral force
+        F = (self.D * normal_force * max_friction *
+             np.sin(self.C * np.arctan(arg - self.E * (arg - np.arctan(arg)))))
         return F
 
     def longitudinal_force(
@@ -112,6 +95,9 @@ class PacejkaTire:
     ) -> float:
         """
         Calculate longitudinal (traction) force using Pacejka formula.
+
+        NOTE: This returns the unconstrained longitudinal force. Use combined_forces()
+        to get traction-circle-constrained forces.
 
         Args:
             slip_ratio: Difference between wheel speed and ground speed
@@ -123,15 +109,58 @@ class PacejkaTire:
             max_friction: Surface friction coefficient (default: 1.0 for asphalt)
 
         Returns:
-            Longitudinal force (N)
+            Longitudinal force (N) - unconstrained by traction circle
         """
         sr = min(1.0, max(-1.0, slip_ratio))
 
-        # Use LONGITUDINAL coefficients
-        # This is the same as the LATERAL force formula but uses slip_ratio
-        # instead of slip_angle
-        arg = self.B_lon * sr
-        F = (self.D_lon * normal_force * max_friction *
-             np.sin(self.C_lon * np.arctan(arg - self.E_lon * (arg - np.arctan(arg)))))
+        # Use UNIFIED coefficients (same as lateral)
+        arg = self.B * sr
+        F = (self.D * normal_force * max_friction *
+             np.sin(self.C * np.arctan(arg - self.E * (arg - np.arctan(arg)))))
 
         return F
+
+    def combined_forces(
+        self,
+        slip_angle: float,
+        slip_ratio: float,
+        normal_force: float,
+        max_friction: float = 1.0,
+    ) -> tuple[float, float]:
+        """
+        Calculate combined tire forces with traction circle constraint.
+
+        This is the proper way to get realistic tire forces that respect
+        the physical limitation: sqrt(Fx² + Fy²) ≤ D × Fz × μ
+
+        Args:
+            slip_angle: Lateral slip angle (rad)
+            slip_ratio: Longitudinal slip ratio
+            normal_force: Vertical load on tire (N)
+            max_friction: Surface friction coefficient (default: 1.0)
+
+        Returns:
+            Tuple of (fx, fy) - longitudinal and lateral forces (N)
+        """
+        # Calculate unconstrained forces
+        fy_unconstrained = self.lateral_force(slip_angle, normal_force, max_friction)
+        fx_unconstrained = self.longitudinal_force(slip_ratio, normal_force, max_friction)
+
+        # Calculate combined force magnitude
+        f_combined = np.sqrt(fx_unconstrained**2 + fy_unconstrained**2)
+
+        # Maximum available grip (traction circle radius)
+        f_max = self.D * normal_force * max_friction
+
+        # Apply traction circle constraint
+        if f_combined > f_max and f_combined > 1e-6:
+            # Scale both forces proportionally to fit within circle
+            scale = f_max / f_combined
+            fx = fx_unconstrained * scale
+            fy = fy_unconstrained * scale
+        else:
+            # Forces are within limit, use unconstrained values
+            fx = fx_unconstrained
+            fy = fy_unconstrained
+
+        return fx, fy

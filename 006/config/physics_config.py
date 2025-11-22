@@ -45,18 +45,18 @@ class TireParams:
 @dataclass
 class PacejkaParams:
     """
-    Pacejka Magic Formula tire model parameters.
+    Pacejka Magic Formula tire model parameters - FULLY UNIFIED.
 
     Calibrated for MX-5 Sport with street tires (195/50R16).
 
     Expected Performance:
-    - Lateral grip: 0.95g cornering (matches real MX-5 skidpad)
-    - Braking: 1.15g max deceleration (60-0 mph in 115 ft)
-    - Acceleration: 0.57g on rear wheels (RWD)
+    - Unified traction circle: 0.95g max grip (lateral, longitudinal, or combined)
+    - Same tire coefficients for all directions (realistic physics)
+    - Differences only in slip inputs (angle vs ratio)
 
     Magic Formula: F = D × sin(C × arctan(B×α - E×(B×α - arctan(B×α))))
 
-    Parameters:
+    UNIFIED Parameters (same for lateral AND longitudinal):
     - B: Stiffness factor (initial slope of force curve)
       Higher B = more force across entire slip range
       Typical range: 8-15 for street tires
@@ -65,10 +65,10 @@ class PacejkaParams:
       Standard value for passenger car tires
       Typical range: 1.3-2.5
 
-    - D: Peak friction multiplier
+    - D: Peak friction multiplier (traction circle radius)
       Combined with normal force to determine max grip
-      D=1.0 means peak friction = surface friction
-      D>1.0 means tire can exceed surface friction at optimal slip
+      D=0.95 means peak friction = 0.95g (realistic street tire)
+      Traction circle constraint ensures Fx² + Fy² ≤ (D × Fz)²
 
     - E: Curvature factor (shape near/after peak)
       Controls how sharply grip falls off past optimal slip
@@ -78,17 +78,11 @@ class PacejkaParams:
     - Lateral: Peak at ~8-10° slip angle (street tire typical)
     - Longitudinal: Peak at ~12-15% slip ratio (street tire typical)
     """
-    # Lateral (cornering) parameters
-    B_LAT: float = 8.5   # Softer for street tires
-    C_LAT: float = 1.9   # Standard shape
-    D_LAT: float = 0.95  # Realistic for street tires (~0.95g lateral)
-    E_LAT: float = 0.97  # Gradual falloff
-
-    # Longitudinal (accel/brake) parameters
-    B_LON: float = 12.0  # Increased for better low-speed grip
-    C_LON: float = 1.9   # Standard shape
-    D_LON: float = 1.35  # Increased for better traction (~1.35g braking)
-    E_LON: float = 0.97  # Gradual falloff
+    # FULLY UNIFIED tire model parameters
+    B: float = 8.5   # Stiffness factor (same for lat/lon)
+    C: float = 1.9   # Shape factor (same for lat/lon)
+    D: float = 0.95  # Peak friction (traction circle radius)
+    E: float = 0.97  # Curvature factor (same for lat/lon)
 
 
 @dataclass
@@ -147,7 +141,7 @@ class SteeringParams:
     Steering system parameters.
     """
     MAX_STEER_ANGLE: float = 0.4  # Max steering angle (rad) (~23 degrees)
-    STEER_RATE: float = 3.0  # Steering response rate (rad/s)
+    STEER_RATE: float = 1.5  # Steering response rate (rad/s) - more realistic
 
 
 @dataclass
@@ -187,6 +181,39 @@ class NormalizationParams:
 
 
 @dataclass
+class ObservationParams:
+    """
+    Observation space configuration for vector state representation.
+
+    These parameters control what information is included in the state observation
+    and how waypoint lookahead is structured.
+
+    Waypoint Configuration:
+    - NUM_LOOKAHEAD: Number of waypoints to include in observation
+    - WAYPOINT_STRIDE: Skip factor between waypoints (1=consecutive, 2=every other, 3=every 3rd, etc.)
+
+    Examples:
+    - NUM_LOOKAHEAD=20, STRIDE=1: 20 consecutive waypoints (70m @ 3.5m spacing) - DEFAULT
+    - NUM_LOOKAHEAD=20, STRIDE=2: Every 2nd waypoint (140m @ 7m spacing) - 2× horizon
+    - NUM_LOOKAHEAD=20, STRIDE=3: Every 3rd waypoint (210m @ 10.5m spacing) - 3× horizon
+    - NUM_LOOKAHEAD=10, STRIDE=2: 10 waypoints at 7m spacing (70m horizon, 20D observation)
+
+    Frame Stacking:
+    - FRAME_STACK: Number of consecutive frames to stack (1=no stacking, 2+=stacking enabled)
+    - When FRAME_STACK > 1, observations from multiple timesteps are concatenated
+    - Provides temporal information (derivatives via finite differences)
+    - Example: FRAME_STACK=4 gives access to velocity, acceleration, jerk through differences
+
+    Note: Changing these values changes the observation space dimension and requires retraining.
+    Base dimension = 33 + (NUM_LOOKAHEAD × 2) where 33 = car state + track + speed + accel + slip + forces + steering
+    Final dimension = (33 + NUM_LOOKAHEAD × 2) × FRAME_STACK
+    """
+    NUM_LOOKAHEAD: int = 10  # Number of waypoints to include in observation
+    WAYPOINT_STRIDE: int = 2  # Spacing between waypoints (1=consecutive, 2=every other, etc.)
+    FRAME_STACK: int = 3  # Number of frames to stack (1=no stacking, 2+=enabled)
+
+
+@dataclass
 class PhysicsConfig:
     """
     Complete physics configuration combining all parameter groups.
@@ -196,6 +223,7 @@ class PhysicsConfig:
         print(config.vehicle.MASS)  # 1062.0
         print(config.pacejka.D_LAT)  # 0.95
         print(config.normalization.MAX_VELOCITY)  # 30.0
+        print(config.observation.WAYPOINT_STRIDE)  # 1
     """
     vehicle: VehicleParams = field(default_factory=VehicleParams)
     tire: TireParams = field(default_factory=TireParams)
@@ -205,3 +233,32 @@ class PhysicsConfig:
     steering: SteeringParams = field(default_factory=SteeringParams)
     friction: FrictionParams = field(default_factory=FrictionParams)
     normalization: NormalizationParams = field(default_factory=NormalizationParams)
+    observation: ObservationParams = field(default_factory=ObservationParams)
+
+
+def get_base_observation_dim(num_lookahead: int) -> int:
+    """
+    Calculate base (single-frame) observation dimension.
+
+    Args:
+        num_lookahead: Number of lookahead waypoints
+
+    Returns:
+        Single-frame observation dimension
+    """
+    return 33 + (num_lookahead * 2)
+
+
+def get_stacked_observation_dim(num_lookahead: int, frame_stack: int) -> int:
+    """
+    Calculate stacked observation dimension with frame stacking.
+
+    Args:
+        num_lookahead: Number of lookahead waypoints
+        frame_stack: Number of frames to stack
+
+    Returns:
+        Stacked observation dimension (base_dim * frame_stack)
+    """
+    base_dim = get_base_observation_dim(num_lookahead)
+    return base_dim * frame_stack

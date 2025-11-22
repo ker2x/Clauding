@@ -9,7 +9,7 @@ The environment provides a realistic car racing simulation with:
 - **Pacejka Magic Formula Tires**: Industry-standard tire model
 - **Realistic Load Transfer**: Physics-based weight distribution during cornering/braking
 - **Configurable Suspension**: Independent per-wheel spring-damper system
-- **Vector State Space**: Rich 71D observation vector with track geometry and vehicle telemetry
+- **Vector State Space**: Rich observation vector (default 73D, configurable) with track geometry and vehicle telemetry
 
 ## Architecture
 
@@ -216,9 +216,16 @@ action_space = Box([-1, -1], [+1, +1])  # [steering, acceleration]
 action_space = Discrete(5)  # [nothing, right, left, gas, brake]
 ```
 
-**Observation Space** (car_racing.py:493-502):
+**Observation Space** (car_racing.py:1402-1425):
 
-**Vector Mode (71D)** - RECOMMENDED for training:
+**Vector Mode** - RECOMMENDED for training:
+
+**Dimension**: `33 + (NUM_LOOKAHEAD × 2)` (default: 73D with NUM_LOOKAHEAD=20)
+
+Configurable via `config/physics_config.py:ObservationParams`:
+- `NUM_LOOKAHEAD`: Number of waypoints (default: 20)
+- `WAYPOINT_STRIDE`: Spacing between waypoints (default: 1 = consecutive)
+
 ```python
 state = [
     # Car state (11D)
@@ -235,15 +242,28 @@ state = [
     track_curvature,               # Turn sharpness
     segment_start, segment_end,    # Segment bounds
 
-    # Lookahead waypoints (40D = 20 waypoints × 2 coords)
+    # Lookahead waypoints (NUM_LOOKAHEAD × 2, default: 40D with NUM_LOOKAHEAD=20)
     *waypoints_in_car_frame,       # Future path (x, y) in car coordinates
+
+    # Speed (1D)
+    speed_magnitude,               # |velocity|
+
+    # Accelerations (2D)
+    ax_body,                       # Longitudinal acceleration (body frame)
+    ay_body,                       # Lateral acceleration (body frame)
+
+    # Slip angles (4D)
+    *slip_angles,                  # Tire slip angles [FL, FR, RL, RR]
+
+    # Slip ratios (4D)
+    *slip_ratios,                  # Tire slip ratios [FL, FR, RL, RR]
 
     # Vertical forces (4D)
     *normal_forces,                # Tire loads [FL, FR, RL, RR]
 
-    # Additional features (11D)
-    *opponent_info,                # Nearest opponent data
-    ...
+    # Steering state (2D)
+    steering_angle,                # Current steering angle
+    steering_rate,                 # Steering rate/velocity
 ]
 ```
 
@@ -430,7 +450,8 @@ env = CarRacing(suspension_config=config)
 env = CarRacing(num_cars=2, state_mode="vector")
 
 obs, info = env.reset()
-# obs shape: (2, 71) - stacked observations for both cars
+# obs shape: (2, obs_dim) - stacked observations for both cars
+# obs_dim = 33 + (NUM_LOOKAHEAD × 2), default: 73D
 ```
 
 ### Direct Car Control
@@ -484,9 +505,9 @@ for i in range(4):  # FL, FR, RL, RR
 
 **Vector State Space**:
 - **Speed**: Highly efficient (~2ms per step)
-- **Training**: Rich 71D state representation
+- **Training**: Rich state representation (default 73D, configurable via NUM_LOOKAHEAD parameter)
 - **Rendering**: Optional (only for visualization)
-- **Information**: Full track geometry, vehicle telemetry, and lookahead
+- **Information**: Full track geometry, vehicle telemetry, and configurable lookahead horizon
 
 ### Computational Complexity
 
@@ -550,6 +571,8 @@ python analyze_telemetry.py telemetry_20250113_123456.csv
 
 ## Version History
 
+- **2025-01-21**: Updated documentation to reflect 73D observation space and configurable waypoint parameters
+- **2025-01-20**: Added steering state to observation (71D → 73D), configurable waypoint parameters
 - **2025-01-13**: Simplified to rigid-body load transfer model
 - **2025-01-12**: Added suspension system with physical spring-dampers
 - **2025-01-08**: Updated Pacejka parameters to match real MX-5
@@ -557,6 +580,7 @@ python analyze_telemetry.py telemetry_20250113_123456.csv
 
 ---
 
-**Last Updated**: 2025-01-15
+**Last Updated**: 2025-01-21
 **Environment Version**: CarRacing-v3 (Custom Physics)
 **Vehicle Model**: 2022 Mazda MX-5 Sport (ND)
+**Observation Space**: 33 + (NUM_LOOKAHEAD × 2), default 73D

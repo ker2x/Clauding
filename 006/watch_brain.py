@@ -29,13 +29,15 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from preprocessing import make_carracing_env
 from sac import SACAgent
 from utils.display import format_action, get_car_speed
+from frame_buffer import FrameBuffer
+from config.physics_config import ObservationParams, get_base_observation_dim
 
 # Use non-interactive backend
 matplotlib.use('Agg')
 
 
 class BrainVisualizer:
-    def __init__(self, resolution: int = 20):
+    def __init__(self, resolution: int = 16):
         """
         Initialize the brain visualizer.
 
@@ -132,20 +134,50 @@ class BrainVisualizer:
         
         # 2. Q-Value Heatmap
         q_grid = self.compute_q_values(agent, state)
-        
-        # Plot heatmap
+
+        # Use percentile-based clipping for better contrast
+        # This removes extreme outliers and focuses on the "interesting" range
+        q_min = np.percentile(q_grid, 5)
+        q_max = np.percentile(q_grid, 95)
+
+        # Use a diverging colormap centered at median for better visual contrast
+        q_median = np.median(q_grid)
+
+        # Symmetric range around median for diverging colormap
+        q_range = max(abs(q_max - q_median), abs(q_median - q_min))
+        vmin = q_median - q_range
+        vmax = q_median + q_range
+
+        # Plot heatmap with enhanced contrast
         im = ax_q.imshow(
-            q_grid, 
-            extent=[-1, 1, -1, 1], 
-            origin='lower', 
-            cmap='viridis', 
-            aspect='auto'
+            q_grid,
+            extent=[-1, 1, -1, 1],
+            origin='lower',
+            cmap='RdYlGn',  # Red (bad) -> Yellow (neutral) -> Green (good)
+            aspect='auto',
+            vmin=vmin,
+            vmax=vmax
         )
-        plt.colorbar(im, ax=ax_q, label='Q-Value')
+        cbar = plt.colorbar(im, ax=ax_q, label='Q-Value')
+
+        # Add statistics text
+        max_q = np.max(q_grid)
+        min_q = np.min(q_grid)
+        stats_text = f'Range: [{min_q:.1f}, {max_q:.1f}]\nMedian: {q_median:.1f}'
+        ax_q.text(0.02, 0.98, stats_text, transform=ax_q.transAxes,
+                 fontsize=8, verticalalignment='top', color='white',
+                 bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
         
+        # Mark best Q-value action
+        best_idx = np.argmax(q_grid)
+        best_steer = self.steer_grid.ravel()[best_idx]
+        best_accel = self.accel_grid.ravel()[best_idx]
+        ax_q.plot(best_steer, best_accel, 'g^', markersize=12, markeredgecolor='white',
+                 markeredgewidth=2, label='Best Q-Value')
+
         # Mark current action
         ax_q.plot(action[0], action[1], 'ro', markersize=10, markeredgecolor='white', label='Current Action')
-        
+
         # Mark policy mean (what the agent "wants" to do deterministically)
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(agent.device)
@@ -154,11 +186,11 @@ class BrainVisualizer:
             # Apply tanh to mean because the actor outputs are pre-tanh in some implementations,
             # but looking at actor.py:
             # mean = self.mean(x) -> Linear layer
-            # The actor outputs mean and log_std. 
+            # The actor outputs mean and log_std.
             # In select_action, it does: action = torch.tanh(mean) if evaluate=True.
             # So the raw mean is NOT bounded. We must apply tanh.
             mean_action = np.tanh(mean_np)
-            
+
         ax_q.plot(mean_action[0], mean_action[1], 'c*', markersize=12, markeredgecolor='white', label='Policy Mean')
         
         ax_q.set_title("Q-Value Landscape", fontsize=12, fontweight='bold')
@@ -238,18 +270,76 @@ def main():
     # Load checkpoint
     print(f"Loading checkpoint: {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
-    
+
     # Setup Agent
-    # Assuming vector mode based on previous context
-    state_dim = 71  # Standard for this codebase's vector mode
-    action_dim = 2
-    
+    # Read state_dim from checkpoint to ensure compatibility
+    # (observation space is configurable via config/physics_config.py)
+    state_dim = checkpoint.get('state_dim', 73)  # Default to 73 if not found (legacy checkpoints)
+    action_dim = checkpoint.get('action_dim', 2)
+
+    print(f"Creating agent with state_dim={state_dim}, action_dim={action_dim}")
     agent = SACAgent(state_dim=state_dim, action_dim=action_dim)
     agent.load(args.checkpoint)
     print("Agent loaded.")
-    
+
     # Setup Environment
-    env = make_carracing_env(render_mode='rgb_array')
+    # Import training constants for consistency
+    from config.constants import (
+        DEFAULT_TERMINATE_STATIONARY,
+        DEFAULT_STATIONARY_PATIENCE,
+        DEFAULT_REWARD_SHAPING,
+        DEFAULT_MIN_EPISODE_STEPS,
+        DEFAULT_SHORT_EPISODE_PENALTY,
+        DEFAULT_MAX_EPISODE_STEPS,
+    )
+
+    env = make_carracing_env(
+        render_mode='rgb_array',
+        terminate_stationary=DEFAULT_TERMINATE_STATIONARY,
+        stationary_patience=DEFAULT_STATIONARY_PATIENCE,
+        reward_shaping=DEFAULT_REWARD_SHAPING,
+        min_episode_steps=DEFAULT_MIN_EPISODE_STEPS,
+        short_episode_penalty=DEFAULT_SHORT_EPISODE_PENALTY,
+        max_episode_steps=DEFAULT_MAX_EPISODE_STEPS,
+    )
+
+    # Detect frame stacking from checkpoint dimension
+    obs_params = ObservationParams()
+    base_state_dim = get_base_observation_dim(obs_params.NUM_LOOKAHEAD)
+    env_state_dim = env.observation_space.shape[0]
+
+    # Check if checkpoint uses frame stacking
+    if state_dim > base_state_dim and state_dim % base_state_dim == 0:
+        frame_stack = state_dim // base_state_dim
+        print(f"✓ Detected frame stacking: {frame_stack} frames ({base_state_dim} × {frame_stack} = {state_dim}D)")
+    else:
+        frame_stack = 1
+        print(f"✓ No frame stacking (single frame: {state_dim}D)")
+
+    # Verify base dimensions match
+    if env_state_dim != base_state_dim:
+        print(f"\n{'='*60}")
+        print(f"⚠️  WARNING: Base Dimension Mismatch!")
+        print(f"{'='*60}")
+        print(f"Checkpoint base dimension: {base_state_dim}D")
+        print(f"Current environment: {env_state_dim}D")
+        print(f"\nCurrent config (config/physics_config.py):")
+        print(f"  NUM_LOOKAHEAD = {obs_params.NUM_LOOKAHEAD}")
+        print(f"  WAYPOINT_STRIDE = {obs_params.WAYPOINT_STRIDE}")
+        print(f"\nTo use this checkpoint, adjust config to match:")
+        print(f"Common configurations:")
+        print(f"  - 73D: NUM_LOOKAHEAD=20, WAYPOINT_STRIDE=1")
+        print(f"  - 53D: NUM_LOOKAHEAD=10, WAYPOINT_STRIDE=2")
+        print(f"  - 63D: NUM_LOOKAHEAD=15, WAYPOINT_STRIDE=2")
+        print(f"{'='*60}")
+        env.close()
+        raise RuntimeError(f"Cannot use checkpoint with base {base_state_dim}D and environment {env_state_dim}D")
+
+    # Create frame buffer if frame stacking is used
+    frame_buffer = None
+    if frame_stack > 1:
+        frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
+        print(f"✓ Frame buffer created (stack depth: {frame_stack})")
     
     # Visualizer
     visualizer = BrainVisualizer(resolution=args.resolution)
@@ -266,27 +356,42 @@ def main():
     try:
         for episode in range(args.episodes):
             state, _ = env.reset()
+
+            # Initialize frame buffer for this episode
+            if frame_buffer is not None:
+                frame_buffer.reset(state)
+
             done = False
             total_reward = 0
             step = 0
-            
+
             print(f"Episode {episode+1} started...")
-            
+
             while not done:
                 start_time = time.time()
-                
+
+                # Get observation for agent (stacked if frame stacking enabled)
+                if frame_buffer is not None:
+                    obs = frame_buffer.get()
+                else:
+                    obs = state
+
                 # Select action
-                action = agent.select_action(state, evaluate=True)
-                
+                action = agent.select_action(obs, evaluate=True)
+
                 # Step
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
                 total_reward += reward
                 step += 1
-                
-                # Render
+
+                # Update frame buffer
+                if frame_buffer is not None:
+                    frame_buffer.append(next_state)
+
+                # Render (visualize with current single-frame state for interpretability)
                 game_frame = env.render()
-                brain_view = visualizer.render(agent, state, action, game_frame)
+                brain_view = visualizer.render(agent, obs, action, game_frame)
                 
                 # Initialize video writer if needed
                 if args.save_video and video_writer is None:

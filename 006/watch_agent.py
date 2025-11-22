@@ -5,7 +5,7 @@ This script loads a trained agent from a checkpoint and visualizes its performan
 Uses OpenCV for rendering (more reliable than pygame on macOS).
 
 For vector mode agents, this displays a custom visualization showing:
-- Top-down view of the 20 track waypoints the model sees (car-relative coordinates)
+- Top-down view of the track waypoints the model sees (car-relative coordinates)
 - Car state (position, velocity, wheel contacts, etc.)
 - Track information (curvature, distance to center, etc.)
 - Tire dynamics (slip angles and slip ratios for each wheel)
@@ -56,6 +56,11 @@ import gymnasium as gym
 from preprocessing import make_carracing_env
 from sac import SACAgent
 from utils.display import format_action, get_car_speed
+from config.physics_config import ObservationParams, get_base_observation_dim
+from frame_buffer import FrameBuffer
+
+# Load observation configuration
+_OBS_PARAMS = ObservationParams()
 
 
 def select_action_with_temperature(
@@ -143,19 +148,21 @@ def visualize_vector_state(
     speed_kmh: float = 0.0
 ) -> npt.NDArray[np.uint8]:
     """
-    Visualize the 71D vector state to show what the model sees.
+    Visualize the vector state to show what the model sees.
 
-    Vector state structure (71D):
+    Vector state structure (default 73D, configurable via config/physics_config.py):
     - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
     - Track segment info (5): dist_to_center, angle_diff, curvature, dist_along, seg_len
-    - Waypoints (40): 20 waypoints × (x, y) in car-relative coordinates
+    - Waypoints (NUM_LOOKAHEAD × 2): waypoints in car-relative coordinates
     - Speed (1): magnitude of velocity
     - Accelerations (2): longitudinal, lateral
     - Slip angles (4): for each wheel [FL, FR, RL, RR]
     - Slip ratios (4): for each wheel [FL, FR, RL, RR]
 
+    Dimension: 33 + (NUM_LOOKAHEAD × 2)
+
     Args:
-        state_vector: 71D numpy array
+        state_vector: Vector state numpy array (dimension based on config)
         episode: Episode number
         step: Step number
         reward: Current reward
@@ -183,9 +190,14 @@ def visualize_vector_state(
     dist_along = state_vector[14]
     seg_len = state_vector[15]
 
-    # Extract waypoints (20 waypoints × 2 coordinates = 40 values)
-    waypoints_flat = state_vector[16:56]
-    waypoints_raw = waypoints_flat.reshape(20, 2)
+    # Extract waypoints dynamically based on configuration
+    # NUM_LOOKAHEAD waypoints × 2 coordinates
+    num_waypoints = _OBS_PARAMS.NUM_LOOKAHEAD
+    waypoint_start_idx = 16
+    waypoint_end_idx = waypoint_start_idx + (num_waypoints * 2)
+
+    waypoints_flat = state_vector[waypoint_start_idx:waypoint_end_idx]
+    waypoints_raw = waypoints_flat.reshape(num_waypoints, 2)
 
     # Transform waypoints for correct visualization orientation
     # Environment stores as (longitudinal, lateral) in car frame where:
@@ -197,12 +209,14 @@ def visualize_vector_state(
     # So: plot_x = -rel_y (negate to flip left/right), plot_y = rel_x
     waypoints = np.column_stack([-waypoints_raw[:, 1], waypoints_raw[:, 0]])
 
-    speed = state_vector[56]
-    ax = state_vector[57]
-    ay = state_vector[58]
+    # Calculate dynamic indices for remaining components
+    speed_idx = waypoint_end_idx
+    speed = state_vector[speed_idx]
+    ax = state_vector[speed_idx + 1]
+    ay = state_vector[speed_idx + 2]
 
-    slip_angles = state_vector[59:63]
-    slip_ratios = state_vector[63:67]
+    slip_angles = state_vector[speed_idx + 3:speed_idx + 7]
+    slip_ratios = state_vector[speed_idx + 7:speed_idx + 11]
 
     # Create figure with subplots
     fig = plt.figure(figsize=(14, 8))
@@ -441,11 +455,25 @@ def watch_agent(args: argparse.Namespace) -> None:
         raise ValueError(f"Only vector mode is supported in 006/, got '{state_mode}'")
 
     # Use rendering for visualization
+    # Import training constants for consistency
+    from config.constants import (
+        DEFAULT_TERMINATE_STATIONARY,
+        DEFAULT_STATIONARY_PATIENCE,
+        DEFAULT_REWARD_SHAPING,
+        DEFAULT_MIN_EPISODE_STEPS,
+        DEFAULT_SHORT_EPISODE_PENALTY,
+        DEFAULT_MAX_EPISODE_STEPS,
+    )
+
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
-        terminate_stationary=True,
-        stationary_patience=100,
-        render_mode=render_mode
+        terminate_stationary=DEFAULT_TERMINATE_STATIONARY,
+        stationary_patience=DEFAULT_STATIONARY_PATIENCE,
+        render_mode=render_mode,
+        reward_shaping=DEFAULT_REWARD_SHAPING,
+        min_episode_steps=DEFAULT_MIN_EPISODE_STEPS,
+        short_episode_penalty=DEFAULT_SHORT_EPISODE_PENALTY,
+        max_episode_steps=DEFAULT_MAX_EPISODE_STEPS,
     )
 
     action_dim = env.action_space.shape[0]
@@ -469,10 +497,53 @@ def watch_agent(args: argparse.Namespace) -> None:
     print("=" * 60)
 
     # Create agent with same state mode as training
-    # Extract state_dim from state_shape (for vector mode: (71,) -> 71)
-    state_dim = state_shape[0] if len(state_shape) == 1 else state_shape
+    # Extract env state_dim from state_shape (for vector mode: (53,) -> 53)
+    env_state_dim = state_shape[0] if len(state_shape) == 1 else state_shape
+
+    # Check if checkpoint uses frame stacking
+    checkpoint_temp = torch.load(args.checkpoint, map_location='cpu')
+    checkpoint_state_dim = checkpoint_temp.get('state_dim', None)
+
+    # Calculate base state dimension
+    base_state_dim = get_base_observation_dim(_OBS_PARAMS.NUM_LOOKAHEAD)
+
+    # Detect frame stacking
+    if checkpoint_state_dim and checkpoint_state_dim > base_state_dim and checkpoint_state_dim % base_state_dim == 0:
+        frame_stack = checkpoint_state_dim // base_state_dim
+        print(f"✓ Detected frame stacking: {frame_stack} frames ({base_state_dim} × {frame_stack} = {checkpoint_state_dim}D)")
+    else:
+        frame_stack = 1
+        if checkpoint_state_dim:
+            print(f"✓ No frame stacking (single frame: {checkpoint_state_dim}D)")
+
+    # Verify base dimensions match
+    if env_state_dim != base_state_dim:
+        print(f"\n{'='*60}")
+        print(f"⚠️  WARNING: Base Dimension Mismatch!")
+        print(f"{'='*60}")
+        if checkpoint_state_dim:
+            print(f"Checkpoint base dimension: {base_state_dim}D (total: {checkpoint_state_dim}D)")
+        print(f"Current environment: {env_state_dim}D")
+        print(f"\nCurrent config (config/physics_config.py):")
+        print(f"  NUM_LOOKAHEAD = {_OBS_PARAMS.NUM_LOOKAHEAD}")
+        print(f"  WAYPOINT_STRIDE = {_OBS_PARAMS.WAYPOINT_STRIDE}")
+        print(f"\nCommon configurations:")
+        print(f"  - 73D: NUM_LOOKAHEAD=20, WAYPOINT_STRIDE=1")
+        print(f"  - 53D: NUM_LOOKAHEAD=10, WAYPOINT_STRIDE=2")
+        print(f"  - 63D: NUM_LOOKAHEAD=15, WAYPOINT_STRIDE=2")
+        print(f"{'='*60}")
+        raise RuntimeError(f"Cannot load checkpoint with base {base_state_dim}D using environment {env_state_dim}D")
+
+    # Create frame buffer if needed
+    frame_buffer = None
+    if frame_stack > 1:
+        frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
+        print(f"✓ Frame buffer created (stack depth: {frame_stack})")
+
+    del checkpoint_temp  # Free memory
+
     agent = SACAgent(
-        state_dim=state_dim,
+        state_dim=checkpoint_state_dim if checkpoint_state_dim else env_state_dim,
         action_dim=action_dim
     )
     agent.load(args.checkpoint)
@@ -510,6 +581,11 @@ def watch_agent(args: argparse.Namespace) -> None:
     try:
         for episode in range(args.episodes):
             state, _ = env.reset()
+
+            # Initialize frame buffer for this episode
+            if frame_buffer is not None:
+                frame_buffer.reset(state)
+
             total_reward = 0
             step = 0
             done = False
@@ -522,9 +598,15 @@ def watch_agent(args: argparse.Namespace) -> None:
             while not done:
                 frame_start = time.time()
 
+                # Get observation for agent (stacked if frame stacking enabled)
+                if frame_buffer is not None:
+                    obs = frame_buffer.get()
+                else:
+                    obs = state
+
                 # Select action (with optional stochastic sampling and temperature)
                 action = select_action_with_temperature(
-                    agent, state,
+                    agent, obs,
                     temperature=args.temperature,
                     stochastic=args.stochastic
                 )
@@ -532,6 +614,10 @@ def watch_agent(args: argparse.Namespace) -> None:
                 # Take step
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
+
+                # Update frame buffer
+                if frame_buffer is not None:
+                    frame_buffer.append(next_state)
 
                 total_reward += reward
                 step += 1

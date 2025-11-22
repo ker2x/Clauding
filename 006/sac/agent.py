@@ -61,7 +61,7 @@ class SACAgent:
     ) -> None:
         """
         Args:
-            state_dim: Dimension of state vector (71 for current version)
+            state_dim: Dimension of state vector (73 for current version)
             action_dim: Dimension of action space
             lr_actor: Learning rate for actor
             lr_critic: Learning rate for critics

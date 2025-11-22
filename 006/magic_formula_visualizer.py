@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import sys
 from typing import Any
+from config.physics_config import PhysicsConfig
 
 
 class MagicFormulaVisualizer:
@@ -43,64 +44,47 @@ class MagicFormulaVisualizer:
         self.screen: Any = pygame.display.set_mode((self.panel_width + self.graph_width, self.height))
         pygame.display.set_caption("Magic Formula Visualizer")
 
-        # Default Pacejka parameters
+        # Load default Pacejka parameters from physics config
+        config = PhysicsConfig()
+
+        # Default Pacejka parameters (loaded from env/config)
+        # FULLY UNIFIED - same parameters for lateral AND longitudinal
         self.params: dict[str, float] = {
-            'B_lat': 10.0,
-            'C_lat': 1.9,
-            'D_lat': 1.1,
-            'E_lat': 0.95,
-            'B_lon': 9.0,
-            'C_lon': 1.9,
-            'D_lon': 1.4,
-            'E_lon': 0.95,
+            'B': config.pacejka.B,  # Stiffness (unified)
+            'C': config.pacejka.C,  # Shape (unified)
+            'D': config.pacejka.D,  # Peak friction (unified)
+            'E': config.pacejka.E,  # Curvature (unified)
         }
+
+        # Store defaults for reset functionality
+        self.default_params = self.params.copy()
 
         # Parameter ranges
         self.param_ranges: dict[str, tuple[float, float]] = {
-            'B_lat': (3.0, 25.0),
-            'C_lat': (1.0, 3.0),
-            'D_lat': (0.5, 2.0),
-            'E_lat': (0.3, 2.0),
-            'B_lon': (3.0, 25.0),
-            'C_lon': (1.0, 3.0),
-            'D_lon': (0.5, 2.0),
-            'E_lon': (0.3, 2.0),
+            'B': (3.0, 25.0),
+            'C': (1.0, 3.0),
+            'D': (0.5, 2.0),
+            'E': (0.3, 2.0),
         }
 
         # Parameter descriptions
         self.descriptions: dict[str, str] = {
-            'B_lat': 'Stiffness - initial slope',
-            'C_lat': 'Shape - curve peakiness',
-            'D_lat': 'Peak - max grip multiplier',
-            'E_lat': 'Curvature - falloff shape',
-            'B_lon': 'Stiffness - initial slope',
-            'C_lon': 'Shape - curve peakiness',
-            'D_lon': 'Peak - max grip multiplier',
-            'E_lon': 'Curvature - falloff shape',
+            'B': 'Stiffness - initial slope (unified)',
+            'C': 'Shape - curve peakiness (unified)',
+            'D': 'Peak friction - traction circle (unified)',
+            'E': 'Curvature - falloff shape (unified)',
         }
 
-        # Create sliders
+        # Create sliders - FULLY UNIFIED (same for lateral and longitudinal)
         self.sliders: list[dict[str, Any]] = []
-        y_start: int = 80
-        y_spacing: int = 70
+        y_start: int = 120
+        y_spacing: int = 80
 
-        # Lateral parameters
-        for i, param in enumerate(['B_lat', 'C_lat', 'D_lat', 'E_lat']):
+        # All 4 unified parameters
+        for i, param in enumerate(['B', 'C', 'D', 'E']):
             self.sliders.append({
                 'param': param,
                 'y': y_start + i * y_spacing,
-                'x': 20,
-                'width': self.panel_width - 40,
-                'height': 12,
-                'dragging': False,
-            })
-
-        # Longitudinal parameters
-        y_start_lon = y_start + 4 * y_spacing + 60
-        for i, param in enumerate(['B_lon', 'C_lon', 'D_lon', 'E_lon']):
-            self.sliders.append({
-                'param': param,
-                'y': y_start_lon + i * y_spacing,
                 'x': 20,
                 'width': self.panel_width - 40,
                 'height': 12,
@@ -147,11 +131,8 @@ class MagicFormulaVisualizer:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_r:
-                    # Reset to defaults
-                    self.params = {
-                        'B_lat': 10.0, 'C_lat': 1.9, 'D_lat': 1.1, 'E_lat': 0.95,
-                        'B_lon': 9.0, 'C_lon': 1.9, 'D_lon': 1.4, 'E_lon': 0.95,
-                    }
+                    # Reset to defaults (loaded from physics config)
+                    self.params = self.default_params.copy()
                     self.update_graphs()
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -177,77 +158,97 @@ class MagicFormulaVisualizer:
                         self.set_slider_value(slider, normalized_x)
 
     def update_graphs(self):
-        """Update tire force curve graphs."""
+        """Update tire force curve graphs - FULLY UNIFIED parameters."""
         self.ax_lat.clear()
         self.ax_lon.clear()
 
-        normal_force = 2600  # N (approx weight per wheel)
+        # Multiple normal force values to show load sensitivity
+        # 2000N = light load (inside wheels during cornering)
+        # 2600N = nominal load (static weight per wheel)
+        # 3200N = heavy load (outside wheels during cornering/braking)
+        normal_forces = [2000, 2600, 3200]
+        colors = ['lightblue', 'blue', 'darkblue']
+        line_styles = ['--', '-', '-.']
         max_friction = 1.0
 
-        # Lateral force curve
+        # FULLY UNIFIED parameters (same for both curves)
+        B = self.params['B']
+        C = self.params['C']
+        D = self.params['D']
+        E = self.params['E']
+
+        # Lateral force curves at different loads
         slip_angles = np.linspace(-25, 25, 300) * np.pi / 180
-        lateral_forces = []
 
-        for sa in slip_angles:
-            sa_clip = min(np.pi / 2, max(-np.pi / 2, sa))
-            arg = self.params['B_lat'] * sa_clip
-            F = (self.params['D_lat'] * normal_force * max_friction *
-                 np.sin(self.params['C_lat'] * np.arctan(
-                     arg - self.params['E_lat'] * (arg - np.arctan(arg)))))
-            lateral_forces.append(F)
+        for normal_force, color, line_style in zip(normal_forces, colors, line_styles):
+            lateral_forces = []
 
-        # Find peak
-        max_force = max(lateral_forces)
-        peak_idx = lateral_forces.index(max_force)
-        peak_angle = slip_angles[peak_idx] * 180 / np.pi
+            for sa in slip_angles:
+                sa_clip = min(np.pi / 2, max(-np.pi / 2, sa))
+                arg = B * sa_clip
+                F = (D * normal_force * max_friction *
+                     np.sin(C * np.arctan(arg - E * (arg - np.arctan(arg)))))
+                lateral_forces.append(F)
 
-        self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, 'b-', linewidth=2.5, label='Lateral Force')
-        self.ax_lat.axhline(y=max_force, color='r', linestyle='--', alpha=0.5, label=f'Peak: {max_force:.0f}N')
-        self.ax_lat.axvline(x=peak_angle, color='g', linestyle='--', alpha=0.5, label=f'Peak angle: {peak_angle:.1f}°')
+            # Find peak
+            max_force = max(lateral_forces)
+            peak_idx = lateral_forces.index(max_force)
+            peak_angle = slip_angles[peak_idx] * 180 / np.pi
+
+            # Plot curve
+            label = f'Fz={normal_force}N ({max_force/(normal_force):.2f}g peak)'
+            linewidth = 2.5 if normal_force == 2600 else 2.0
+            self.ax_lat.plot(slip_angles * 180 / np.pi, lateral_forces, color=color,
+                           linestyle=line_style, linewidth=linewidth, label=label)
+
         self.ax_lat.set_xlabel('Slip Angle (degrees)', fontsize=12)
         self.ax_lat.set_ylabel('Lateral Force (N)', fontsize=12)
-        self.ax_lat.set_title('Lateral (Cornering) Grip Curve', fontsize=14, fontweight='bold')
+        self.ax_lat.set_title('Lateral (Cornering) - FULLY UNIFIED - Multiple Loads', fontsize=14, fontweight='bold')
         self.ax_lat.grid(True, alpha=0.3)
-        self.ax_lat.legend(loc='upper right')
+        self.ax_lat.legend(loc='upper right', fontsize=9)
         self.ax_lat.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
         self.ax_lat.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
 
         # Add parameter text
-        param_text = f"B={self.params['B_lat']:.2f}  C={self.params['C_lat']:.2f}  D={self.params['D_lat']:.2f}  E={self.params['E_lat']:.2f}"
+        param_text = f"UNIFIED: B={B:.2f}  C={C:.2f}  D={D:.2f}  E={E:.2f}"
         self.ax_lat.text(0.02, 0.98, param_text, transform=self.ax_lat.transAxes,
                         fontsize=10, verticalalignment='top',
                         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-        # Longitudinal force curve
+        # Longitudinal force curves at different loads (SAME parameters as lateral)
         slip_ratios = np.linspace(-1, 1, 300)
-        longitudinal_forces = []
 
-        for sr in slip_ratios:
-            sr_clip = min(1.0, max(-1.0, sr))
-            arg = self.params['B_lon'] * sr_clip
-            F = (self.params['D_lon'] * normal_force * max_friction *
-                 np.sin(self.params['C_lon'] * np.arctan(
-                     arg - self.params['E_lon'] * (arg - np.arctan(arg)))))
-            longitudinal_forces.append(F)
+        for normal_force, color, line_style in zip(normal_forces, colors, line_styles):
+            longitudinal_forces = []
 
-        # Find peak
-        max_force = max(longitudinal_forces)
-        peak_idx = longitudinal_forces.index(max_force)
-        peak_ratio = slip_ratios[peak_idx]
+            for sr in slip_ratios:
+                sr_clip = min(1.0, max(-1.0, sr))
+                arg = B * sr_clip
+                F = (D * normal_force * max_friction *
+                     np.sin(C * np.arctan(arg - E * (arg - np.arctan(arg)))))
+                longitudinal_forces.append(F)
 
-        self.ax_lon.plot(slip_ratios, longitudinal_forces, 'r-', linewidth=2.5, label='Longitudinal Force')
-        self.ax_lon.axhline(y=max_force, color='b', linestyle='--', alpha=0.5, label=f'Peak: {max_force:.0f}N')
-        self.ax_lon.axvline(x=peak_ratio, color='g', linestyle='--', alpha=0.5, label=f'Peak ratio: {peak_ratio:.2f}')
+            # Find peak
+            max_force = max(longitudinal_forces)
+            peak_idx = longitudinal_forces.index(max_force)
+            peak_ratio = slip_ratios[peak_idx]
+
+            # Plot curve
+            label = f'Fz={normal_force}N ({max_force/(normal_force):.2f}g peak)'
+            linewidth = 2.5 if normal_force == 2600 else 2.0
+            self.ax_lon.plot(slip_ratios, longitudinal_forces, color=color,
+                           linestyle=line_style, linewidth=linewidth, label=label)
+
         self.ax_lon.set_xlabel('Slip Ratio', fontsize=12)
         self.ax_lon.set_ylabel('Longitudinal Force (N)', fontsize=12)
-        self.ax_lon.set_title('Longitudinal (Acceleration/Braking) Grip Curve', fontsize=14, fontweight='bold')
+        self.ax_lon.set_title('Longitudinal (Accel/Brake) - FULLY UNIFIED - Multiple Loads', fontsize=14, fontweight='bold')
         self.ax_lon.grid(True, alpha=0.3)
-        self.ax_lon.legend(loc='upper right')
+        self.ax_lon.legend(loc='upper right', fontsize=9)
         self.ax_lon.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
         self.ax_lon.axvline(x=0, color='k', linestyle='-', linewidth=0.5)
 
         # Add parameter text
-        param_text = f"B={self.params['B_lon']:.2f}  C={self.params['C_lon']:.2f}  D={self.params['D_lon']:.2f}  E={self.params['E_lon']:.2f}"
+        param_text = f"UNIFIED: B={B:.2f}  C={C:.2f}  D={D:.2f}  E={E:.2f}"
         self.ax_lon.text(0.02, 0.98, param_text, transform=self.ax_lon.transAxes,
                         fontsize=10, verticalalignment='top',
                         bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
@@ -262,19 +263,20 @@ class MagicFormulaVisualizer:
         self.screen.fill((30, 30, 35), panel_rect)
 
         # Title
-        title = self.font.render("Magic Formula Parameters", True, (255, 255, 255))
+        title = self.font.render("Magic Formula - UNIFIED", True, (255, 255, 255))
         self.screen.blit(title, (10, 10))
 
         # Instructions
         inst = self.font_small.render("Drag sliders to adjust | R: Reset | ESC: Quit", True, (150, 150, 150))
         self.screen.blit(inst, (10, 40))
 
-        # Section headers
-        lat_header = self.font.render("LATERAL (Cornering)", True, (100, 150, 255))
-        self.screen.blit(lat_header, (20, 60))
+        # Section header
+        unified_header = self.font.render("UNIFIED PARAMETERS", True, (255, 200, 100))
+        self.screen.blit(unified_header, (20, 70))
 
-        lon_header = self.font.render("LONGITUDINAL (Accel/Brake)", True, (255, 100, 100))
-        self.screen.blit(lon_header, (20, 360))
+        # Subtitle
+        subtitle = self.font_small.render("Same for Lateral & Longitudinal", True, (180, 180, 180))
+        self.screen.blit(subtitle, (20, 95))
 
         # Draw sliders
         for slider in self.sliders:
@@ -306,7 +308,14 @@ class MagicFormulaVisualizer:
             fill_width = int(normalized_pos * slider['width'])
             if fill_width > 0:
                 fill_rect = pygame.Rect(slider['x'], slider['y'], fill_width, slider['height'])
-                color = (100, 150, 255) if 'lat' in param else (255, 100, 100)
+                # Color coding for unified parameters
+                color_map = {
+                    'B': (100, 200, 255),  # Light blue
+                    'C': (150, 255, 150),  # Light green
+                    'D': (255, 150, 50),   # Orange
+                    'E': (255, 200, 100),  # Yellow
+                }
+                color = color_map.get(param, (200, 200, 200))
                 pygame.draw.rect(self.screen, color, fill_rect)
 
             # Slider thumb

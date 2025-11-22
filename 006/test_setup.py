@@ -154,7 +154,7 @@ def test_preprocessing() -> bool:
 
         print(f"✓ Vector mode environment created")
         print(f"  Observation space: {env.observation_space.shape}")
-        print(f"  Expected: (71,) for 71D vector state")
+        print(f"  Note: Dimension = 33 + (NUM_LOOKAHEAD × 2), configurable in config/physics_config.py")
         print(f"  Action space: {env.action_space}")
         print(f"  Action bounds: {env.action_space.low} to {env.action_space.high}")
 
@@ -192,13 +192,20 @@ def test_agent() -> bool:
 
     try:
         from sac import SACAgent, ReplayBuffer
+        from preprocessing import make_carracing_env
         import numpy as np
         import torch
 
+        # Get state dimension from environment
+        print("Creating test environment to determine state dimension...")
+        test_env = make_carracing_env(render_mode=None)
+        state_dim = test_env.observation_space.shape[0]
+        test_env.close()
+
         # Create agent for vector mode
-        print("Creating SAC agent (vector mode)...")
+        print(f"Creating SAC agent (vector mode with {state_dim}D state)...")
         agent = SACAgent(
-            state_dim=71,  # 71D vector state
+            state_dim=state_dim,
             action_dim=2,  # [steering, acceleration]
             lr_actor=3e-4,
             lr_critic=3e-4,
@@ -207,12 +214,13 @@ def test_agent() -> bool:
 
         print(f"✓ Agent created successfully")
         print(f"  Device: {agent.device}")
+        print(f"  State dimension: {state_dim}")
         print(f"  Action dimension: {agent.action_dim}")
         print(f"  Auto entropy tuning: {agent.auto_entropy_tuning}")
 
         # Test action selection
         print("\nTesting action selection...")
-        dummy_state = np.random.rand(71).astype(np.float32)
+        dummy_state = np.random.rand(state_dim).astype(np.float32)
         action = agent.select_action(dummy_state, evaluate=False)
         print(f"✓ Action selection works")
         print(f"  Selected action shape: {action.shape}")
@@ -220,7 +228,7 @@ def test_agent() -> bool:
 
         # Test replay buffer
         print("\nTesting replay buffer...")
-        buffer = ReplayBuffer(capacity=1000, state_shape=(71,), action_dim=2, device=agent.device)
+        buffer = ReplayBuffer(capacity=1000, state_shape=(state_dim,), action_dim=2, device=agent.device)
         buffer.push(dummy_state, action, 1.0, dummy_state, False)
         print(f"✓ Replay buffer works")
         print(f"  Buffer size: {len(buffer)}")

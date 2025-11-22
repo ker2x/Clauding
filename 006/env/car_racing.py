@@ -37,10 +37,12 @@ from config.domain_randomization import DomainRandomizationConfig
 from utils.domain_randomizer import DomainRandomizer
 
 # Import normalization parameters
-from config.physics_config import NormalizationParams
+from config.physics_config import NormalizationParams, SteeringParams, ObservationParams
 
-# Create module-level instance of normalization parameters
+# Create module-level instance of normalization, steering, and observation parameters
 _NORM_PARAMS = NormalizationParams()
+_STEER_PARAMS = SteeringParams()
+_OBS_PARAMS = ObservationParams()
 
 # Box2D no longer needed - using custom 2D physics engine
 # Removed Box2D dependency for cleaner, more interpretable physics
@@ -362,8 +364,10 @@ class CarRacing(gym.Env, EzPickle):
     A top-down racing environment using vector state representation.
     The generated track is random every episode.
 
-    This implementation uses a 71-dimensional vector state containing track geometry,
-    car dynamics, and lookahead waypoints - optimized for efficient SAC training.
+    This implementation uses a dynamic-dimensional vector state (default: 73D) containing track geometry,
+    car dynamics, lookahead waypoints, and steering state - optimized for efficient SAC training.
+
+    Observation dimension: 33 + (NUM_LOOKAHEAD × 2), configurable via config/physics_config.py
 
     Some indicators are shown at the bottom of the window when rendering.
     From left to right: true speed, four ABS sensors, steering wheel position, and gyroscope.
@@ -379,7 +383,9 @@ class CarRacing(gym.Env, EzPickle):
     ## Observation Space
 
     Vector mode only:
-    - 71-dimensional state vector with track geometry, car dynamics, and lookahead waypoints
+    - Dynamic-dimensional state vector (default: 73D) with track geometry, car dynamics, lookahead waypoints, and steering state
+    - Dimension = 33 + (NUM_LOOKAHEAD × 2), configurable in config/physics_config.py:ObservationParams
+    - WAYPOINT_STRIDE parameter allows adjusting waypoint spacing (1=consecutive, 2=every other, etc.)
     - Fast and informative representation optimized for training
 
     ## Rewards
@@ -538,11 +544,12 @@ class CarRacing(gym.Env, EzPickle):
         self.debug_step_counter = 0
         self.new_lap = False
 
-        # Vector mode: waypoint lookahead count
-        # Increased from 10 to 20 to allow braking at high speed
-        # At 108 km/h (30 m/s), 20 waypoints = 70m = 2.33 seconds lookahead
-        # This allows enough time to brake for corners (braking from 108→36 km/h needs ~41m)
-        self.vector_lookahead = 20
+        # Vector mode: waypoint lookahead configuration
+        # Load from config (see config/physics_config.py:ObservationParams)
+        # NUM_LOOKAHEAD: Number of waypoints in observation
+        # WAYPOINT_STRIDE: Spacing between waypoints (1=consecutive, 2=every other, etc.)
+        self.vector_lookahead = _OBS_PARAMS.NUM_LOOKAHEAD
+        self.waypoint_stride = _OBS_PARAMS.WAYPOINT_STRIDE
 
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
@@ -558,19 +565,28 @@ class CarRacing(gym.Env, EzPickle):
         if self.state_mode != "vector":
             raise ValueError(f"Only state_mode='vector' is supported, got '{self.state_mode}'")
 
-        # Vector state: car state (11) + track segment info (5) + lookahead waypoints (40)
-        # + speed (1) + longitudinal accel (1) + lateral accel (1)
-        # + slip angles (4) + slip ratios (4)
-        # = 71 values total (increased from 47 to support 20 waypoint lookahead)
+        # Calculate observation space dimension dynamically based on config
+        # Fixed components: 33D
+        #   - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
+        #   - Track segment info (5): dist_to_center, angle_diff, curvature, t, segment_length
+        #   - Speed (1): magnitude of velocity
+        #   - Accelerations (2): longitudinal, lateral (body frame)
+        #   - Slip angles (4): for each wheel
+        #   - Slip ratios (4): for each wheel
+        #   - Vertical forces (4): normal forces for each wheel
+        #   - Steering state (2): current angle, rate
+        # Variable component: NUM_LOOKAHEAD × 2 (waypoint x, y coordinates)
+        obs_dim = 33 + (self.vector_lookahead * 2)
+
         if self.num_cars > 1:
             # Multi-car: return stacked observations for all cars
             self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(self.num_cars, 71), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(self.num_cars, obs_dim), dtype=np.float32
             )
         else:
             # Single car (backward compatible)
             self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(71,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
             )
 
         self.render_mode = render_mode
@@ -946,7 +962,7 @@ class CarRacing(gym.Env, EzPickle):
                 - Multi car: shape (num_cars, 2) or array of ints
 
         Returns:
-            observations: shape (num_cars, 71) if multi-car, else (71,)
+            observations: shape (num_cars, 73) if multi-car, else (73,)
             rewards: shape (num_cars,) if multi-car, else scalar
             terminated: shape (num_cars,) if multi-car, else bool
             truncated: shape (num_cars,) if multi-car, else bool
@@ -1188,7 +1204,7 @@ class CarRacing(gym.Env, EzPickle):
             action: shape (num_cars, 2) or (num_cars,) - actions for all cars
 
         Returns:
-            observations: (num_cars, 71)
+            observations: (num_cars, 73)
             rewards: (num_cars,)
             terminated: (num_cars,)
             truncated: (num_cars,)
@@ -1385,20 +1401,28 @@ class CarRacing(gym.Env, EzPickle):
         """
         Create vector state representation (fast, informative).
 
-        Returns 71-dimensional state vector (increased from 47 for better lookahead):
+        Returns dynamic-dimensional state vector (default 73D with NUM_LOOKAHEAD=20, STRIDE=1):
         - Car state (11): x, y, vx (body), vy (body), angle, angular_vel, wheel_contacts[4], track_progress
         - Track segment info (5): dist_to_center, angle_diff, curvature, t (position on segment [0-1]), segment_length
-        - Lookahead waypoints (40): 20 waypoints × (x, y) in car-relative coordinates (increased from 10)
+        - Lookahead waypoints (NUM_LOOKAHEAD × 2): waypoints in car-relative coordinates
         - Speed (1): magnitude of velocity
         - Accelerations (2): longitudinal (body frame), lateral (body frame)
         - Slip angles (4): for each wheel [FL, FR, RL, RR]
         - Slip ratios (4): for each wheel [FL, FR, RL, RR]
+        - Vertical forces (4): normal forces for each wheel [FL, FR, RL, RR]
+        - Steering state (2): current steering angle, steering rate
+
+        Total dimension: 33 + (NUM_LOOKAHEAD × 2)
+
+        Waypoint Configuration (config/physics_config.py:ObservationParams):
+        - NUM_LOOKAHEAD: Number of waypoints included (default: 20)
+        - WAYPOINT_STRIDE: Spacing between waypoints (default: 1 = consecutive)
+          - STRIDE=1: Consecutive waypoints (default)
+          - STRIDE=2: Every 2nd waypoint (2× lookahead horizon)
+          - STRIDE=3: Every 3rd waypoint (3× lookahead horizon)
 
         Note: ALL velocities and accelerations use BODY FRAME (longitudinal/lateral relative to car)
         for consistent coordinate system. This is more intuitive for racing control.
-
-        Lookahead increased from 10 to 20 waypoints to allow high-speed braking.
-        At 108 km/h, 20 waypoints = 70m = 2.33s lookahead (enough to brake for corners).
         """
         assert self.car is not None
 
@@ -1525,13 +1549,14 @@ class CarRacing(gym.Env, EzPickle):
                 vertical_forces.append(0.0)  # <-- ADD THIS (fallback will be 0)
 
         # 4. Get next N waypoints in car-relative coordinates
-        # Vectorized computation for all 20 waypoints at once (20-30% faster)
+        # Vectorized computation for all waypoints at once (20-30% faster)
         car_angle_rad = self.car.hull.angle
         cos_a = np.cos(car_angle_rad)
         sin_a = np.sin(car_angle_rad)
 
-        # Compute all waypoint indices at once
-        wp_indices = (seg_idx + np.arange(1, self.vector_lookahead + 1)) % len(self.track)
+        # Compute all waypoint indices at once with configurable stride
+        # stride=1: consecutive waypoints, stride=2: every other, stride=3: every 3rd, etc.
+        wp_indices = (seg_idx + np.arange(1, self.vector_lookahead + 1) * self.waypoint_stride) % len(self.track)
         wp_coords = np.array([self.track[i][2:4] for i in wp_indices])  # Extract (x, y) for all waypoints
 
         # Transform all waypoints to car-relative coordinates at once
@@ -1584,6 +1609,10 @@ class CarRacing(gym.Env, EzPickle):
                 print("WARNING: VERTICAL FORCE < MAX*2")
         vertical_forces_norm = [vf / _NORM_PARAMS.MAX_VERTICAL_FORCE for vf in vertical_forces]
 
+        # Normalize steering angle and rate
+        steering_angle_norm = self.car.steering_angle / _STEER_PARAMS.MAX_STEER_ANGLE
+        steering_rate_norm = self.car.steering_rate / _STEER_PARAMS.STEER_RATE
+
         # ... right after you calculate slip_ratios_norm and vertical_forces_norm
 
         # New, more robust check
@@ -1603,7 +1632,7 @@ class CarRacing(gym.Env, EzPickle):
             print(f"Vertical Forces: {vertical_forces_norm}")
             print("=" * 50)
 
-        # Combine all features (71 total, increased from 47)
+        # Combine all features (73 total, increased from 71)
         # ALL FEATURES NOW NORMALIZED to similar scales for stable training
         # ALL VELOCITIES AND ACCELERATIONS IN BODY FRAME (consistent coordinate system)
         state = np.array([
@@ -1624,7 +1653,9 @@ class CarRacing(gym.Env, EzPickle):
             # Slip ratios (4) - NORMALIZED
             slip_ratios_norm[0], slip_ratios_norm[1], slip_ratios_norm[2], slip_ratios_norm[3],
             # Vertical forces (4) - NORMALIZED
-            vertical_forces_norm[0], vertical_forces_norm[1], vertical_forces_norm[2], vertical_forces_norm[3]
+            vertical_forces_norm[0], vertical_forces_norm[1], vertical_forces_norm[2], vertical_forces_norm[3],
+            # Steering (2) - NORMALIZED
+            steering_angle_norm, steering_rate_norm
         ], dtype=np.float32)
 
         return state

@@ -89,12 +89,26 @@ def play_human(args: argparse.Namespace) -> None:
     font = pygame.font.Font(None, 24)
     screen = None
 
-    # Create environment
+    # Create environment with same settings as training
+    # Import training constants
+    from config.constants import (
+        DEFAULT_TERMINATE_STATIONARY,
+        DEFAULT_STATIONARY_PATIENCE,
+        DEFAULT_REWARD_SHAPING,
+        DEFAULT_MIN_EPISODE_STEPS,
+        DEFAULT_SHORT_EPISODE_PENALTY,
+        DEFAULT_MAX_EPISODE_STEPS,
+    )
+
     render_mode = None if args.no_render else 'rgb_array'
     env = make_carracing_env(
-        terminate_stationary=False,
-        stationary_patience=100,
-        render_mode=render_mode
+        terminate_stationary=DEFAULT_TERMINATE_STATIONARY,
+        stationary_patience=DEFAULT_STATIONARY_PATIENCE,
+        render_mode=render_mode,
+        reward_shaping=DEFAULT_REWARD_SHAPING,
+        min_episode_steps=DEFAULT_MIN_EPISODE_STEPS,
+        short_episode_penalty=DEFAULT_SHORT_EPISODE_PENALTY,
+        max_episode_steps=DEFAULT_MAX_EPISODE_STEPS,
     )
 
     action_dim = env.action_space.shape[0]

@@ -102,15 +102,11 @@ class Car:
         self.TIRE_WIDTH = physics_config.tire.TIRE_WIDTH
         self.INERTIA = physics_config.tire.INERTIA
 
-        # Pacejka parameters
-        self.PACEJKA_B_LAT = physics_config.pacejka.B_LAT
-        self.PACEJKA_C_LAT = physics_config.pacejka.C_LAT
-        self.PACEJKA_D_LAT = physics_config.pacejka.D_LAT
-        self.PACEJKA_E_LAT = physics_config.pacejka.E_LAT
-        self.PACEJKA_B_LON = physics_config.pacejka.B_LON
-        self.PACEJKA_C_LON = physics_config.pacejka.C_LON
-        self.PACEJKA_D_LON = physics_config.pacejka.D_LON
-        self.PACEJKA_E_LON = physics_config.pacejka.E_LON
+        # Pacejka parameters (FULLY UNIFIED - same for lat/lon)
+        self.PACEJKA_B = physics_config.pacejka.B
+        self.PACEJKA_C = physics_config.pacejka.C
+        self.PACEJKA_D = physics_config.pacejka.D
+        self.PACEJKA_E = physics_config.pacejka.E
 
         # Drivetrain parameters
         self.ENGINE_POWER = physics_config.drivetrain.ENGINE_POWER
@@ -145,6 +141,8 @@ class Car:
         # Wheel states
         self.wheel_omega = np.array([0.0, 0.0, 0.0, 0.0])  # Angular velocity [FL, FR, RL, RR]
         self.steering_angle = 0.0  # Front wheel steering
+        self.prev_steering_angle = 0.0  # Previous steering angle (for rate calculation)
+        self.steering_rate = 0.0  # Steering angular velocity (rad/s)
 
         # Control inputs
         self._gas = 0.0
@@ -180,16 +178,12 @@ class Car:
 
             self.wheels.append(wheel)
 
-        # Tire model
+        # Tire model (FULLY UNIFIED - same parameters for all directions)
         self.tire = PacejkaTire(
-            B_lat=self.PACEJKA_B_LAT,
-            C_lat=self.PACEJKA_C_LAT,
-            D_lat=self.PACEJKA_D_LAT,
-            E_lat=self.PACEJKA_E_LAT,
-            B_lon=self.PACEJKA_B_LON,
-            C_lon=self.PACEJKA_C_LON,
-            D_lon=self.PACEJKA_D_LON,
-            E_lon=self.PACEJKA_E_LON
+            B=self.PACEJKA_B,
+            C=self.PACEJKA_C,
+            D=self.PACEJKA_D,
+            E=self.PACEJKA_E
         )
 
         # MX5 Powertrain (replaces placeholder engine)
@@ -260,6 +254,10 @@ class Car:
         angle_diff = target_angle - self.steering_angle
         angle_diff = min(self.STEER_RATE * dt, max(-self.STEER_RATE * dt, angle_diff))
         self.steering_angle += angle_diff
+
+        # Calculate steering rate (angular velocity)
+        self.steering_rate = (self.steering_angle - self.prev_steering_angle) / dt if dt > 0 else 0.0
+        self.prev_steering_angle = self.steering_angle
 
         # Update wheel angular velocities (uses previous tire forces)
         self._update_wheel_dynamics(dt)
@@ -575,13 +573,19 @@ class Car:
             # Get normal force from load transfer model
             normal_force = normal_forces[i]
 
-            # Tire forces
-            # Note: Negate lateral force because positive slip angle (velocity left of wheel heading)
+            # Tire forces using UNIFIED TRACTION CIRCLE
+            # Combined forces ensure sqrt(Fx² + Fy²) ≤ D_peak × Fz
+            # This gives realistic behavior when braking + cornering simultaneously
+            fx, fy = self.tire.combined_forces(
+                slip_angle=slip_angle,
+                slip_ratio=slip_ratio,
+                normal_force=normal_force,
+                max_friction=friction
+            )
+
+            # Negate lateral force because positive slip angle (velocity left of wheel heading)
             # should produce force to the right (negative) to correct the slip
-            fy = -self.tire.lateral_force(slip_angle, normal_force, friction)
-            fx = self.tire.longitudinal_force(slip_ratio, normal_force, friction)
-
-
+            fy = -fy
 
             forces[i] = {
                 'fx': fx,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine**. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based (71D) state representation** for training.
+This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing-v3 using **continuous action space** and a **custom 2D physics engine**. The project implements maximum entropy RL with automatic entropy tuning, twin Q-networks, and uses **vector-based state representation** (default 53D base, configurable with frame stacking) for training.
 
 ### Key Features
 
@@ -12,7 +12,9 @@ This is a **Soft Actor-Critic (SAC)** reinforcement learning agent for CarRacing
 - **Custom 2D Physics**: Clean, interpretable physics simulation with Magic Formula tires
 - **Physical Suspension System**: Per-wheel spring-damper with kinematic load transfer (default enabled)
 - **Soft Actor-Critic**: State-of-the-art continuous control algorithm
-- **Vector Mode**: 71D state representation (car state + track geometry + lookahead waypoints)
+- **Vector Mode**: Configurable state representation (default 53D base: car state + track geometry + lookahead waypoints + steering state)
+- **Configurable Observation**: Adjustable waypoint count, spacing, and frame stacking
+- **Frame Stacking**: Optional temporal information via multi-frame observations
 - **Clean Architecture**: Simplified codebase focused on vector mode for optimal performance
 
 ### Suspension System (NEW - 2025-01-13)
@@ -38,6 +40,104 @@ The physics engine now includes a **realistic suspension system** using independ
 1. Record telemetry: `python play_human_gui.py --log-telemetry`
 2. Text analysis: `python analyze_telemetry.py telemetry_*.csv`
 3. Interactive visualization: `python telemetry_viewer.py telemetry_*.csv`
+
+### Steering System (UPDATED - 2025-01-20)
+
+The steering system now features **realistic rate limiting** and **steering state observation**:
+
+**Key Changes:**
+- **Steering rate**: Reduced from 3.0 → 1.5 rad/s (more realistic response)
+- **Lock-to-lock time**: Increased from ~0.27s → ~0.53s (prevents instant steering changes)
+- **Observation space**: Expanded from 71D → 73D
+  - Added current steering angle (normalized by MAX_STEER_ANGLE)
+  - Added steering rate/velocity (normalized by STEER_RATE)
+
+**Benefits:**
+- More realistic vehicle dynamics (steering wheel has inertia)
+- Agent can observe current steering position for better control
+- Agent can observe steering rate for smoother action planning
+- **Breaking change**: Old 71D checkpoints incompatible with new 73D state space
+
+**Configuration:**
+- `config/physics_config.py`: STEER_RATE = 1.5 rad/s
+- `env/car_racing.py`: Dynamic observation space
+- `env/car_dynamics.py`: Steering rate tracking
+
+### Observation Space (UPDATED - 2025-01-20)
+
+The observation space is now **fully configurable** via `config/physics_config.py:ObservationParams`:
+
+**Parameters:**
+- **NUM_LOOKAHEAD**: Number of waypoints included in observation (default: 10)
+- **WAYPOINT_STRIDE**: Spacing between waypoints (default: 2)
+  - STRIDE=1: Consecutive waypoints
+  - STRIDE=2: Every 2nd waypoint (2× lookahead horizon, same obs dimension) - DEFAULT
+  - STRIDE=3: Every 3rd waypoint (3× lookahead horizon, same obs dimension)
+- **FRAME_STACK**: Number of consecutive frames to stack (default: 1 = disabled)
+
+**Base Observation Dimension:** `33 + (NUM_LOOKAHEAD × 2)`
+- Fixed components (33D): car state, track info, speed, accelerations, slip angles/ratios, forces, steering
+- Variable component: NUM_LOOKAHEAD waypoint (x, y) coordinates
+
+**Examples:**
+- `NUM_LOOKAHEAD=20, STRIDE=1`: 73D base, ~70m horizon
+- `NUM_LOOKAHEAD=20, STRIDE=2`: 73D base, ~140m horizon (2× farther lookahead)
+- `NUM_LOOKAHEAD=10, STRIDE=2`: 53D base, ~70m horizon (smaller network, same horizon) - DEFAULT
+
+**Use Cases:**
+- Increase STRIDE to see farther ahead without increasing network size
+- Reduce NUM_LOOKAHEAD to decrease observation dimension for faster training
+- Balance between lookahead horizon and network complexity
+
+**Testing:** `python test_waypoint_config.py` to verify different configurations
+
+**Important:** Changing observation parameters requires retraining (incompatible checkpoints)
+
+### Frame Stacking (NEW - 2025-01-21)
+
+Frame stacking concatenates observations from multiple consecutive timesteps, providing the agent with **temporal information** through finite differences.
+
+**Configuration:** `config/physics_config.py:ObservationParams.FRAME_STACK`
+
+**How it works:**
+- `FRAME_STACK=1`: Disabled (default) - single frame observations
+- `FRAME_STACK=2`: Stack 2 consecutive frames
+- `FRAME_STACK=4`: Stack 4 consecutive frames (recommended for temporal dynamics)
+
+**Final Observation Dimension:** `(33 + NUM_LOOKAHEAD × 2) × FRAME_STACK`
+- Example: `NUM_LOOKAHEAD=10, STRIDE=2, FRAME_STACK=4` → 53 × 4 = 212D
+
+**Benefits:**
+- **Temporal derivatives**: Agent can compute rates of change via finite differences
+- **Dynamics visibility**: See how slip angles, normal forces, and other quantities change over time
+- **Predictive behavior**: Better anticipation of loss of traction, weight transfer, trajectory changes
+- **No velocity ambiguity**: Can distinguish stationary vs. moving through same position
+
+**What Frame Stacking Provides:**
+With single frame, agent knows:
+- Current slip angles (but not if they're increasing/decreasing)
+- Current normal forces (but not rate of load transfer)
+- Current distance to center (but not lateral velocity relative to track)
+
+With 4-frame stacking, agent can compute:
+- Slip angle rates → anticipate tire saturation before grip loss
+- Load transfer rates → predict weight shift during maneuvers
+- Lateral drift rate → correct trajectory deviations early
+- Trends in all quantities → more predictive, smoother control
+
+**Implementation Details:**
+- Frames stored individually in replay buffer (memory efficient)
+- Stacking happens during sampling (computational cost at training time)
+- Episode boundaries respected (won't stack across episodes)
+- Initial frames padded by repeating earliest available frame
+
+**Performance Impact:**
+- ✅ Memory: Minimal (stores single frames)
+- ⚠️ Network size: Increases proportionally to FRAME_STACK
+- ⚠️ Training time: Slightly slower due to larger networks
+- ✅ Sample efficiency: Often improves convergence
+
+**Important:** Changing FRAME_STACK requires retraining (incompatible checkpoint dimensions)
 
 ### Current Reward Structure
 
@@ -174,12 +274,22 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 
 ### State Representation
 
-**Vector Mode (71D):**
+**Vector Mode (default 53D base, configurable):**
 - Car state (11D): position, velocity, angle, wheel contacts, progress
 - Track segment (5D): distance to center, angle, curvature, segment info
-- Lookahead waypoints (20×2 = 40D): future waypoints in car coordinates
-- Obstacles/competitors (11D): nearest opponent information
+- Lookahead waypoints (NUM_LOOKAHEAD×2): future waypoints in car coordinates
+  - Default: 10 waypoints × 2 = 20D
+  - Configurable via `config/physics_config.py:ObservationParams`
+- Speed (1D): velocity magnitude
+- Accelerations (2D): longitudinal and lateral (body frame)
+- Slip angles (4D): tire slip angles for all wheels
+- Slip ratios (4D): tire slip ratios for all wheels
+- Vertical forces (4D): normal forces on all wheels
+- Steering state (2D): current steering angle and rate
 - Fast training, no rendering required
+
+**Base Observation Dimension:** 33 + (NUM_LOOKAHEAD × 2)
+**Final Dimension (with frame stacking):** base_dim × FRAME_STACK
 
 ### SAC Algorithm
 
@@ -195,8 +305,11 @@ python telemetry_viewer.py telemetry_20250113_123456.csv
 ### Network Architecture
 
 **Vector Mode:**
-- Actor: 71D → FC(256)×3 → 2D action (mean, log_std)
-- Critic: 71D + 2D action → FC(512)×4 → Q-value
+- Actor: [(33 + NUM_LOOKAHEAD×2) × FRAME_STACK]D → FC(256)×3 → 2D action (mean, log_std)
+- Critic: [(33 + NUM_LOOKAHEAD×2) × FRAME_STACK]D + 2D action → FC(512)×4 → Q-value
+- Default: 53D input with NUM_LOOKAHEAD=10, FRAME_STACK=1
+
+Note: Network input dimension adjusts automatically based on observation and frame stacking configuration
 
 ## File Structure
 
@@ -287,9 +400,11 @@ python train_selection_parallel.py --device cpu  # Default
 Checkpoints contain:
 - Network weights (actor, critics, targets)
 - Optimizer states
-- `state_dim`: 71 (vector dimension)
+- `state_dim`: Observation dimension (base_dim × frame_stack)
 - `action_dim`: 2
 - Entropy tuning parameters (if enabled)
+
+**Note:** Checkpoints are specific to observation configuration. Changing NUM_LOOKAHEAD, WAYPOINT_STRIDE, or FRAME_STACK requires retraining.
 
 **Parallel selection training saves:**
 - `generation_N.pt`: Winner from generation N (historical record)

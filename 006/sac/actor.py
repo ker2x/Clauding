@@ -26,7 +26,7 @@ class VectorActor(nn.Module):
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
     """
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128) -> None:
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 256) -> None:
         super(VectorActor, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability

@@ -83,7 +83,7 @@ if __name__ == "__main__":
     env = make_carracing_env()
     print(f"Action space: {env.action_space}")
     print(f"Observation space: {env.observation_space}")
-    print(f"Expected shape: (71,) for 71D vector state")
+    print(f"Expected shape: (73,) for 73D vector state")
 
     obs, info = env.reset()
     print(f"Observation shape: {obs.shape}")

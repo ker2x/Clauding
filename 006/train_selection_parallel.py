@@ -28,6 +28,7 @@ import time
 from datetime import datetime
 from typing import Any
 import numpy as np
+import torch
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Event
 import queue
@@ -45,6 +46,8 @@ from preprocessing import make_carracing_env
 from sac import SACAgent, ReplayBuffer
 from training_utils import evaluate_agent, setup_logging
 from config.constants import *
+from config.physics_config import ObservationParams, get_stacked_observation_dim
+from frame_buffer import FrameBuffer
 from config.domain_randomization import (
     DomainRandomizationConfig,
     conservative_randomization,
@@ -181,13 +184,18 @@ def worker_process(
         domain_randomization_config=domain_rand_config,
     )
 
-    state_dim = env.observation_space.shape[0]
+    base_state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     device = torch.device('cpu')  # Force CPU for multiprocessing
 
-    # Create agent
+    # Frame stacking configuration
+    obs_params = ObservationParams()
+    frame_stack = obs_params.FRAME_STACK
+    stacked_state_dim = get_stacked_observation_dim(obs_params.NUM_LOOKAHEAD, frame_stack)
+
+    # Create agent (with stacked state dimension)
     agent = SACAgent(
-        state_dim=state_dim,
+        state_dim=stacked_state_dim,
         action_dim=action_dim,
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
@@ -202,13 +210,17 @@ def worker_process(
     if args.resume:
         agent.load(args.resume)
 
-    # Create replay buffer
+    # Create replay buffer (stores single frames, stacks during sampling)
     buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=state_dim,
+        state_shape=base_state_dim,
         action_dim=action_dim,
-        device=device
+        device=device,
+        frame_stack=frame_stack
     )
+
+    # Create frame buffer for environment interaction
+    frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
 
     total_steps = 0
     episode_count = 0
@@ -231,7 +243,7 @@ def worker_process(
                 # This improves sample efficiency significantly
             elif command == 'EVALUATE':
                 # Evaluate agent and send results back
-                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
+                eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, frame_stack=frame_stack, base_state_dim=base_state_dim)
                 result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 continue
             elif command == 'GET_WEIGHTS':
@@ -252,6 +264,7 @@ def worker_process(
             seed = 1000 + episode_offset + episode_count + agent_id * 10000
 
         obs, _ = env.reset(seed=seed)
+        frame_buffer.reset(obs)  # Initialize frame buffer with first frame
         episode_reward = 0.0
         terminated = False
         truncated = False
@@ -269,11 +282,17 @@ def worker_process(
         }
 
         while not (terminated or truncated):
-            action = agent.select_action(obs, evaluate=False)
+            # Get stacked observation for action selection
+            stacked_obs = frame_buffer.get()
+            action = agent.select_action(stacked_obs, evaluate=False)
             next_obs, reward, terminated, truncated, _ = env.step(action)
 
+            # Store single-frame experience in replay buffer
             buffer.push(obs, action, float(reward), next_obs, float(terminated or truncated))
             episode_reward += reward
+
+            # Update frame buffer with new observation
+            frame_buffer.append(next_obs)
 
             # Train agent
             if (total_steps >= args.learning_starts and
@@ -318,7 +337,7 @@ def worker_process(
                     agent.load_state_dict(new_state_dict)
                     # DO NOT clear replay buffer on selection
                 elif command == 'EVALUATE':
-                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE)
+                    eval_reward = evaluate_agent(agent, env, n_episodes=args.eval_episodes, seed_offset=10000 + episode_offset, max_steps_per_episode=DEFAULT_MAX_STEPS_PER_EPISODE, frame_stack=frame_stack, base_state_dim=base_state_dim)
                     result_queue.put(('EVAL_RESULT', agent_id, eval_reward))
                 elif command == 'GET_WEIGHTS':
                     state_dict = agent.get_state_dict()
