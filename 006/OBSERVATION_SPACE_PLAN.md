@@ -81,9 +81,12 @@ This plan outlines the changes needed to evolve the current observation space to
 - All physics properly normalized
 
 ### What's Missing
-1. **Frame stacking implementation** (CRITICAL)
-   - Config parameter exists (`FRAME_STACK=3`) but not implemented
-   - Would provide temporal context for learning derivatives
+1. **FrameBuffer class for environment interaction** (CRITICAL - BREAKS CODE)
+   - Config parameter exists (`FRAME_STACK=3`)
+   - ReplayBuffer has frame stacking ✓ (fully implemented in `sac/buffer.py`)
+   - BUT: Missing `frame_buffer.py` with `FrameBuffer` class for env interaction
+   - Multiple files import `from frame_buffer import FrameBuffer` → **ModuleNotFoundError**
+   - Files affected: `train.py`, `train_selection_parallel.py`, `watch_agent.py`, `watch_brain.py`, `training_utils.py`
    - Essential for capturing dynamics (velocity → acceleration → jerk)
 
 2. **3D vector representation** (NICE TO HAVE)
@@ -97,10 +100,18 @@ This plan outlines the changes needed to evolve the current observation space to
    - Proposed: Include previous [steering_cmd, throttle_cmd] in observation
    - Benefit: Agent can learn action consistency and smooth control
 
-### What's Already Implemented But Not Active
-- `config/physics_config.py:ObservationParams.FRAME_STACK` is defined
-- Frame dimension calculation exists: `get_stacked_observation_dim()`
-- Infrastructure ready, just needs implementation in `car_racing.py`
+### What's Already Implemented
+- ✅ `config/physics_config.py:ObservationParams.FRAME_STACK` is defined
+- ✅ Frame dimension calculation: `get_stacked_observation_dim()`
+- ✅ `ReplayBuffer` has full frame stacking implementation (`sac/buffer.py:_get_stacked_frames()`)
+  - Respects episode boundaries
+  - Handles padding for initial frames
+  - Memory efficient (stores individual frames, stacks during sampling)
+
+### What's Missing (Breaks Code)
+- ❌ `frame_buffer.py` module with `FrameBuffer` class
+  - Needed for environment interaction (stacking observations for action selection)
+  - Currently causes `ModuleNotFoundError` in all training/watching scripts
 
 ## Proposed Changes
 
@@ -261,22 +272,23 @@ This plan outlines the changes needed to evolve the current observation space to
 
 ## Implementation Roadmap
 
-### Milestone 1: Frame Stacking (IMMEDIATE)
-**Estimated effort:** 2-4 hours
-**Risk:** LOW (infrastructure exists, just needs wiring)
+### Milestone 1: Create FrameBuffer Class (URGENT - FIXES BROKEN CODE)
+**Estimated effort:** 1-2 hours
+**Risk:** LOW (ReplayBuffer already has reference implementation)
 
-- [ ] 1.1: Add `frame_buffer` to `CarRacing.__init__()`
-- [ ] 1.2: Initialize buffer in `reset()`
-- [ ] 1.3: Update buffer in `step()`
-- [ ] 1.4: Write unit tests for frame rotation
-- [ ] 1.5: Verify observation space shape
-- [ ] 1.6: Run quick training test (500 episodes)
-- [ ] 1.7: Update documentation
+- [ ] 1.1: Create `006/frame_buffer.py` module
+- [ ] 1.2: Implement `FrameBuffer` class with same logic as `ReplayBuffer._get_stacked_frames()`
+- [ ] 1.3: Add `reset(state)` method to initialize buffer
+- [ ] 1.4: Add `add(state)` method to add new frame and return stacked observation
+- [ ] 1.5: Write unit tests for frame rotation
+- [ ] 1.6: Verify imports work in all affected scripts
+- [ ] 1.7: Run quick training test (50 episodes)
 
 **Success criteria:**
-- Observation shape matches `observation_space.shape`
+- No import errors in training scripts
 - Frame buffer rotates correctly (oldest dropped, newest added)
-- Training converges with frame stacking enabled
+- Stacked observations have correct shape
+- Training runs without errors
 
 ### Milestone 2: Previous Action (OPTIONAL)
 **Estimated effort:** 1-2 hours
