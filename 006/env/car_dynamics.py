@@ -302,7 +302,7 @@ class Car:
 
             # Apply low-pass filter to tire forces to prevent oscillations
             # Same filter strength as acceleration filtering (alpha = 0.15)
-            filter_alpha = 0.15
+            filter_alpha = 0.3
             self.prev_tire_forces_filtered[i] = (
                 self.prev_tire_forces_filtered[i] * (1.0 - filter_alpha) +
                 self.prev_tire_forces[i] * filter_alpha
@@ -346,7 +346,7 @@ class Car:
             # Reduced coupling to prevent oscillations and runaway wheel spin
             # Lower values = more stable but slightly less accurate physics
             # Higher values = more accurate but can cause oscillations
-            feedback_coupling = 0.5  # Conservative coupling for stability and grip
+            feedback_coupling = 0.8  # Conservative coupling for stability and grip
 
             # Physics: I × α = T_applied - (F_x × r)
             # F_x is tire force on car, ground reaction is opposite (Newton's 3rd law)

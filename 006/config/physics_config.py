@@ -79,9 +79,9 @@ class PacejkaParams:
     - Longitudinal: Peak at ~12-15% slip ratio (street tire typical)
     """
     # FULLY UNIFIED tire model parameters
-    B: float = 8.5   # Stiffness factor (same for lat/lon)
+    B: float = 10   # Stiffness factor (same for lat/lon)
     C: float = 1.9   # Shape factor (same for lat/lon)
-    D: float = 0.95  # Peak friction (traction circle radius)
+    D: float = 1.0  # Peak friction (traction circle radius)
     E: float = 0.97  # Curvature factor (same for lat/lon)
 
 
