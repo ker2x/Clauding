@@ -471,7 +471,7 @@ def compare_checkpoints(checkpoint_paths: list[str], output_dir: str | None = No
                     elif 3.0 <= mean_alpha < 4.0:
                         health = "⚠️  BORDERLINE"
                     elif mean_alpha >= 4.0:
-                        health = "❌ OVERFIT"
+                        health = "❌ Mostly Random"
                     else:
                         health = "⚠️  UNDERTRAINED"
 
@@ -552,10 +552,10 @@ Examples:
     print("="*80)
     print("""
 Alpha (Power Law Exponent):
-  • α < 2.0  : Undertrained or random weights
+  • α > 6.0  : random weights
+  • α ∈ [4, 6): possibly underfit
   • α ∈ [2, 4): Well-trained, good generalization (IDEAL)
-  • α ∈ [4, 6): Borderline, possible overtraining
-  • α > 6.0  : Likely overfit, poor generalization
+  • α < 2.0  : Likely overfit, poor generalization
 
 Log Spectral Norm:
   • Lower values indicate better conditioning
