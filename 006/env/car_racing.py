@@ -564,6 +564,11 @@ class CarRacing(gym.Env, EzPickle):
         # Frame buffers for observation stacking (initialized per episode in reset())
         self.frame_buffers: list[FrameBuffer] | None = None  # Multi-car support
 
+        # Previous action tracking (for observation space)
+        # Helps agent learn smooth, consistent control
+        self.prev_actions: list[np.ndarray] | None = None  # Multi-car support: [num_cars, 2]
+        self.prev_action: np.ndarray = np.zeros(2, dtype=np.float32)  # Single car: [steering, acceleration]
+
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
 
@@ -579,7 +584,7 @@ class CarRacing(gym.Env, EzPickle):
             raise ValueError(f"Only state_mode='vector' is supported, got '{self.state_mode}'")
 
         # Calculate observation space dimension dynamically based on config
-        # Fixed components: 33D
+        # Fixed components: 35D
         #   - Car state (11): x, y, vx, vy, angle, angular_vel, wheel_contacts[4], track_progress
         #   - Track segment info (5): dist_to_center, angle_diff, curvature, t, segment_length
         #   - Speed (1): magnitude of velocity
@@ -588,8 +593,9 @@ class CarRacing(gym.Env, EzPickle):
         #   - Slip ratios (4): for each wheel
         #   - Vertical forces (4): normal forces for each wheel
         #   - Steering state (2): current angle, rate
+        #   - Previous action (2): previous steering, previous acceleration
         # Variable component: NUM_LOOKAHEAD × 2 (waypoint x, y coordinates)
-        # With frame stacking: (33 + NUM_LOOKAHEAD × 2) × FRAME_STACK
+        # With frame stacking: (35 + NUM_LOOKAHEAD × 2) × FRAME_STACK
         obs_dim = get_stacked_observation_dim(self.vector_lookahead, self.frame_stack)
 
         if self.num_cars > 1:
@@ -950,9 +956,13 @@ class CarRacing(gym.Env, EzPickle):
         if self.render_mode == "human":
             self.render()
 
+        # Initialize previous actions for all cars
+        self.prev_actions = [np.zeros(2, dtype=np.float32) for _ in range(self.num_cars)]
+        self.prev_action = np.zeros(2, dtype=np.float32)  # Single car backward compatibility
+
         # Initialize frame buffers for all cars
         # Get base observation dimension (without frame stacking)
-        base_obs_dim = 33 + (self.vector_lookahead * 2)
+        base_obs_dim = 35 + (self.vector_lookahead * 2)
 
         # Create frame buffers for each car
         self.frame_buffers = [
@@ -965,9 +975,12 @@ class CarRacing(gym.Env, EzPickle):
             # Multi-car: get all base observations first
             for car_idx, car in enumerate(self.cars):
                 original_car = self.car
+                original_prev_action = self.prev_action.copy()
                 self.car = car
+                self.prev_action = self.prev_actions[car_idx]
                 base_obs = self._create_vector_state()
                 self.car = original_car
+                self.prev_action = original_prev_action
                 self.frame_buffers[car_idx].reset(base_obs)
             return self._get_all_observations(), {}
         else:
@@ -1019,8 +1032,16 @@ class CarRacing(gym.Env, EzPickle):
         steer_action = 0.0
         accel = 0.0
 
+        # Create vector state (base observation) BEFORE executing action
+        # This ensures observation contains the PREVIOUS action (action_{t-1}),
+        # not the current action (action_t) we're about to execute
+        state_start = time.perf_counter() if self.verbose else None
+        base_obs = self._create_vector_state()
+        state_time = (time.perf_counter() - state_start) * 1000 if self.verbose else None
+
         if action is not None:
             action = action.astype(np.float64)
+
             # Actions: steering [-1, 1], acceleration [-1 (brake), +1 (gas)]
             steer_action = -action[0]
             accel = min(1.0, max(-1.0, action[1]))
@@ -1048,10 +1069,9 @@ class CarRacing(gym.Env, EzPickle):
         collision_time = (time.perf_counter() - collision_start) * 1000 if self.verbose else None
         self.t += 1.0 / FPS
 
-        # Create vector state (base observation)
-        state_start = time.perf_counter() if self.verbose else None
-        base_obs = self._create_vector_state()
-        state_time = (time.perf_counter() - state_start) * 1000 if self.verbose else None
+        # Store action AFTER creating observation, so next observation will contain it
+        if action is not None:
+            self.prev_action = np.array([action[0], action[1]], dtype=np.float32)
 
         # Update frame buffer and get stacked observation
         if action is None:
@@ -1261,6 +1281,18 @@ class CarRacing(gym.Env, EzPickle):
         truncated = np.zeros(self.num_cars, dtype=bool)
         infos = [{} for _ in range(self.num_cars)]
 
+        # Create observations BEFORE executing actions (so they contain action_{t-1})
+        base_observations = []
+        for car_idx, car in enumerate(self.cars):
+            original_car = self.car
+            original_prev_action = self.prev_action.copy()
+            self.car = car
+            self.prev_action = self.prev_actions[car_idx]
+            base_obs = self._create_vector_state()
+            self.car = original_car
+            self.prev_action = original_prev_action
+            base_observations.append(base_obs)
+
         # Step each car independently
         for car_idx, car in enumerate(self.cars):
             if action is not None:
@@ -1370,20 +1402,20 @@ class CarRacing(gym.Env, EzPickle):
                         step_rewards[car_idx] += self.short_episode_penalty
                         infos[car_idx]['reward_shaping'] = self.short_episode_penalty
 
-        # Update frame buffers for all cars and get stacked observations
-        for car_idx, car in enumerate(self.cars):
-            # Temporarily set self.car for _create_vector_state()
-            original_car = self.car
-            self.car = car
-            base_obs = self._create_vector_state()
-            self.car = original_car
-
-            # Update frame buffer
+        # Update frame buffers with observations created BEFORE action execution
+        for car_idx in range(self.num_cars):
+            base_obs = base_observations[car_idx]
             if action is None:
                 # First step from reset (shouldn't happen in multi-car mode, but handle it)
                 self.frame_buffers[car_idx].reset(base_obs)
             else:
                 self.frame_buffers[car_idx].append(base_obs)
+
+        # Store actions AFTER creating observations, so next step's observations will contain them
+        if action is not None:
+            for car_idx in range(self.num_cars):
+                car_action = action[car_idx]
+                self.prev_actions[car_idx] = np.array([car_action[0], car_action[1]], dtype=np.float32)
 
         # Get stacked observations for all cars
         observations = self._get_all_observations()
@@ -1688,7 +1720,7 @@ class CarRacing(gym.Env, EzPickle):
             print(f"Vertical Forces: {vertical_forces_norm}")
             print("=" * 50)
 
-        # Combine all features (73 total, increased from 71)
+        # Combine all features (now 35 base + waypoints)
         # ALL FEATURES NOW NORMALIZED to similar scales for stable training
         # ALL VELOCITIES AND ACCELERATIONS IN BODY FRAME (consistent coordinate system)
         state = np.array([
@@ -1698,7 +1730,7 @@ class CarRacing(gym.Env, EzPickle):
             track_progress,
             # Track segment info (5) - NORMALIZED & BOUNDED
             dist_to_center_norm, angle_diff, curvature_norm, t, seg_len_norm,
-            # Waypoints (40) - NORMALIZED
+            # Waypoints (NUM_LOOKAHEAD × 2) - NORMALIZED
             *waypoints,
             # Speed (1) - NORMALIZED
             speed_norm,
@@ -1711,7 +1743,9 @@ class CarRacing(gym.Env, EzPickle):
             # Vertical forces (4) - NORMALIZED
             vertical_forces_norm[0], vertical_forces_norm[1], vertical_forces_norm[2], vertical_forces_norm[3],
             # Steering (2) - NORMALIZED
-            steering_angle_norm, steering_rate_norm
+            steering_angle_norm, steering_rate_norm,
+            # Previous action (2) - ALREADY NORMALIZED (actions are in [-1, 1])
+            self.prev_action[0], self.prev_action[1]
         ], dtype=np.float32)
 
         return state

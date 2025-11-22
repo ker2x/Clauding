@@ -240,13 +240,25 @@ def get_base_observation_dim(num_lookahead: int) -> int:
     """
     Calculate base (single-frame) observation dimension.
 
+    Components (35 fixed + num_lookahead * 2):
+        - Car state: 11D (position, velocity, angle, contacts, progress)
+        - Track info: 5D (distance to center, angle, curvature, etc.)
+        - Speed: 1D
+        - Accelerations: 2D (longitudinal, lateral)
+        - Tire slip angles: 4D
+        - Tire slip ratios: 4D
+        - Tire vertical forces: 4D
+        - Steering state: 2D (angle, rate)
+        - Previous action: 2D (steering, acceleration)
+        - Lookahead waypoints: num_lookahead * 2D (x, y per waypoint)
+
     Args:
         num_lookahead: Number of lookahead waypoints
 
     Returns:
         Single-frame observation dimension
     """
-    return 33 + (num_lookahead * 2)
+    return 35 + (num_lookahead * 2)
 
 
 def get_stacked_observation_dim(num_lookahead: int, frame_stack: int) -> int:
