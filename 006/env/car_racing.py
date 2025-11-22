@@ -30,6 +30,7 @@ from constants import (
     OFFTRACK_THRESHOLD,
     OFFTRACK_TERMINATION_PENALTY,
     FORWARD_SPEED_REWARD_SCALE,
+    MIN_EPISODE_REWARD,
 )
 
 # Import domain randomization
@@ -1130,6 +1131,13 @@ class CarRacing(gym.Env, EzPickle):
                 total_step_time = (time.perf_counter() - step_start_time) * 1000
                 print(f"  RENDER TIME: {render_time:>7.2f} ms")
                 print(f"  TOTAL STEP:  {total_step_time:>7.2f} ms\n")
+
+        # Cap total episode reward to prevent catastrophic negative rewards
+        # This prevents extreme cases while maintaining learning signal
+        if action is not None and self.reward < MIN_EPISODE_REWARD:
+            step_reward += (MIN_EPISODE_REWARD - self.reward)  # Adjust step reward to reach floor
+            self.reward = MIN_EPISODE_REWARD
+            info['reward_capped'] = True
 
         return self.state, step_reward, terminated, truncated, info
 

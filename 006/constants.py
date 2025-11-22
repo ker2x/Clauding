@@ -70,7 +70,8 @@ DEFAULT_MIN_EPISODE_STEPS: int = 200   # if episode end before this, apply penal
 
 # Reward shaping
 DEFAULT_REWARD_SHAPING: bool = True
-DEFAULT_SHORT_EPISODE_PENALTY: float = -250.0
+DEFAULT_SHORT_EPISODE_PENALTY: float = -100.0
+MIN_EPISODE_REWARD: float = -500.0  # Cap worst-case total episode reward
 
 # ===========================
 # Reward Structure Configuration
@@ -90,7 +91,7 @@ STATIONARY_SPEED_THRESHOLD: float = 0.5  # Speed threshold (m/s) below which car
 ONTRACK_REWARD: float = 0.5            # Positive reward per frame for staying on track
 
 # Off-track penalties
-OFFTRACK_PENALTY: float = 5.0          # Penalty per wheel off track per frame
+OFFTRACK_PENALTY: float = 1.0          # Penalty per wheel off track per frame
 OFFTRACK_THRESHOLD: int = 0          # Number of wheels that can be off track before penalty applies (0 = any wheel off is penalized)
 OFFTRACK_TERMINATION_PENALTY: float = 100.0  # Penalty when going completely off track
 
