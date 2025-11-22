@@ -638,7 +638,10 @@ class Car:
         # 2. Rolling Resistance (constant force opposing motion)
         # Use total static normal force
         total_normal_force = self.MASS * 9.81
-        fx_roll = -self.C_ROLL_RESISTANCE * total_normal_force * np.sign(self.vx)
+        if abs(self.vx) > 0.1:
+            fx_roll = -self.C_ROLL_RESISTANCE * total_normal_force * np.sign(self.vx)
+        else:
+            fx_roll = 0.0
 
         fx_total += fx_drag + fx_roll
         # === END FIX ===

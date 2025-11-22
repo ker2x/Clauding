@@ -81,7 +81,8 @@ class ReplayBuffer:
         action: npt.NDArray[np.float32] | torch.Tensor,
         reward: float,
         next_state: npt.NDArray[np.float32] | torch.Tensor,
-        done: bool,
+        terminated: bool,
+        truncated: bool,
     ) -> None:
         """
         Add experience to buffer.
@@ -102,11 +103,14 @@ class ReplayBuffer:
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
         self.next_states[self.ptr] = next_state
-        self.dones[self.ptr] = float(done)
+        # Only TERMINATED implies the value of the next state is 0 (game over/goal reached)
+        # TRUNCATED means time limit reached, but value is not 0 (bootstrap from next state)
+        self.dones[self.ptr] = float(terminated)
         self.episode_ids[self.ptr] = self.current_episode_id
 
         # Track episode boundaries for frame stacking
-        if done:
+        # Both terminated and truncated mean the episode sequence has ended
+        if terminated or truncated:
             self.current_episode_id += 1
 
         # Update circular buffer pointer

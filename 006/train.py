@@ -394,7 +394,8 @@ def train(args: argparse.Namespace) -> None:
             done = terminated or truncated
 
             # Store stacked experience in replay buffer
-            replay_buffer.push(state, action, reward, next_state, float(done))
+            # Pass both terminated and truncated flags
+            replay_buffer.push(state, action, reward, next_state, terminated, truncated)
 
             # Increment step counter
             total_steps += 1

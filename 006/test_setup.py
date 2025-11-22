@@ -229,7 +229,9 @@ def test_agent() -> bool:
         # Test replay buffer
         print("\nTesting replay buffer...")
         buffer = ReplayBuffer(capacity=1000, state_shape=(state_dim,), action_dim=2, device=agent.device)
-        buffer.push(dummy_state, action, 1.0, dummy_state, False)
+    # Test push
+    # Pass terminated=False, truncated=False
+        buffer.push(dummy_state, action, 1.0, dummy_state, False, False)
         print(f"✓ Replay buffer works")
         print(f"  Buffer size: {len(buffer)}")
 

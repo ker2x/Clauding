@@ -1389,21 +1389,12 @@ class CarRacing(gym.Env, EzPickle):
         slip_angles_norm = [sa / np.pi for sa in slip_angles]
 
         # Normalize and clip slip ratios
-        for sr in slip_ratios:
-            if sr > 2.0:
-                print("WARNING: SLIP RATIO > 2.0: {}".format(sr))
-            elif sr < -2.0:
-                print("WARNING: SLIP RATIO < -2.0")
-        slip_ratios_norm = [sr / _NORM_PARAMS.MAX_SLIP_RATIO for sr in slip_ratios]
-#        slip_ratios_norm = [np.clip(sr / _NORM_PARAMS.MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
+        # Clip to [-1, 1] range to ensure stability
+        slip_ratios_norm = [np.clip(sr / _NORM_PARAMS.MAX_SLIP_RATIO, -1.0, 1.0) for sr in slip_ratios]
 
         # Normalize vertical forces
-        for vf in vertical_forces:
-            if vf > _NORM_PARAMS.MAX_VERTICAL_FORCE * 2:
-                print("WARNING: VERTICAL FORCE > MAX*2: {}".format(vf))
-            elif vf < -_NORM_PARAMS.MAX_VERTICAL_FORCE * 2:
-                print("WARNING: VERTICAL FORCE < MAX*2")
-        vertical_forces_norm = [vf / _NORM_PARAMS.MAX_VERTICAL_FORCE for vf in vertical_forces]
+        # Clip to [-2, 2] range (allows for some load transfer overshoot but prevents extreme values)
+        vertical_forces_norm = [np.clip(vf / _NORM_PARAMS.MAX_VERTICAL_FORCE, -2.0, 2.0) for vf in vertical_forces]
 
         # Normalize steering angle and rate
         steering_angle_norm = self.car.steering_angle / _STEER_PARAMS.MAX_STEER_ANGLE
