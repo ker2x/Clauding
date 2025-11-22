@@ -31,9 +31,9 @@ class VectorCritic(nn.Module):
     """
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 384) -> None:
         super(VectorCritic, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim * 2)
-        self.ln1 = nn.LayerNorm(hidden_dim * 2)  # Normalize after first layer for stability
-        self.fc2 = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
+        self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.ln2 = nn.LayerNorm(hidden_dim)  # Additional normalization for deeper network
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
         self.fc4 = nn.Linear(hidden_dim, hidden_dim // 2)  # Gradual dimensionality reduction
