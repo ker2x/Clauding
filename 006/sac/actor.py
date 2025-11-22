@@ -14,30 +14,33 @@ import torch.nn.functional as F
 
 class VectorActor(nn.Module):
     """
-    Actor (policy) network for vector state mode (71D input as of 006).
+    Actor (policy) network for vector state mode with frame stacking.
     Outputs mean and log_std for a Gaussian policy.
 
-    Optimized architecture (~2.1x faster forward pass):
-    - 2 hidden layers (reduced from 3)
-    - 128 hidden units (reduced from 256)
+    Architecture for frame-stacked observations (165D+):
+    - 3 hidden layers for temporal feature extraction
+    - 384 default hidden units (increased for frame stacking)
     - LayerNorm for training stability
-    - 26,500 parameters (83% reduction from 151,556)
+    - Deeper network to extract temporal patterns from stacked frames
 
     Uses LeakyReLU activation (negative_slope=0.01) to prevent dead neurons
     and improve gradient flow compared to standard ReLU.
     """
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 256) -> None:
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 384) -> None:
         super(VectorActor, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.ln1 = nn.LayerNorm(hidden_dim)  # Normalize after first layer for stability
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)  # Additional normalization for deeper network
+        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
 
         self.mean = nn.Linear(hidden_dim, action_dim)
         self.log_std = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = F.leaky_relu(self.ln1(self.fc1(state)), negative_slope=0.01)
-        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        x = F.leaky_relu(self.ln2(self.fc2(x)), negative_slope=0.01)
+        x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
 
         mean = self.mean(x)
         log_std = self.log_std(x)
