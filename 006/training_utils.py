@@ -80,35 +80,27 @@ def evaluate_agent(
     seed_offset: int | None = None,
     max_steps_per_episode: int | None = None,
     return_details: bool = False,
-    frame_stack: int = 1,
-    base_state_dim: int | None = None,
+    frame_stack: int = 1,  # Kept for backward compatibility, but ignored
+    base_state_dim: int | None = None,  # Kept for backward compatibility, but ignored
 ) -> float | tuple[float, float, list[float]]:
     """
     Evaluate agent performance over multiple episodes.
 
     Args:
         agent: SAC agent
-        env: CarRacing environment
+        env: CarRacing environment (handles frame stacking internally)
         n_episodes: Number of episodes to evaluate
         log_handle: Optional file handle for logging
         seed_offset: Optional seed offset for reproducibility
         max_steps_per_episode: Optional max steps per episode (safety timeout)
         return_details: If True, return (mean, std, all_rewards). If False, return just mean.
-        frame_stack: Number of frames to stack (1=disabled, 2+=enabled)
-        base_state_dim: Base state dimension (required if frame_stack > 1)
+        frame_stack: DEPRECATED - Environment handles frame stacking internally
+        base_state_dim: DEPRECATED - Environment handles frame stacking internally
 
     Returns:
         If return_details=True: Tuple of (mean_reward, std_reward, all_rewards)
         If return_details=False: mean_reward (float)
     """
-    from frame_buffer import FrameBuffer
-
-    # Create frame buffer if frame stacking is enabled
-    if frame_stack > 1:
-        if base_state_dim is None:
-            raise ValueError("base_state_dim must be provided when frame_stack > 1")
-        frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
-
     total_rewards = []
     total_steps = []
 
@@ -116,30 +108,17 @@ def evaluate_agent(
         if seed_offset is not None:
             state, _ = env.reset(seed=seed_offset + ep)
         else:
-            state, _ = env.reset()
-
-        # Initialize frame buffer for this episode
-        if frame_stack > 1:
-            frame_buffer.reset(state)
+            state, _ = env.reset()  # Environment returns stacked observation
 
         episode_reward = 0
         episode_steps = 0
         done = False
 
         while not done:
-            # Get observation for agent (stacked if frame_stack > 1)
-            if frame_stack > 1:
-                obs = frame_buffer.get()
-            else:
-                obs = state
-
             # Use deterministic policy (mean action)
-            action = agent.select_action(obs, evaluate=True)
+            # State is already stacked by environment
+            action = agent.select_action(state, evaluate=True)
             next_state, reward, terminated, truncated, _ = env.step(action)
-
-            # Update frame buffer if stacking
-            if frame_stack > 1:
-                frame_buffer.append(next_state)
 
             state = next_state
             episode_reward += reward

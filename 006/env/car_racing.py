@@ -37,7 +37,15 @@ from config.domain_randomization import DomainRandomizationConfig
 from utils.domain_randomizer import DomainRandomizer
 
 # Import normalization parameters
-from config.physics_config import NormalizationParams, SteeringParams, ObservationParams
+from config.physics_config import (
+    NormalizationParams,
+    SteeringParams,
+    ObservationParams,
+    get_stacked_observation_dim,
+)
+
+# Import frame buffer for frame stacking
+from frame_buffer import FrameBuffer
 
 # Create module-level instance of normalization, steering, and observation parameters
 _NORM_PARAMS = NormalizationParams()
@@ -548,8 +556,13 @@ class CarRacing(gym.Env, EzPickle):
         # Load from config (see config/physics_config.py:ObservationParams)
         # NUM_LOOKAHEAD: Number of waypoints in observation
         # WAYPOINT_STRIDE: Spacing between waypoints (1=consecutive, 2=every other, etc.)
+        # FRAME_STACK: Number of consecutive frames to stack
         self.vector_lookahead = _OBS_PARAMS.NUM_LOOKAHEAD
         self.waypoint_stride = _OBS_PARAMS.WAYPOINT_STRIDE
+        self.frame_stack = _OBS_PARAMS.FRAME_STACK
+
+        # Frame buffers for observation stacking (initialized per episode in reset())
+        self.frame_buffers: list[FrameBuffer] | None = None  # Multi-car support
 
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
@@ -576,7 +589,8 @@ class CarRacing(gym.Env, EzPickle):
         #   - Vertical forces (4): normal forces for each wheel
         #   - Steering state (2): current angle, rate
         # Variable component: NUM_LOOKAHEAD × 2 (waypoint x, y coordinates)
-        obs_dim = 33 + (self.vector_lookahead * 2)
+        # With frame stacking: (33 + NUM_LOOKAHEAD × 2) × FRAME_STACK
+        obs_dim = get_stacked_observation_dim(self.vector_lookahead, self.frame_stack)
 
         if self.num_cars > 1:
             # Multi-car: return stacked observations for all cars
@@ -624,18 +638,16 @@ class CarRacing(gym.Env, EzPickle):
         return colors[car_idx % len(colors)]
 
     def _get_all_observations(self) -> npt.NDArray[np.float32]:
-        """Get observations for all cars."""
+        """Get stacked observations for all cars from frame buffers."""
         if self.num_cars == 1:
-            return self._create_vector_state()
+            # Single car: return stacked observation from frame buffer
+            return self.frame_buffers[0].get()
         else:
+            # Multi-car: return stacked observations for all cars
             observations = []
-            for car in self.cars:
-                # Temporarily set self.car for _create_vector_state()
-                original_car = self.car
-                self.car = car
-                obs = self._create_vector_state()
-                self.car = original_car
-                observations.append(obs)
+            for car_idx in range(self.num_cars):
+                stacked_obs = self.frame_buffers[car_idx].get()
+                observations.append(stacked_obs)
             return np.array(observations, dtype=np.float32)
 
     def _create_track(self) -> bool:
@@ -938,10 +950,28 @@ class CarRacing(gym.Env, EzPickle):
         if self.render_mode == "human":
             self.render()
 
-        # Return vectorized observations for multi-car, single for backward compatibility
+        # Initialize frame buffers for all cars
+        # Get base observation dimension (without frame stacking)
+        base_obs_dim = 33 + (self.vector_lookahead * 2)
+
+        # Create frame buffers for each car
+        self.frame_buffers = [
+            FrameBuffer(frame_stack=self.frame_stack, state_shape=base_obs_dim)
+            for _ in range(self.num_cars)
+        ]
+
+        # Get initial observations and initialize frame buffers
         if self.num_cars > 1:
+            # Multi-car: get all base observations first
+            for car_idx, car in enumerate(self.cars):
+                original_car = self.car
+                self.car = car
+                base_obs = self._create_vector_state()
+                self.car = original_car
+                self.frame_buffers[car_idx].reset(base_obs)
             return self._get_all_observations(), {}
         else:
+            # Single car: call step(None) which will handle frame buffer
             return self.step(None)[0], {}
 
     def step(
@@ -1018,10 +1048,21 @@ class CarRacing(gym.Env, EzPickle):
         collision_time = (time.perf_counter() - collision_start) * 1000 if self.verbose else None
         self.t += 1.0 / FPS
 
-        # Create vector state
+        # Create vector state (base observation)
         state_start = time.perf_counter() if self.verbose else None
-        self.state = self._create_vector_state()
+        base_obs = self._create_vector_state()
         state_time = (time.perf_counter() - state_start) * 1000 if self.verbose else None
+
+        # Update frame buffer and get stacked observation
+        if action is None:
+            # First step from reset(): initialize frame buffer
+            self.frame_buffers[0].reset(base_obs)
+        else:
+            # Regular step: append new frame
+            self.frame_buffers[0].append(base_obs)
+
+        # Get stacked observation from frame buffer
+        self.state = self.frame_buffers[0].get()
 
         step_reward = 0
         terminated = False
@@ -1329,7 +1370,22 @@ class CarRacing(gym.Env, EzPickle):
                         step_rewards[car_idx] += self.short_episode_penalty
                         infos[car_idx]['reward_shaping'] = self.short_episode_penalty
 
-        # Get observations for all cars
+        # Update frame buffers for all cars and get stacked observations
+        for car_idx, car in enumerate(self.cars):
+            # Temporarily set self.car for _create_vector_state()
+            original_car = self.car
+            self.car = car
+            base_obs = self._create_vector_state()
+            self.car = original_car
+
+            # Update frame buffer
+            if action is None:
+                # First step from reset (shouldn't happen in multi-car mode, but handle it)
+                self.frame_buffers[car_idx].reset(base_obs)
+            else:
+                self.frame_buffers[car_idx].append(base_obs)
+
+        # Get stacked observations for all cars
         observations = self._get_all_observations()
 
         # Render if needed

@@ -29,7 +29,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from preprocessing import make_carracing_env
 from sac import SACAgent
 from utils.display import format_action, get_car_speed
-from frame_buffer import FrameBuffer
 from config.physics_config import ObservationParams, get_base_observation_dim
 
 # Use non-interactive backend
@@ -303,43 +302,37 @@ def main():
         max_episode_steps=DEFAULT_MAX_EPISODE_STEPS,
     )
 
-    # Detect frame stacking from checkpoint dimension
+    # Check dimensions
     obs_params = ObservationParams()
-    base_state_dim = get_base_observation_dim(obs_params.NUM_LOOKAHEAD)
+    base_obs_dim = get_base_observation_dim(obs_params.NUM_LOOKAHEAD)
+    frame_stack = obs_params.FRAME_STACK
     env_state_dim = env.observation_space.shape[0]
 
-    # Check if checkpoint uses frame stacking
-    if state_dim > base_state_dim and state_dim % base_state_dim == 0:
-        frame_stack = state_dim // base_state_dim
-        print(f"✓ Detected frame stacking: {frame_stack} frames ({base_state_dim} × {frame_stack} = {state_dim}D)")
+    # Environment handles frame stacking internally now
+    if frame_stack > 1:
+        expected_env_dim = base_obs_dim * frame_stack
+        print(f"✓ Frame stacking: {frame_stack} frames (handled by environment)")
+        print(f"  Base observation: {base_obs_dim}D")
+        print(f"  Stacked observation: {expected_env_dim}D")
     else:
-        frame_stack = 1
-        print(f"✓ No frame stacking (single frame: {state_dim}D)")
+        expected_env_dim = base_obs_dim
+        print(f"✓ No frame stacking (single frame: {base_obs_dim}D)")
 
-    # Verify base dimensions match
-    if env_state_dim != base_state_dim:
+    # Verify dimensions match between checkpoint and environment
+    if state_dim != env_state_dim:
         print(f"\n{'='*60}")
-        print(f"⚠️  WARNING: Base Dimension Mismatch!")
+        print(f"⚠️  WARNING: Dimension Mismatch!")
         print(f"{'='*60}")
-        print(f"Checkpoint base dimension: {base_state_dim}D")
+        print(f"Checkpoint dimension: {state_dim}D")
         print(f"Current environment: {env_state_dim}D")
         print(f"\nCurrent config (config/physics_config.py):")
         print(f"  NUM_LOOKAHEAD = {obs_params.NUM_LOOKAHEAD}")
         print(f"  WAYPOINT_STRIDE = {obs_params.WAYPOINT_STRIDE}")
-        print(f"\nTo use this checkpoint, adjust config to match:")
-        print(f"Common configurations:")
-        print(f"  - 73D: NUM_LOOKAHEAD=20, WAYPOINT_STRIDE=1")
-        print(f"  - 53D: NUM_LOOKAHEAD=10, WAYPOINT_STRIDE=2")
-        print(f"  - 63D: NUM_LOOKAHEAD=15, WAYPOINT_STRIDE=2")
+        print(f"  FRAME_STACK = {obs_params.FRAME_STACK}")
+        print(f"\nExpected: {base_obs_dim}D base × {frame_stack} frames = {expected_env_dim}D")
         print(f"{'='*60}")
         env.close()
-        raise RuntimeError(f"Cannot use checkpoint with base {base_state_dim}D and environment {env_state_dim}D")
-
-    # Create frame buffer if frame stacking is used
-    frame_buffer = None
-    if frame_stack > 1:
-        frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
-        print(f"✓ Frame buffer created (stack depth: {frame_stack})")
+        raise RuntimeError(f"Cannot load checkpoint with {state_dim}D using environment {env_state_dim}D")
     
     # Visualizer
     visualizer = BrainVisualizer(resolution=args.resolution)
@@ -355,11 +348,7 @@ def main():
 
     try:
         for episode in range(args.episodes):
-            state, _ = env.reset()
-
-            # Initialize frame buffer for this episode
-            if frame_buffer is not None:
-                frame_buffer.reset(state)
+            state, _ = env.reset()  # Environment returns stacked observation
 
             done = False
             total_reward = 0
@@ -370,14 +359,8 @@ def main():
             while not done:
                 start_time = time.time()
 
-                # Get observation for agent (stacked if frame stacking enabled)
-                if frame_buffer is not None:
-                    obs = frame_buffer.get()
-                else:
-                    obs = state
-
-                # Select action
-                action = agent.select_action(obs, evaluate=True)
+                # Select action (state is already stacked by environment)
+                action = agent.select_action(state, evaluate=True)
 
                 # Step
                 next_state, reward, terminated, truncated, _ = env.step(action)
@@ -385,13 +368,9 @@ def main():
                 total_reward += reward
                 step += 1
 
-                # Update frame buffer
-                if frame_buffer is not None:
-                    frame_buffer.append(next_state)
-
-                # Render (visualize with current single-frame state for interpretability)
+                # Render (visualize with current stacked state)
                 game_frame = env.render()
-                brain_view = visualizer.render(agent, obs, action, game_frame)
+                brain_view = visualizer.render(agent, state, action, game_frame)
                 
                 # Initialize video writer if needed
                 if args.save_video and video_writer is None:

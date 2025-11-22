@@ -57,7 +57,6 @@ from preprocessing import make_carracing_env
 from sac import SACAgent
 from utils.display import format_action, get_car_speed
 from config.physics_config import ObservationParams, get_base_observation_dim
-from frame_buffer import FrameBuffer
 
 # Load observation configuration
 _OBS_PARAMS = ObservationParams()
@@ -500,45 +499,38 @@ def watch_agent(args: argparse.Namespace) -> None:
     # Extract env state_dim from state_shape (for vector mode: (53,) -> 53)
     env_state_dim = state_shape[0] if len(state_shape) == 1 else state_shape
 
-    # Check if checkpoint uses frame stacking
+    # Check checkpoint state dimension
     checkpoint_temp = torch.load(args.checkpoint, map_location='cpu')
     checkpoint_state_dim = checkpoint_temp.get('state_dim', None)
 
-    # Calculate base state dimension
-    base_state_dim = get_base_observation_dim(_OBS_PARAMS.NUM_LOOKAHEAD)
+    # Calculate dimensions
+    base_obs_dim = get_base_observation_dim(_OBS_PARAMS.NUM_LOOKAHEAD)
+    frame_stack = _OBS_PARAMS.FRAME_STACK
 
-    # Detect frame stacking
-    if checkpoint_state_dim and checkpoint_state_dim > base_state_dim and checkpoint_state_dim % base_state_dim == 0:
-        frame_stack = checkpoint_state_dim // base_state_dim
-        print(f"✓ Detected frame stacking: {frame_stack} frames ({base_state_dim} × {frame_stack} = {checkpoint_state_dim}D)")
+    # Environment handles frame stacking internally now
+    if frame_stack > 1:
+        expected_env_dim = base_obs_dim * frame_stack
+        print(f"✓ Frame stacking: {frame_stack} frames (handled by environment)")
+        print(f"  Base observation: {base_obs_dim}D")
+        print(f"  Stacked observation: {expected_env_dim}D")
     else:
-        frame_stack = 1
-        if checkpoint_state_dim:
-            print(f"✓ No frame stacking (single frame: {checkpoint_state_dim}D)")
+        expected_env_dim = base_obs_dim
+        print(f"✓ No frame stacking (single frame: {base_obs_dim}D)")
 
-    # Verify base dimensions match
-    if env_state_dim != base_state_dim:
+    # Verify dimensions match between checkpoint and environment
+    if checkpoint_state_dim and checkpoint_state_dim != env_state_dim:
         print(f"\n{'='*60}")
-        print(f"⚠️  WARNING: Base Dimension Mismatch!")
+        print(f"⚠️  WARNING: Dimension Mismatch!")
         print(f"{'='*60}")
-        if checkpoint_state_dim:
-            print(f"Checkpoint base dimension: {base_state_dim}D (total: {checkpoint_state_dim}D)")
+        print(f"Checkpoint dimension: {checkpoint_state_dim}D")
         print(f"Current environment: {env_state_dim}D")
         print(f"\nCurrent config (config/physics_config.py):")
         print(f"  NUM_LOOKAHEAD = {_OBS_PARAMS.NUM_LOOKAHEAD}")
         print(f"  WAYPOINT_STRIDE = {_OBS_PARAMS.WAYPOINT_STRIDE}")
-        print(f"\nCommon configurations:")
-        print(f"  - 73D: NUM_LOOKAHEAD=20, WAYPOINT_STRIDE=1")
-        print(f"  - 53D: NUM_LOOKAHEAD=10, WAYPOINT_STRIDE=2")
-        print(f"  - 63D: NUM_LOOKAHEAD=15, WAYPOINT_STRIDE=2")
+        print(f"  FRAME_STACK = {_OBS_PARAMS.FRAME_STACK}")
+        print(f"\nExpected: {base_obs_dim}D base × {frame_stack} frames = {expected_env_dim}D")
         print(f"{'='*60}")
-        raise RuntimeError(f"Cannot load checkpoint with base {base_state_dim}D using environment {env_state_dim}D")
-
-    # Create frame buffer if needed
-    frame_buffer = None
-    if frame_stack > 1:
-        frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
-        print(f"✓ Frame buffer created (stack depth: {frame_stack})")
+        raise RuntimeError(f"Cannot load checkpoint with {checkpoint_state_dim}D using environment {env_state_dim}D")
 
     del checkpoint_temp  # Free memory
 
@@ -580,11 +572,7 @@ def watch_agent(args: argparse.Namespace) -> None:
 
     try:
         for episode in range(args.episodes):
-            state, _ = env.reset()
-
-            # Initialize frame buffer for this episode
-            if frame_buffer is not None:
-                frame_buffer.reset(state)
+            state, _ = env.reset()  # Environment returns stacked observation
 
             total_reward = 0
             step = 0
@@ -598,15 +586,9 @@ def watch_agent(args: argparse.Namespace) -> None:
             while not done:
                 frame_start = time.time()
 
-                # Get observation for agent (stacked if frame stacking enabled)
-                if frame_buffer is not None:
-                    obs = frame_buffer.get()
-                else:
-                    obs = state
-
-                # Select action (with optional stochastic sampling and temperature)
+                # Select action (state is already stacked by environment)
                 action = select_action_with_temperature(
-                    agent, obs,
+                    agent, state,
                     temperature=args.temperature,
                     stochastic=args.stochastic
                 )
@@ -614,10 +596,6 @@ def watch_agent(args: argparse.Namespace) -> None:
                 # Take step
                 next_state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
-
-                # Update frame buffer
-                if frame_buffer is not None:
-                    frame_buffer.append(next_state)
 
                 total_reward += reward
                 step += 1

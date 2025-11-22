@@ -85,8 +85,7 @@ from config.domain_randomization import (
     aggressive_randomization,
     wet_surface_conditions,
 )
-from config.physics_config import ObservationParams, get_stacked_observation_dim
-from frame_buffer import FrameBuffer
+from config.physics_config import ObservationParams, get_base_observation_dim
 
 
 def parse_args() -> argparse.Namespace:
@@ -285,21 +284,22 @@ def train(args: argparse.Namespace) -> None:
     )
 
     action_dim = env.action_space.shape[0]
-    base_state_dim = env.observation_space.shape[0]
+    state_dim = env.observation_space.shape[0]  # Environment handles frame stacking internally
 
-    # Frame stacking configuration
+    # Frame stacking configuration (done by environment)
     obs_params = ObservationParams()
     frame_stack = obs_params.FRAME_STACK
-    stacked_state_dim = get_stacked_observation_dim(obs_params.NUM_LOOKAHEAD, frame_stack)
+    base_obs_dim = get_base_observation_dim(obs_params.NUM_LOOKAHEAD)
 
     print(f"Environment created:")
     print(f"  State mode: vector")
-    print(f"  Base state dimension: {base_state_dim}")
+    print(f"  Base observation dimension: {base_obs_dim}")
     if frame_stack > 1:
-        print(f"  Frame stacking: {frame_stack} frames")
-        print(f"  Stacked state dimension: {stacked_state_dim} ({base_state_dim} × {frame_stack})")
+        print(f"  Frame stacking: {frame_stack} frames (handled by environment)")
+        print(f"  Stacked state dimension: {state_dim} ({base_obs_dim} × {frame_stack})")
     else:
         print(f"  Frame stacking: disabled")
+        print(f"  State dimension: {state_dim}")
     print(f"  Action space: Continuous (2D)")
     print(f"  Max episode steps: {MAX_EPISODE_STEPS} (prevents infinite episodes)")
     print(f"  Early termination enabled (patience={STATIONARY_PATIENCE} frames)")
@@ -307,10 +307,10 @@ def train(args: argparse.Namespace) -> None:
     if domain_rand_config and domain_rand_config.enabled:
         print(f"  Domain randomization: {args.domain_randomization} preset")
 
-    # Create agent (with stacked state dimension)
+    # Create agent (environment returns stacked states)
     print("\nCreating SAC agent...")
     agent = SACAgent(
-        state_dim=stacked_state_dim,
+        state_dim=state_dim,
         action_dim=action_dim,
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
@@ -321,19 +321,15 @@ def train(args: argparse.Namespace) -> None:
         device=device
     )
 
-    # Create replay buffer (stores single frames, stacks during sampling)
+    # Create replay buffer (environment already provides stacked observations)
     print("Creating replay buffer...")
     replay_buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=base_state_dim,
+        state_shape=state_dim,  # Store stacked observations directly
         action_dim=action_dim,
         device=device,
-        frame_stack=frame_stack
+        frame_stack=1  # No additional stacking needed
     )
-
-    # Create frame buffer for environment interaction (stacks frames for action selection)
-    frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
-    print(f"Frame buffer created (stack depth: {frame_stack})")
 
     # Resume from checkpoint if specified
     start_episode = 0
@@ -377,8 +373,7 @@ def train(args: argparse.Namespace) -> None:
     start_time = time.time()
 
     for episode in range(start_episode, start_episode + args.episodes):
-        state, _ = env.reset()
-        frame_buffer.reset(state)  # Initialize frame buffer with first frame
+        state, _ = env.reset()  # Environment returns stacked observation
         episode_reward = 0
         episode_metrics = {
             'actor_loss': [],
@@ -391,22 +386,15 @@ def train(args: argparse.Namespace) -> None:
 
         # Episode loop
         while not done:
-            # Get stacked observation for action selection
-            stacked_state = frame_buffer.get()
-
-            # Select action (stochastic during training)
-            action = agent.select_action(stacked_state, evaluate=False)
+            # Select action (state is already stacked by environment)
+            action = agent.select_action(state, evaluate=False)
 
             # Take step in environment
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
-            # Store single-frame experience in replay buffer
-            # (replay buffer handles stacking during sampling)
+            # Store stacked experience in replay buffer
             replay_buffer.push(state, action, reward, next_state, float(done))
-
-            # Update frame buffer with new observation
-            frame_buffer.append(next_state)
 
             # Increment step counter
             total_steps += 1
@@ -497,7 +485,7 @@ def train(args: argparse.Namespace) -> None:
             log_handle.write(f"[{eval_timestamp}] {'=' * 50}\n")
             log_handle.write(f"[{eval_timestamp}] Evaluation at episode {episode + 1}\n")
 
-            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=DEFAULT_INTERMEDIATE_EVAL_EPISODES, log_handle=log_handle, return_details=True, frame_stack=frame_stack, base_state_dim=base_state_dim)
+            eval_mean, eval_std, eval_rewards_list = evaluate_agent(agent, env, n_episodes=DEFAULT_INTERMEDIATE_EVAL_EPISODES, log_handle=log_handle, return_details=True)
             print(f"Evaluation reward ({DEFAULT_INTERMEDIATE_EVAL_EPISODES} episodes): {eval_mean:.2f} (±{eval_std:.2f})")
             print("-" * 60 + "\n")
 
@@ -554,7 +542,7 @@ def train(args: argparse.Namespace) -> None:
     log_handle.write(f"[{final_timestamp}] {'=' * 50}\n")
     log_handle.write(f"[{final_timestamp}] Final evaluation ({DEFAULT_FINAL_EVAL_EPISODES} episodes)\n")
 
-    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=DEFAULT_FINAL_EVAL_EPISODES, log_handle=log_handle, return_details=True, frame_stack=frame_stack, base_state_dim=base_state_dim)
+    final_eval_mean, final_eval_std, final_eval_rewards = evaluate_agent(agent, env, n_episodes=DEFAULT_FINAL_EVAL_EPISODES, log_handle=log_handle, return_details=True)
     print(f"Final evaluation reward ({DEFAULT_FINAL_EVAL_EPISODES} episodes): {final_eval_mean:.2f} (±{final_eval_std:.2f})")
     print("=" * 60)
 

@@ -46,8 +46,7 @@ from preprocessing import make_carracing_env
 from sac import SACAgent, ReplayBuffer
 from training_utils import evaluate_agent, setup_logging
 from config.constants import *
-from config.physics_config import ObservationParams, get_stacked_observation_dim
-from frame_buffer import FrameBuffer
+from config.physics_config import ObservationParams, get_base_observation_dim
 from config.domain_randomization import (
     DomainRandomizationConfig,
     conservative_randomization,
@@ -184,18 +183,18 @@ def worker_process(
         domain_randomization_config=domain_rand_config,
     )
 
-    base_state_dim = env.observation_space.shape[0]
+    state_dim = env.observation_space.shape[0]  # Environment handles frame stacking
     action_dim = env.action_space.shape[0]
     device = torch.device('cpu')  # Force CPU for multiprocessing
 
-    # Frame stacking configuration
+    # Frame stacking configuration (done by environment)
     obs_params = ObservationParams()
     frame_stack = obs_params.FRAME_STACK
-    stacked_state_dim = get_stacked_observation_dim(obs_params.NUM_LOOKAHEAD, frame_stack)
+    base_obs_dim = get_base_observation_dim(obs_params.NUM_LOOKAHEAD)
 
-    # Create agent (with stacked state dimension)
+    # Create agent (environment returns stacked states)
     agent = SACAgent(
-        state_dim=stacked_state_dim,
+        state_dim=state_dim,
         action_dim=action_dim,
         lr_actor=args.lr_actor,
         lr_critic=args.lr_critic,
@@ -210,17 +209,14 @@ def worker_process(
     if args.resume:
         agent.load(args.resume)
 
-    # Create replay buffer (stores single frames, stacks during sampling)
+    # Create replay buffer (environment already provides stacked observations)
     buffer = ReplayBuffer(
         capacity=args.buffer_size,
-        state_shape=base_state_dim,
+        state_shape=state_dim,  # Store stacked observations directly
         action_dim=action_dim,
         device=device,
-        frame_stack=frame_stack
+        frame_stack=1  # No additional stacking needed
     )
-
-    # Create frame buffer for environment interaction
-    frame_buffer = FrameBuffer(frame_stack=frame_stack, state_shape=base_state_dim)
 
     total_steps = 0
     episode_count = 0
@@ -263,8 +259,7 @@ def worker_process(
         else:
             seed = 1000 + episode_offset + episode_count + agent_id * 10000
 
-        obs, _ = env.reset(seed=seed)
-        frame_buffer.reset(obs)  # Initialize frame buffer with first frame
+        obs, _ = env.reset(seed=seed)  # Environment returns stacked observation
         episode_reward = 0.0
         terminated = False
         truncated = False
@@ -282,17 +277,13 @@ def worker_process(
         }
 
         while not (terminated or truncated):
-            # Get stacked observation for action selection
-            stacked_obs = frame_buffer.get()
-            action = agent.select_action(stacked_obs, evaluate=False)
+            # Select action (obs is already stacked by environment)
+            action = agent.select_action(obs, evaluate=False)
             next_obs, reward, terminated, truncated, _ = env.step(action)
 
-            # Store single-frame experience in replay buffer
+            # Store stacked experience in replay buffer
             buffer.push(obs, action, float(reward), next_obs, float(terminated or truncated))
             episode_reward += reward
-
-            # Update frame buffer with new observation
-            frame_buffer.append(next_obs)
 
             # Train agent
             if (total_steps >= args.learning_starts and
