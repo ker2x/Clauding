@@ -52,8 +52,7 @@ _NORM_PARAMS = NormalizationParams()
 _STEER_PARAMS = SteeringParams()
 _OBS_PARAMS = ObservationParams()
 
-# Box2D no longer needed - using custom 2D physics engine
-# Removed Box2D dependency for cleaner, more interpretable physics
+
 
 try:
     # As pygame is necessary for using the environment (reset and step) even without a render mode
@@ -329,12 +328,10 @@ class FrictionDetector:
                 # Initialize per-car tracking on first use
                 if not hasattr(tile, 'visited_by_cars'):
                     tile.visited_by_cars = set()
-                    tile.road_visited = False  # Keep for backward compatibility
 
                 # Track tile visit for this car
                 if car_id not in tile.visited_by_cars:
                     tile.visited_by_cars.add(car_id)
-                    tile.road_visited = True  # Mark as visited for backward compatibility
 
                     # Update visited tile count for this car
                     self.env.tile_visited_count += 1
@@ -510,8 +507,6 @@ class CarRacing(gym.Env, EzPickle):
         self._init_colors()
 
         self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
-        # No Box2D world needed - using custom physics engine
-        self.world = None  # Kept for compatibility with Car.__init__
         self.screen: pygame.Surface | None = None
         self.surf = None
         self.clock = None
@@ -520,19 +515,10 @@ class CarRacing(gym.Env, EzPickle):
         self.invisible_video_window = None
         self.road: list[Any] | None = None
 
-        # Car instances
-        self.cars: list[Car] = []  # List of Car instances
-        self.car: Car | None = None  # Primary car (for single-car backward compatibility)
+        # Single car instance
+        self.car: Car | None = None
 
-        # Per-car tracking
-        self.car_rewards: list[float] = []
-        self.car_prev_rewards: list[float] = []
-        self.car_tile_visited_counts: list[int] = []
-        self.car_last_checkpoints: list[int] = []
-        self.car_frames_since_progress: list[int] = []
-        self.car_total_steps = []
-
-        # Single-car tracking (backward compatibility)
+        # Single-car tracking
         self.reward = 0.0
         self.prev_reward = 0.0
 
@@ -595,16 +581,10 @@ class CarRacing(gym.Env, EzPickle):
     def _destroy(self) -> None:
         if not self.road:
             return
-        # Tiles are just objects now, no Box2D bodies to destroy
         self.road = []
-        # Destroy all cars
-        for car in self.cars:
-            if car is not None:
-                car.destroy()
-        self.cars = []
+        if self.car is not None:
+            self.car.destroy()
         self.car = None
-
-
 
     def _init_colors(self) -> None:
         # Default track colors
@@ -747,7 +727,7 @@ class CarRacing(gym.Env, EzPickle):
             for neg in range(BORDER_MIN_COUNT):
                 border[i - neg] |= border[i]
 
-        # Create tiles (no Box2D, just geometry)
+        # Create tiles
         for i in range(len(track)):
             alpha1, beta1, x1, y1 = track[i]
             alpha2, beta2, x2, y2 = track[i - 1]
@@ -769,7 +749,7 @@ class CarRacing(gym.Env, EzPickle):
             )
             vertices = [road1_l, road1_r, road2_r, road2_l]
 
-            # Create simple tile object (no Box2D)
+            # Create tile object
             t = type('Tile', (), {})()
             t.userData = t
             c = 0.01 * (i % 3) * 255
@@ -869,18 +849,16 @@ class CarRacing(gym.Env, EzPickle):
         init_yaw = init_beta + (math.pi / 2.0)
 
         # Create single car
-        car = Car(self.world, init_yaw, init_x, init_y)
+        car = Car(init_yaw, init_x, init_y)
         car.hull.color = (0.8, 0.0, 0.0)  # Red color
-        self.cars = [car]
         self.car = car
 
         # Apply domain randomization
         if self.domain_randomization_config.enabled:
             randomized_params = self.domain_randomizer.randomize()
 
-            # Apply to all cars
-            for car in self.cars:
-                self.domain_randomizer.apply_to_car(car, randomized_params)
+            # Apply to car
+            self.domain_randomizer.apply_to_car(self.car, randomized_params)
 
             # Apply to track
             self.domain_randomizer.apply_to_track(self, randomized_params)
@@ -928,12 +906,6 @@ class CarRacing(gym.Env, EzPickle):
             truncated: bool - episode truncated (timeout or stationary)
             info: dict - additional info
         """
-        return self._step_single_car(action)
-
-    def _step_single_car(
-        self, action: npt.NDArray[np.float32] | int | None
-    ) -> tuple[npt.NDArray[np.float32], float, bool, bool, dict[str, Any]]:
-        """Original single-car step logic (backward compatible)."""
         assert self.car is not None
 
         # Start timing for verbose mode
@@ -1513,7 +1485,7 @@ class CarRacing(gym.Env, EzPickle):
         trans = (WINDOW_W / 2 + trans[0], WINDOW_H / 4 + trans[1])
 
         self._render_road(zoom, trans, angle)
-        # Draw car (simplified for new physics engine, no Box2D)
+        # Draw car
         self._render_car(zoom, trans, angle, draw_particles=True)
 
         self.surf = pygame.transform.flip(self.surf, False, True)
@@ -1543,19 +1515,12 @@ class CarRacing(gym.Env, EzPickle):
         self, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True
     ) -> None:
         """
-        Render car for full rendering.
-        """
-        # Render all cars
-        for car in self.cars:
-            self._render_single_car(car, zoom, translation, angle, draw_particles)
-
-    def _render_single_car(
-        self, car: Car, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True
-    ) -> None:
-        """
         Render a single car and its wheels (compatible with new physics engine).
         Draws the car body AND the four wheels, rotating the front wheels with steering.
         """
+        assert self.car is not None
+        car = self.car
+
         # 1. DRAW CAR BODY
         car_x, car_y = car.hull.position
         car_world_angle = car.hull.angle
@@ -1805,7 +1770,8 @@ class CarRacing(gym.Env, EzPickle):
 
 
 if __name__ == "__main__":
-    a = np.array([0.0, 0.0, 0.0])
+    # Demo with keyboard controls: [steering, acceleration]
+    a = np.array([0.0, 0.0])
 
     def register_input():
         global quit, restart
@@ -1818,7 +1784,7 @@ if __name__ == "__main__":
                 if event.key == pygame.K_UP:
                     a[1] = +1.0
                 if event.key == pygame.K_DOWN:
-                    a[2] = +0.8  # set 1.0 for wheels to block to zero rotation
+                    a[1] = -1.0  # Brake
                 if event.key == pygame.K_RETURN:
                     restart = True
                 if event.key == pygame.K_ESCAPE:
@@ -1832,7 +1798,7 @@ if __name__ == "__main__":
                 if event.key == pygame.K_UP:
                     a[1] = 0
                 if event.key == pygame.K_DOWN:
-                    a[2] = 0
+                    a[1] = 0
 
             if event.type == pygame.QUIT:
                 quit = True

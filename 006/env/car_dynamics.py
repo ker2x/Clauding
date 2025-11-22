@@ -66,7 +66,6 @@ class Car:
 
     def __init__(
         self,
-        world: Any,
         init_angle: float,
         init_x: float,
         init_y: float,
@@ -76,7 +75,6 @@ class Car:
         Initialize car at position with given heading.
 
         Args:
-            world: Box2D world (kept for compatibility, not used)
             init_angle: Initial heading angle (rad)
             init_x, init_y: Initial position
             physics_config: PhysicsConfig instance (defaults to PhysicsConfig())
