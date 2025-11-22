@@ -254,6 +254,13 @@ def train(args: argparse.Namespace) -> None:
     # Configure CPU threading for optimal performance
     configure_cpu_threading(device)
 
+    # Auto-scale batch size for MPS if using default
+    # MPS performs significantly better with larger batches (e.g. 1024 vs 256)
+    if device.type == 'mps' and args.batch_size == DEFAULT_BATCH_SIZE:
+        print(f"MPS detected with default batch size ({args.batch_size}).")
+        args.batch_size = 1024
+        print(f"Auto-scaling batch size to {args.batch_size} for optimal MPS performance.")
+
     # Configure domain randomization
     domain_rand_config = None
     if args.domain_randomization != 'none':
