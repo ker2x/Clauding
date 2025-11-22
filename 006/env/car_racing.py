@@ -323,24 +323,21 @@ class FrictionDetector:
                 # Wheel is on track (inside polygon or very close to edge)
                 wheel.tiles.add(tile)
 
-                # Get car ID (multi-car support)
-                car_id = car.car_id if hasattr(car, 'car_id') else 0
+                # Get car ID
+                car_id = wheel.car_id if hasattr(wheel, 'car_id') else 0
 
-                # Initialize per-car tracking on first use (multi-car support)
+                # Initialize per-car tracking on first use
                 if not hasattr(tile, 'visited_by_cars'):
                     tile.visited_by_cars = set()
                     tile.road_visited = False  # Keep for backward compatibility
 
-                # Handle tile visitation (per-car tracking)
+                # Track tile visit for this car
                 if car_id not in tile.visited_by_cars:
                     tile.visited_by_cars.add(car_id)
-                    tile.road_visited = True  # Backward compatibility
+                    tile.road_visited = True  # Mark as visited for backward compatibility
 
-                    # Update per-car tile count
-                    if self.env.num_cars > 1:
-                        self.env.car_tile_visited_counts[car_id] += 1
-                    else:
-                        self.env.tile_visited_count += 1
+                    # Update visited tile count for this car
+                    self.env.tile_visited_count += 1
 
                     # Update furthest tile reached (for progress tracking)
                     # Anti-exploit: Only update if car is moving forward (prevents backward driving exploits)
@@ -351,16 +348,12 @@ class FrictionDetector:
                         self.env.furthest_tile_idx = tile.idx
                     elif not is_moving_forward and self.env.verbose and tile.idx > self.env.furthest_tile_idx:
                         # Debug: car reached new tile while moving backward
-                        car_str = f"Car {car_id} " if self.env.num_cars > 1 else ""
-                        print(f"  ⚠ {car_str}Tile {tile.idx} reached while moving BACKWARD "
+                        print(f"  ⚠ Tile {tile.idx} reached while moving BACKWARD "
                               f"(vx={car_forward_velocity:.2f} m/s) - NO PROGRESS UPDATE")
 
-                    # Lap completion check (per-car)
+                    # Lap completion check
                     if tile.idx == 0:
-                        if self.env.num_cars > 1:
-                            progress = self.env.car_tile_visited_counts[car_id] / len(self.env.track)
-                        else:
-                            progress = self.env.tile_visited_count / len(self.env.track)
+                        progress = self.env.tile_visited_count / len(self.env.track)
 
                         if progress > self.lap_complete_percent:
                             self.env.new_lap = True
@@ -470,7 +463,6 @@ class CarRacing(gym.Env, EzPickle):
         reward_shaping: bool = True,
         min_episode_steps: int = 150,
         short_episode_penalty: float = -50.0,
-        num_cars: int = 1,
         domain_randomization_config: DomainRandomizationConfig | None = None,
     ):
         """
@@ -481,8 +473,6 @@ class CarRacing(gym.Env, EzPickle):
             reward_shaping: Apply penalty for short episodes (default: True)
             min_episode_steps: Minimum episode length before penalty (default: 150)
             short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -50.0)
-            num_cars: Number of cars racing simultaneously (default: 1). When >1, enables multi-car mode
-                      where all cars race on the same track as ghost cars (no collision with each other).
             domain_randomization_config: Configuration for domain randomization (default: None, disabled).
                       Use config.domain_randomization presets or create custom DomainRandomizationConfig.
         """
@@ -499,7 +489,6 @@ class CarRacing(gym.Env, EzPickle):
             reward_shaping,
             min_episode_steps,
             short_episode_penalty,
-            num_cars,
             domain_randomization_config,
         )
         self.lap_complete_percent = lap_complete_percent
@@ -511,7 +500,6 @@ class CarRacing(gym.Env, EzPickle):
         self.reward_shaping = reward_shaping
         self.min_episode_steps = min_episode_steps
         self.short_episode_penalty = short_episode_penalty
-        self.num_cars = num_cars
 
         # Domain randomization
         if domain_randomization_config is None:
@@ -532,11 +520,11 @@ class CarRacing(gym.Env, EzPickle):
         self.invisible_video_window = None
         self.road: list[Any] | None = None
 
-        # Multi-car support: cars list + backward compatibility
-        self.cars: list[Car] = []  # List of Car instances (multi-car mode)
-        self.car: Car | None = None  # Single car reference (backward compatibility)
+        # Car instances
+        self.cars: list[Car] = []  # List of Car instances
+        self.car: Car | None = None  # Primary car (for single-car backward compatibility)
 
-        # Per-car tracking (multi-car mode)
+        # Per-car tracking
         self.car_rewards: list[float] = []
         self.car_prev_rewards: list[float] = []
         self.car_tile_visited_counts: list[int] = []
@@ -561,13 +549,12 @@ class CarRacing(gym.Env, EzPickle):
         self.waypoint_stride = _OBS_PARAMS.WAYPOINT_STRIDE
         self.frame_stack = _OBS_PARAMS.FRAME_STACK
 
-        # Frame buffers for observation stacking (initialized per episode in reset())
-        self.frame_buffers: list[FrameBuffer] | None = None  # Multi-car support
+        # Frame buffer for observation stacking (initialized per episode in reset())
+        self.frame_buffer: FrameBuffer | None = None
 
         # Previous action tracking (for observation space)
         # Helps agent learn smooth, consistent control
-        self.prev_actions: list[np.ndarray] | None = None  # Multi-car support: [num_cars, 2]
-        self.prev_action: np.ndarray = np.zeros(2, dtype=np.float32)  # Single car: [steering, acceleration]
+        self.prev_action: np.ndarray = np.zeros(2, dtype=np.float32)  # [steering, acceleration]
 
         # Progress tracking for continuous rewards (configured at top of file)
         self.progress_reward_scale = PROGRESS_REWARD_SCALE
@@ -598,16 +585,10 @@ class CarRacing(gym.Env, EzPickle):
         # With frame stacking: (35 + NUM_LOOKAHEAD × 2) × FRAME_STACK
         obs_dim = get_stacked_observation_dim(self.vector_lookahead, self.frame_stack)
 
-        if self.num_cars > 1:
-            # Multi-car: return stacked observations for all cars
-            self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(self.num_cars, obs_dim), dtype=np.float32
-            )
-        else:
-            # Single car (backward compatible)
-            self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
-            )
+        # Single car observation space
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
+        )
 
         self.render_mode = render_mode
 
@@ -616,12 +597,14 @@ class CarRacing(gym.Env, EzPickle):
             return
         # Tiles are just objects now, no Box2D bodies to destroy
         self.road = []
-        # Destroy all cars (multi-car support)
+        # Destroy all cars
         for car in self.cars:
             if car is not None:
                 car.destroy()
         self.cars = []
         self.car = None
+
+
 
     def _init_colors(self) -> None:
         # Default track colors
@@ -629,32 +612,9 @@ class CarRacing(gym.Env, EzPickle):
         self.bg_color = np.array([102, 204, 102])
         self.grass_color = np.array([102, 230, 102])
 
-    def _get_car_color(self, car_idx: int) -> tuple[float, float, float]:
-        """Return distinct color for each car (for rendering)."""
-        colors = [
-            (0.8, 0.0, 0.0),  # Red
-            (0.0, 0.0, 0.8),  # Blue
-            (0.0, 0.8, 0.0),  # Green
-            (0.8, 0.8, 0.0),  # Yellow
-            (0.8, 0.0, 0.8),  # Magenta
-            (0.0, 0.8, 0.8),  # Cyan
-            (0.8, 0.4, 0.0),  # Orange
-            (0.4, 0.0, 0.8),  # Purple
-        ]
-        return colors[car_idx % len(colors)]
-
-    def _get_all_observations(self) -> npt.NDArray[np.float32]:
-        """Get stacked observations for all cars from frame buffers."""
-        if self.num_cars == 1:
-            # Single car: return stacked observation from frame buffer
-            return self.frame_buffers[0].get()
-        else:
-            # Multi-car: return stacked observations for all cars
-            observations = []
-            for car_idx in range(self.num_cars):
-                stacked_obs = self.frame_buffers[car_idx].get()
-                observations.append(stacked_obs)
-            return np.array(observations, dtype=np.float32)
+    def _get_observation(self) -> npt.NDArray[np.float32]:
+        """Get stacked observation from frame buffer."""
+        return self.frame_buffer.get()
 
     def _create_track(self) -> bool:
         CHECKPOINTS = 12
@@ -864,15 +824,7 @@ class CarRacing(gym.Env, EzPickle):
         # Recreate friction detector for new episode
         self.friction_detector = FrictionDetector(self, self.lap_complete_percent)
 
-        # Initialize per-car tracking arrays
-        self.car_rewards = [0.0] * self.num_cars
-        self.car_prev_rewards = [0.0] * self.num_cars
-        self.car_tile_visited_counts = [0] * self.num_cars
-        self.car_last_checkpoints = [-1] * self.num_cars
-        self.car_frames_since_progress = [0] * self.num_cars
-        self.car_total_steps = [0] * self.num_cars
-
-        # Single-car tracking (backward compatibility)
+        # Single-car tracking
         self.reward = 0.0
         self.prev_reward = 0.0
         self.tile_visited_count = 0
@@ -888,13 +840,9 @@ class CarRacing(gym.Env, EzPickle):
         # Episode step counter for timeout and reward shaping
         self.episode_steps = 0
 
-        # Previous velocity for acceleration computation (per-car)
-        if self.num_cars > 1:
-            self.car_prev_vx = [0.0] * self.num_cars
-            self.car_prev_vy = [0.0] * self.num_cars
-        else:
-            self.prev_vx = 0.0
-            self.prev_vy = 0.0
+        # Previous velocity for acceleration computation
+        self.prev_vx = 0.0
+        self.prev_vy = 0.0
 
         # Progress tracking for continuous rewards
         self.furthest_tile_idx = 0  # Furthest tile index reached (for progress calculation)
@@ -920,17 +868,11 @@ class CarRacing(gym.Env, EzPickle):
         # normal (beta). We set the car's initial yaw to align these.
         init_yaw = init_beta + (math.pi / 2.0)
 
-        # Create cars (multi-car support)
-        self.cars = []
-        for car_idx in range(self.num_cars):
-            car = Car(self.world, init_yaw, init_x, init_y)
-            car.car_id = car_idx  # Track which car this is
-            # Assign different colors for rendering
-            car.hull.color = self._get_car_color(car_idx)
-            self.cars.append(car)
-
-        # Maintain backward compatibility
-        self.car = self.cars[0] if self.num_cars > 0 else None
+        # Create single car
+        car = Car(self.world, init_yaw, init_x, init_y)
+        car.hull.color = (0.8, 0.0, 0.0)  # Red color
+        self.cars = [car]
+        self.car = car
 
         # Apply domain randomization
         if self.domain_randomization_config.enabled:
@@ -953,70 +895,40 @@ class CarRacing(gym.Env, EzPickle):
                 print(f"  Engine Power: {info.get('engine_power', 'N/A'):.0f} W")
                 print(f"====================================\n")
 
-        if self.render_mode == "human":
-            self.render()
+        # Initialize previous action
+        self.prev_action = np.zeros(2, dtype=np.float32)
 
-        # Initialize previous actions for all cars
-        self.prev_actions = [np.zeros(2, dtype=np.float32) for _ in range(self.num_cars)]
-        self.prev_action = np.zeros(2, dtype=np.float32)  # Single car backward compatibility
-
-        # Initialize frame buffers for all cars
+        # Initialize frame buffer
         # Get base observation dimension (without frame stacking)
         base_obs_dim = 35 + (self.vector_lookahead * 2)
+        self.frame_buffer = FrameBuffer(frame_stack=self.frame_stack, state_shape=base_obs_dim)
 
-        # Create frame buffers for each car
-        self.frame_buffers = [
-            FrameBuffer(frame_stack=self.frame_stack, state_shape=base_obs_dim)
-            for _ in range(self.num_cars)
-        ]
-
-        # Get initial observations and initialize frame buffers
-        if self.num_cars > 1:
-            # Multi-car: get all base observations first
-            for car_idx, car in enumerate(self.cars):
-                original_car = self.car
-                original_prev_action = self.prev_action.copy()
-                self.car = car
-                self.prev_action = self.prev_actions[car_idx]
-                base_obs = self._create_vector_state()
-                self.car = original_car
-                self.prev_action = original_prev_action
-                self.frame_buffers[car_idx].reset(base_obs)
-            return self._get_all_observations(), {}
-        else:
-            # Single car: call step(None) which will handle frame buffer
-            return self.step(None)[0], {}
+        # First step from reset(): call step(None) which will initialize frame buffer
+        return self.step(None)[0], {}
 
     def step(
         self, action: npt.NDArray[np.float32] | int | None
     ) -> tuple[
         npt.NDArray[np.float32],
-        float | npt.NDArray[np.float32],
-        bool | npt.NDArray[np.bool_],
-        bool | npt.NDArray[np.bool_],
-        dict[str, Any] | list[dict[str, Any]],
+        float,
+        bool,
+        bool,
+        dict[str, Any],
     ]:
         """
-        Step environment with 1 or N cars.
+        Step environment with single car.
 
         Args:
-            action:
-                - Single car: shape (2,) or int or None
-                - Multi car: shape (num_cars, 2) or array of ints
+            action: shape (2,) or int or None - [steering, acceleration]
 
         Returns:
-            observations: shape (num_cars, 73) if multi-car, else (73,)
-            rewards: shape (num_cars,) if multi-car, else scalar
-            terminated: shape (num_cars,) if multi-car, else bool
-            truncated: shape (num_cars,) if multi-car, else bool
-            infos: list of dicts if multi-car, else dict
+            observation: shape (73,) - stacked vector state
+            reward: float - reward signal
+            terminated: bool - episode ended (lap complete or off track)
+            truncated: bool - episode truncated (timeout or stationary)
+            info: dict - additional info
         """
-        if self.num_cars == 1:
-            # Single car mode (backward compatible)
-            return self._step_single_car(action)
-        else:
-            # Multi-car mode
-            return self._step_multi_car(action)
+        return self._step_single_car(action)
 
     def _step_single_car(
         self, action: npt.NDArray[np.float32] | int | None
@@ -1076,13 +988,13 @@ class CarRacing(gym.Env, EzPickle):
         # Update frame buffer and get stacked observation
         if action is None:
             # First step from reset(): initialize frame buffer
-            self.frame_buffers[0].reset(base_obs)
+            self.frame_buffer.reset(base_obs)
         else:
             # Regular step: append new frame
-            self.frame_buffers[0].append(base_obs)
+            self.frame_buffer.append(base_obs)
 
         # Get stacked observation from frame buffer
-        self.state = self.frame_buffers[0].get()
+        self.state = self.frame_buffer.get()
 
         step_reward = 0
         terminated = False
@@ -1249,182 +1161,6 @@ class CarRacing(gym.Env, EzPickle):
 
         return self.state, step_reward, terminated, truncated, info
 
-    def _step_multi_car(
-        self, action: npt.NDArray[np.float32] | None
-    ) -> tuple[
-        npt.NDArray[np.float32],
-        npt.NDArray[np.float32],
-        npt.NDArray[np.bool_],
-        npt.NDArray[np.bool_],
-        list[dict[str, Any]],
-    ]:
-        """
-        Step all cars in parallel on the same track.
-
-        Args:
-            action: shape (num_cars, 2) or (num_cars,) - actions for all cars
-
-        Returns:
-            observations: (num_cars, 73)
-            rewards: (num_cars,)
-            terminated: (num_cars,)
-            truncated: (num_cars,)
-            infos: list[dict]
-        """
-        # Validate action shape
-        if action is not None:
-            assert action.shape == (self.num_cars, 2), \
-                f"Expected action shape ({self.num_cars}, 2), got {action.shape}"
-
-        step_rewards = np.zeros(self.num_cars, dtype=np.float32)
-        terminated = np.zeros(self.num_cars, dtype=bool)
-        truncated = np.zeros(self.num_cars, dtype=bool)
-        infos = [{} for _ in range(self.num_cars)]
-
-        # Create observations BEFORE executing actions (so they contain action_{t-1})
-        base_observations = []
-        for car_idx, car in enumerate(self.cars):
-            original_car = self.car
-            original_prev_action = self.prev_action.copy()
-            self.car = car
-            self.prev_action = self.prev_actions[car_idx]
-            base_obs = self._create_vector_state()
-            self.car = original_car
-            self.prev_action = original_prev_action
-            base_observations.append(base_obs)
-
-        # Step each car independently
-        for car_idx, car in enumerate(self.cars):
-            if action is not None:
-                car_action = action[car_idx]
-
-                # Apply continuous action to this car
-                steer_action = -car_action[0]
-                accel = min(1.0, max(-1.0, car_action[1]))
-                gas = accel if accel > 0 else 0.0
-                brake = -accel if accel < 0 else 0.0
-                car.steer(steer_action)
-                car.gas(gas)
-                car.brake(brake)
-
-                # Step physics for this car
-                car.step(1.0 / FPS)
-
-                # Update contacts for this car ONLY (no car-car collision)
-                # Temporarily set self.car for friction_detector
-                original_car = self.car
-                self.car = car
-                self.friction_detector.update_contacts(car, self.road)
-                self.car = original_car
-
-                # Calculate reward for this car
-                self.car_rewards[car_idx] -= STEP_PENALTY
-
-                # Off-track penalty
-                wheels_off = sum(1 for wheel in car.wheels if len(wheel.tiles) == 0)
-                if wheels_off > OFFTRACK_THRESHOLD:
-                    self.car_rewards[car_idx] -= OFFTRACK_PENALTY * wheels_off
-
-                # Stationary penalty (discourages staying still)
-                speed = np.sqrt(
-                    car.hull.linearVelocity[0] ** 2 +
-                    car.hull.linearVelocity[1] ** 2
-                )
-                if speed < STATIONARY_SPEED_THRESHOLD:
-                    self.car_rewards[car_idx] -= STATIONARY_PENALTY
-
-                # Check termination conditions for this car
-                all_wheels_off = all(len(wheel.tiles) == 0 for wheel in car.wheels)
-                if all_wheels_off:
-                    terminated[car_idx] = True
-                    infos[car_idx]["off_track"] = True
-                    # Proportional penalty: lower penalty if more progress was made
-                    # Farther crashes are rewarded with smaller penalties
-                    current_progress = self.car_tile_visited_counts[car_idx] / len(self.track) if len(self.track) > 0 else 0.0
-                    progress_multiplier = max(0.1, 1.0 - current_progress)  # Min 10% penalty even at 100% progress
-                    step_rewards[car_idx] = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
-                    infos[car_idx]["off_track_penalty"] = -OFFTRACK_TERMINATION_PENALTY * progress_multiplier
-                    infos[car_idx]["progress_at_crash"] = current_progress
-
-                # Check lap completion for this car
-                if self.car_tile_visited_counts[car_idx] == len(self.track):
-                    self.car_rewards[car_idx] += LAP_COMPLETION_REWARD
-                    terminated[car_idx] = True
-                    infos[car_idx]["lap_finished"] = True
-                    infos[car_idx]["lap_completion_bonus"] = LAP_COMPLETION_REWARD
-
-                # Track stationary car (for early termination)
-                if self.terminate_stationary:
-                    self.car_total_steps[car_idx] += 1
-
-                    # Calculate speed for progress check
-                    speed = np.sqrt(
-                        car.hull.linearVelocity[0] ** 2 +
-                        car.hull.linearVelocity[1] ** 2
-                    )
-
-                    # Check if car made progress
-                    prev_tiles = self.car_tile_visited_counts[car_idx]
-                    # Note: tiles are updated by friction_detector
-                    current_tiles = self.car_tile_visited_counts[car_idx]
-                    is_making_progress = (current_tiles > prev_tiles) or (speed > 0.5)
-
-                    if is_making_progress:
-                        self.car_frames_since_progress[car_idx] = 0
-                    else:
-                        self.car_frames_since_progress[car_idx] += 1
-
-                    # Terminate early if stationary for too long
-                    if (self.car_total_steps[car_idx] >= self.stationary_min_steps and
-                            self.car_frames_since_progress[car_idx] >= self.stationary_patience):
-                        truncated[car_idx] = True
-                        infos[car_idx]['stationary_termination'] = True
-
-                # Step reward for this car
-                step_rewards[car_idx] = self.car_rewards[car_idx] - self.car_prev_rewards[car_idx]
-                self.car_prev_rewards[car_idx] = self.car_rewards[car_idx]
-
-        # Update time
-        self.t += 1.0 / FPS
-        self.episode_steps += 1
-
-        # Check max episode steps (applies to all cars)
-        if self.max_episode_steps is not None and self.episode_steps >= self.max_episode_steps:
-            truncated[:] = True
-            for info in infos:
-                info['TimeLimit.truncated'] = True
-
-        # Apply reward shaping (per car)
-        if self.reward_shaping and action is not None:
-            for car_idx in range(self.num_cars):
-                if (terminated[car_idx] or truncated[car_idx]):
-                    if self.episode_steps < self.min_episode_steps:
-                        step_rewards[car_idx] += self.short_episode_penalty
-                        infos[car_idx]['reward_shaping'] = self.short_episode_penalty
-
-        # Update frame buffers with observations created BEFORE action execution
-        for car_idx in range(self.num_cars):
-            base_obs = base_observations[car_idx]
-            if action is None:
-                # First step from reset (shouldn't happen in multi-car mode, but handle it)
-                self.frame_buffers[car_idx].reset(base_obs)
-            else:
-                self.frame_buffers[car_idx].append(base_obs)
-
-        # Store actions AFTER creating observations, so next step's observations will contain them
-        if action is not None:
-            for car_idx in range(self.num_cars):
-                car_action = action[car_idx]
-                self.prev_actions[car_idx] = np.array([car_action[0], car_action[1]], dtype=np.float32)
-
-        # Get stacked observations for all cars
-        observations = self._get_all_observations()
-
-        # Render if needed
-        if self.render_mode == "human":
-            self.render()
-
-        return observations, step_rewards, terminated, truncated, infos
 
     def render(self) -> npt.NDArray[np.uint8] | None:
         if self.render_mode is None:
@@ -1807,16 +1543,11 @@ class CarRacing(gym.Env, EzPickle):
         self, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True
     ) -> None:
         """
-        Render car(s) for full rendering. Handles both single and multi-car mode.
+        Render car for full rendering.
         """
-        if self.num_cars == 1:
-            # Single car mode (backward compatible)
-            assert self.car is not None
-            self._render_single_car(self.car, zoom, translation, angle, draw_particles)
-        else:
-            # Multi-car mode: render all cars
-            for car in self.cars:
-                self._render_single_car(car, zoom, translation, angle, draw_particles)
+        # Render all cars
+        for car in self.cars:
+            self._render_single_car(car, zoom, translation, angle, draw_particles)
 
     def _render_single_car(
         self, car: Car, zoom: float, translation: tuple[float, float], angle: float, draw_particles: bool = True

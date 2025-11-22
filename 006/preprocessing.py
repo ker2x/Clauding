@@ -30,7 +30,6 @@ def make_carracing_env(
     short_episode_penalty: float = -10.0,
     max_episode_steps: int = 1500,
     verbose: bool = False,
-    num_cars: int = 1,
     domain_randomization_config: DomainRandomizationConfig | None = None,
 ) -> gym.Env:
     """
@@ -50,7 +49,6 @@ def make_carracing_env(
         short_episode_penalty: Penalty for episodes shorter than min_episode_steps (default: -10.0)
         max_episode_steps: Maximum steps per episode (default: 1500, prevents infinite episodes)
         verbose: Enable verbose mode from environment for debugging (default: False)
-        num_cars: Number of cars racing simultaneously (default: 1)
         domain_randomization_config: Configuration for domain randomization (default: None, disabled)
 
     Returns:
@@ -70,7 +68,6 @@ def make_carracing_env(
         reward_shaping=reward_shaping,
         min_episode_steps=min_episode_steps,
         short_episode_penalty=short_episode_penalty,
-        num_cars=num_cars,
         domain_randomization_config=domain_randomization_config,
     )
     return env

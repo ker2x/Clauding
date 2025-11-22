@@ -200,7 +200,6 @@ CarRacing(
     reward_shaping: bool = True,
     min_episode_steps: int = 150,
     short_episode_penalty: float = -50.0,
-    num_cars: int = 1,                   # Multi-car support
     suspension_config: dict | None = None
 )
 ```
@@ -443,13 +442,6 @@ config['damping'] = 2400.0       # More damping
 env = CarRacing(suspension_config=config)
 ```
 
-### Multi-Car Racing
-
-```python
-# Create environment with 2 cars (ghost racing)
-env = CarRacing(num_cars=2, state_mode="vector")
-
-obs, info = env.reset()
 # obs shape: (2, obs_dim) - stacked observations for both cars
 # obs_dim = 33 + (NUM_LOOKAHEAD × 2), default: 73D
 ```
