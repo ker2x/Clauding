@@ -26,7 +26,7 @@ class VehicleParams:
     LR: float = LENGTH * 0.5  # Distance from CG to rear axle (m)
 
     # Center of Gravity
-    CG_HEIGHT: float = 0.46  # Center of Gravity height (m)
+    CG_HEIGHT: float = 0.55  # Center of Gravity height (m) - raised for stiffer suspension feel
 
 
 @dataclass

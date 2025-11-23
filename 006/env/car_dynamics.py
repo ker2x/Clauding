@@ -704,8 +704,8 @@ class Car:
         # Apply low-pass filter to accelerations for smooth load transfer
         # This prevents oscillations caused by frame-to-frame acceleration changes
         # Higher alpha = more responsive, lower alpha = more damped
-        # alpha = 0.15 gives strong damping (85% old, 15% new) to eliminate oscillations
-        filter_alpha = 0.15
+        # alpha = 0.3 gives moderate damping for stiffer suspension feel
+        filter_alpha = 0.3
         self.ax_filtered = self.ax_filtered * (1.0 - filter_alpha) + ax * filter_alpha
         self.ay_filtered = self.ay_filtered * (1.0 - filter_alpha) + ay * filter_alpha
 

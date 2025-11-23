@@ -9,10 +9,19 @@ WeightWatcher provides insights into:
 - Over-parameterization (log spectral norm)
 - Training quality (stable rank, condition number)
 - Layer-wise health diagnostics
+- Dead neuron detection:
+  * Activation-based (default): Measures activation variance - works for any activation function
+  * Weight-based: Measures weight norms - simpler but less accurate for Leaky ReLU
 
 Usage:
-    # Analyze a single checkpoint
+    # Analyze a single checkpoint (activation-based by default)
     python analyze_network_health.py --checkpoint checkpoints_selection_parallel/best_model.pt
+
+    # Use weight-based dead neuron detection (faster, less accurate)
+    python analyze_network_health.py --checkpoint best_model.pt --dead-neuron-method weight
+
+    # Adjust number of samples for activation-based analysis
+    python analyze_network_health.py --checkpoint best_model.pt --dead-neuron-samples 5000
 
     # Compare multiple checkpoints
     python analyze_network_health.py --checkpoint gen_100.pt gen_200.pt gen_300.pt
@@ -111,16 +120,193 @@ class NetworkHealthAnalyzer:
 
         return self.checkpoint
 
-    def analyze_network(self, network: nn.Module, name: str) -> dict[str, Any]:
+    def count_dead_neurons_activation_based(
+        self,
+        network: nn.Module,
+        sample_states: torch.Tensor,
+        sample_actions: torch.Tensor | None = None,
+        variance_threshold: float = 1e-6
+    ) -> dict[str, Any]:
+        """
+        Count dead neurons using activation-based analysis.
+
+        Runs sample data through the network and measures activation variance.
+        A neuron is "dead" if its activation variance across samples is below threshold.
+        This works for any activation function (ReLU, Leaky ReLU, etc.).
+
+        Args:
+            network: PyTorch network to analyze
+            sample_states: Tensor of sample inputs [batch_size, input_dim]
+            sample_actions: Optional tensor of actions for critic networks [batch_size, action_dim]
+            variance_threshold: Variance threshold below which neuron is dead
+
+        Returns:
+            Dictionary with dead neuron statistics
+        """
+        network.eval()
+        activations = {}
+        handles = []
+
+        # Hook to capture activations from Linear layers
+        def get_activation_hook(name):
+            def hook(module, input, output):
+                # Store activations for this layer
+                activations[name] = output.detach()
+            return hook
+
+        # Register hooks on all Linear layers
+        for name, module in network.named_modules():
+            if isinstance(module, nn.Linear):
+                handle = module.register_forward_hook(get_activation_hook(name))
+                handles.append(handle)
+
+        # Run forward pass with sample data
+        with torch.no_grad():
+            if sample_actions is not None:
+                # Critic network: needs state and action
+                _ = network(sample_states, sample_actions)
+            else:
+                # Actor network: needs only state
+                _ = network(sample_states)
+
+        # Remove hooks
+        for handle in handles:
+            handle.remove()
+
+        # Analyze activations
+        total_neurons = 0
+        dead_neurons = 0
+        layer_stats = []
+
+        for name, acts in activations.items():
+            # acts shape: [batch_size, num_neurons]
+            num_neurons = acts.shape[1] if len(acts.shape) > 1 else 1
+
+            if len(acts.shape) == 1:
+                # Single neuron layer (like output layer)
+                acts = acts.unsqueeze(1)
+
+            # Compute variance across samples for each neuron
+            neuron_variance = acts.var(dim=0)
+            neuron_mean = acts.mean(dim=0)
+
+            # Count dead neurons (low variance)
+            layer_dead = (neuron_variance < variance_threshold).sum().item()
+            layer_total = num_neurons
+
+            total_neurons += layer_total
+            dead_neurons += layer_dead
+
+            layer_stats.append({
+                'layer_name': name,
+                'total_neurons': layer_total,
+                'dead_neurons': layer_dead,
+                'dead_ratio': layer_dead / layer_total if layer_total > 0 else 0.0,
+                'min_variance': neuron_variance.min().item(),
+                'max_variance': neuron_variance.max().item(),
+                'mean_variance': neuron_variance.mean().item(),
+                'min_activation': neuron_mean.min().item(),
+                'max_activation': neuron_mean.max().item(),
+                'mean_activation': neuron_mean.mean().item(),
+            })
+
+        dead_ratio = dead_neurons / total_neurons if total_neurons > 0 else 0.0
+
+        return {
+            'total_neurons': total_neurons,
+            'dead_neurons': dead_neurons,
+            'dead_ratio': dead_ratio,
+            'layer_stats': layer_stats,
+            'method': 'activation_based',
+        }
+
+    def count_dead_neurons_weight_based(self, network: nn.Module, threshold: float = 1e-6) -> dict[str, Any]:
+        """
+        Count dead neurons using weight-based analysis (fallback method).
+
+        A neuron is considered "dead" if the L2 norm of its incoming weights
+        is below the threshold, meaning it contributes negligibly to the output.
+
+        Args:
+            network: PyTorch network to analyze
+            threshold: L2 norm threshold below which a neuron is considered dead
+
+        Returns:
+            Dictionary with dead neuron statistics
+        """
+        total_neurons = 0
+        dead_neurons = 0
+        layer_stats = []
+
+        for name, module in network.named_modules():
+            if isinstance(module, nn.Linear):
+                # Weight shape: [out_features, in_features]
+                # Each row represents the incoming weights to one output neuron
+                weights = module.weight.data
+
+                # Compute L2 norm of incoming weights for each neuron (row)
+                neuron_norms = torch.norm(weights, p=2, dim=1)
+
+                # Count dead neurons in this layer
+                layer_dead = (neuron_norms < threshold).sum().item()
+                layer_total = weights.shape[0]
+
+                total_neurons += layer_total
+                dead_neurons += layer_dead
+
+                layer_stats.append({
+                    'layer_name': name,
+                    'total_neurons': layer_total,
+                    'dead_neurons': layer_dead,
+                    'dead_ratio': layer_dead / layer_total if layer_total > 0 else 0.0,
+                    'min_norm': neuron_norms.min().item(),
+                    'max_norm': neuron_norms.max().item(),
+                    'mean_norm': neuron_norms.mean().item(),
+                })
+
+        dead_ratio = dead_neurons / total_neurons if total_neurons > 0 else 0.0
+
+        return {
+            'total_neurons': total_neurons,
+            'dead_neurons': dead_neurons,
+            'dead_ratio': dead_ratio,
+            'layer_stats': layer_stats,
+            'method': 'weight_based',
+        }
+
+    def generate_sample_states(self, state_dim: int, num_samples: int = 1000) -> torch.Tensor:
+        """
+        Generate random sample states for activation analysis.
+
+        Args:
+            state_dim: Dimension of state space
+            num_samples: Number of samples to generate
+
+        Returns:
+            Tensor of random states
+        """
+        # Generate states from a reasonable distribution
+        # Using standard normal as a proxy for normalized state features
+        return torch.randn(num_samples, state_dim, device=self.device)
+
+    def analyze_network(
+        self,
+        network: nn.Module,
+        name: str,
+        use_activation_based: bool = True,
+        num_samples: int = 1000
+    ) -> dict[str, Any]:
         """
         Analyze a single network using WeightWatcher.
 
         Args:
             network: PyTorch network to analyze
             name: Network name for reporting
+            use_activation_based: Use activation-based dead neuron detection
+            num_samples: Number of samples for activation analysis
 
         Returns:
-            Dictionary with WeightWatcher metrics
+            Dictionary with WeightWatcher metrics and dead neuron statistics
         """
         print(f"\n🔬 Analyzing {name}...")
 
@@ -136,20 +322,53 @@ class NetworkHealthAnalyzer:
         # Extract summary statistics
         summary = watcher.get_summary()
 
+        # Count dead neurons
+        if use_activation_based:
+            state_dim = self.checkpoint.get('state_dim', 73)
+            action_dim = self.checkpoint.get('action_dim', 2)
+            sample_states = self.generate_sample_states(state_dim, num_samples)
+
+            # Check if this is a critic network (needs actions)
+            is_critic = 'critic' in name.lower()
+            if is_critic:
+                # Generate random actions for critics
+                sample_actions = torch.randn(num_samples, action_dim, device=self.device)
+                dead_neuron_stats = self.count_dead_neurons_activation_based(
+                    network, sample_states, sample_actions
+                )
+            else:
+                dead_neuron_stats = self.count_dead_neurons_activation_based(
+                    network, sample_states
+                )
+            method_str = "activation-based"
+        else:
+            dead_neuron_stats = self.count_dead_neurons_weight_based(network)
+            method_str = "weight-based"
+
         print(f"   ✓ Analyzed {len(details)} layers")
+        print(f"   ✓ Dead neurons ({method_str}): {dead_neuron_stats['dead_neurons']}/{dead_neuron_stats['total_neurons']} "
+              f"({dead_neuron_stats['dead_ratio']*100:.2f}%)")
 
         return {
             'details': details,
             'summary': summary,
+            'dead_neurons': dead_neuron_stats,
             'name': name
         }
 
-    def analyze_all_networks(self, network_names: list[str] | None = None) -> dict[str, dict]:
+    def analyze_all_networks(
+        self,
+        network_names: list[str] | None = None,
+        use_activation_based: bool = True,
+        num_samples: int = 1000
+    ) -> dict[str, dict]:
         """
         Analyze all networks in checkpoint.
 
         Args:
             network_names: Optional list of specific networks to analyze
+            use_activation_based: Use activation-based dead neuron detection
+            num_samples: Number of samples for activation analysis
 
         Returns:
             Dictionary mapping network names to analysis results
@@ -161,7 +380,11 @@ class NetworkHealthAnalyzer:
 
         results = {}
         for name, network in networks_to_analyze.items():
-            results[name] = self.analyze_network(network, name)
+            results[name] = self.analyze_network(
+                network, name,
+                use_activation_based=use_activation_based,
+                num_samples=num_samples
+            )
 
         self.ww_results = results
         return results
@@ -186,17 +409,43 @@ class NetworkHealthAnalyzer:
                 print(f"\n📊 Overall Metrics:")
                 print(f"   Alpha (generalization): {alpha:.4f}")
 
-                # Interpret alpha
-                if alpha < 2.0:
-                    health = "⚠️  CONCERNING (very undertrained or random)"
-                elif 2.0 <= alpha < 3.0:
+                # Interpret alpha (based on WeightWatcher theory: optimal range 2-6, best ~2)
+                if alpha > 6.0:
+                    health = "⚠️  CONCERNING (undertrained/random weights)"
+                elif 5.0 < alpha <= 6.0:
+                    health = "⚠️  BORDERLINE (needs more training)"
+                elif 2.0 <= alpha <= 5.0:
                     health = "✅ GOOD (well-trained, should generalize)"
-                elif 3.0 <= alpha < 4.0:
-                    health = "⚠️  BORDERLINE (may be overfit)"
+                    if alpha < 2.5:
+                        health = "✅ EXCELLENT (near-optimal training)"
                 else:
-                    health = "❌ POOR (likely overfit)"
+                    health = "❌ POOR (overfit - early stopping needed)"
 
                 print(f"   Health: {health}")
+
+            # Dead neurons
+            if 'dead_neurons' in result:
+                dead_stats = result['dead_neurons']
+                dead_count = dead_stats['dead_neurons']
+                total_count = dead_stats['total_neurons']
+                dead_ratio = dead_stats['dead_ratio']
+                method = dead_stats.get('method', 'unknown')
+
+                print(f"\n💀 Dead Neurons ({method}):")
+                print(f"   Count: {dead_count}/{total_count}")
+                print(f"   Ratio: {dead_ratio*100:.2f}%")
+
+                # Interpret dead neuron ratio
+                if dead_ratio > 0.3:
+                    status = "❌ CRITICAL (>30% dead - significant capacity waste)"
+                elif dead_ratio > 0.15:
+                    status = "⚠️  HIGH (>15% dead - consider pruning/smaller network)"
+                elif dead_ratio > 0.05:
+                    status = "⚠️  MODERATE (>5% dead - some waste)"
+                else:
+                    status = "✅ GOOD (<5% dead - healthy utilization)"
+
+                print(f"   Status: {status}")
 
             # Layer-wise statistics
             print(f"\n📈 Layer Statistics:")
@@ -231,18 +480,30 @@ class NetworkHealthAnalyzer:
 
                 if 'alpha' in available_cols:
                     alphas = details['alpha'].dropna()
-                    overfit_layers = (alphas > 4.0).sum()
-                    underfit_layers = (alphas < 2.0).sum()
+                    random_layers = (alphas > 6.0).sum()
+                    overfit_layers = (alphas < 2.0).sum()
+                    undertrained_layers = ((alphas > 5.0) & (alphas <= 6.0)).sum()
 
+                    if random_layers > 0:
+                        issues.append(f"   • {random_layers} layers with alpha > 6.0 (random/untrained)")
+                    if undertrained_layers > 0:
+                        issues.append(f"   • {undertrained_layers} layers with alpha ∈ (5, 6] (undertrained)")
                     if overfit_layers > 0:
-                        issues.append(f"   • {overfit_layers} layers with alpha > 4.0 (possible overfit)")
-                    if underfit_layers > 0:
-                        issues.append(f"   • {underfit_layers} layers with alpha < 2.0 (undertrained)")
+                        issues.append(f"   • {overfit_layers} layers with alpha < 2.0 (overfit)")
 
                 if 'log_spectral_norm' in available_cols:
                     high_norm_layers = (details['log_spectral_norm'] > 2.0).sum()
                     if high_norm_layers > 0:
                         issues.append(f"   • {high_norm_layers} layers with high spectral norm (may need regularization)")
+
+                # Check for dead neurons
+                if 'dead_neurons' in result:
+                    dead_stats = result['dead_neurons']
+                    dead_ratio = dead_stats['dead_ratio']
+                    if dead_ratio > 0.15:
+                        issues.append(f"   • {dead_ratio*100:.1f}% dead neurons (consider smaller network or pruning)")
+                    elif dead_ratio > 0.05:
+                        issues.append(f"   • {dead_ratio*100:.1f}% dead neurons (moderate waste)")
 
                 if issues:
                     for issue in issues:
@@ -284,6 +545,34 @@ class NetworkHealthAnalyzer:
                 for key, value in summary.items():
                     f.write(f"  {key}: {value}\n")
 
+                # Write dead neuron statistics
+                if 'dead_neurons' in result:
+                    dead_stats = result['dead_neurons']
+                    method = dead_stats.get('method', 'unknown')
+                    f.write(f"\nDead Neuron Analysis ({method}):\n")
+                    f.write(f"  Total neurons: {dead_stats['total_neurons']}\n")
+                    f.write(f"  Dead neurons: {dead_stats['dead_neurons']}\n")
+                    f.write(f"  Dead ratio: {dead_stats['dead_ratio']*100:.2f}%\n")
+                    f.write("\n  Per-Layer Dead Neurons:\n")
+                    for layer_stat in dead_stats['layer_stats']:
+                        f.write(f"    {layer_stat['layer_name']}:\n")
+                        f.write(f"      Total: {layer_stat['total_neurons']}, ")
+                        f.write(f"Dead: {layer_stat['dead_neurons']} ({layer_stat['dead_ratio']*100:.1f}%)\n")
+
+                        # Different stats based on method
+                        if method == 'activation_based':
+                            f.write(f"      Activation variance - min: {layer_stat['min_variance']:.6e}, ")
+                            f.write(f"max: {layer_stat['max_variance']:.6e}, ")
+                            f.write(f"mean: {layer_stat['mean_variance']:.6e}\n")
+                            f.write(f"      Mean activation - min: {layer_stat['min_activation']:.6f}, ")
+                            f.write(f"max: {layer_stat['max_activation']:.6f}, ")
+                            f.write(f"mean: {layer_stat['mean_activation']:.6f}\n")
+                        else:
+                            f.write(f"      Weight norms - min: {layer_stat['min_norm']:.6f}, ")
+                            f.write(f"max: {layer_stat['max_norm']:.3f}, ")
+                            f.write(f"mean: {layer_stat['mean_norm']:.3f}\n")
+                    f.write("\n")
+
                 # Write layer details
                 f.write("\nLayer-by-Layer Analysis:\n")
                 f.write(details.to_string())
@@ -297,6 +586,14 @@ class NetworkHealthAnalyzer:
                 csv_path = os.path.join(output_dir, f'{name}_details.csv')
                 result['details'].to_csv(csv_path, index=False)
                 print(f"   ✓ Saved {name} details to {csv_path}")
+
+                # Save dead neuron statistics
+                if 'dead_neurons' in result:
+                    import pandas as pd
+                    dead_csv_path = os.path.join(output_dir, f'{name}_dead_neurons.csv')
+                    dead_df = pd.DataFrame(result['dead_neurons']['layer_stats'])
+                    dead_df.to_csv(dead_csv_path, index=False)
+                    print(f"   ✓ Saved {name} dead neurons to {dead_csv_path}")
 
     def plot_metrics(self, output_dir: str | None = None) -> None:
         """
@@ -332,11 +629,13 @@ class NetworkHealthAnalyzer:
                 alphas = details['alpha'].dropna()
                 if len(alphas) > 0:
                     ax.hist(alphas, bins=20, edgecolor='black', alpha=0.7)
-                    ax.axvline(2.0, color='green', linestyle='--', label='Good (α=2)')
-                    ax.axvline(4.0, color='red', linestyle='--', label='Overfit (α=4)')
+                    ax.axvline(2.0, color='darkgreen', linestyle='--', linewidth=2, label='Optimal (α≈2)')
+                    ax.axvline(5.0, color='orange', linestyle='--', label='Upper good (α=5)')
+                    ax.axvline(6.0, color='red', linestyle='--', label='Undertrained (α=6)')
+                    ax.fill_between([2.0, 5.0], 0, ax.get_ylim()[1], alpha=0.1, color='green')
                     ax.set_xlabel('Alpha (Power Law Exponent)')
                     ax.set_ylabel('Layer Count')
-                    ax.set_title('Alpha Distribution\n(2-4 is healthy range)')
+                    ax.set_title('Alpha Distribution\n(2-6 is valid range, 2-5 preferred)')
                     ax.legend()
                     ax.grid(True, alpha=0.3)
 
@@ -371,12 +670,14 @@ class NetworkHealthAnalyzer:
                 if len(alphas) > 0:
                     layer_ids = range(len(alphas))
                     ax.plot(layer_ids, alphas, marker='^', linestyle='-', linewidth=2, color='darkgreen')
-                    ax.axhline(2.0, color='green', linestyle='--', alpha=0.5)
-                    ax.axhline(4.0, color='red', linestyle='--', alpha=0.5)
-                    ax.fill_between(layer_ids, 2.0, 4.0, alpha=0.1, color='green')
+                    ax.axhline(2.0, color='darkgreen', linestyle='--', linewidth=2, alpha=0.7, label='Optimal')
+                    ax.axhline(5.0, color='orange', linestyle='--', alpha=0.5, label='Upper good')
+                    ax.axhline(6.0, color='red', linestyle='--', alpha=0.5, label='Undertrained')
+                    ax.fill_between(layer_ids, 2.0, 5.0, alpha=0.1, color='green')
                     ax.set_xlabel('Layer Index')
                     ax.set_ylabel('Alpha')
-                    ax.set_title('Alpha by Layer\n(green zone = healthy)')
+                    ax.set_title('Alpha by Layer\n(green zone = good, closer to 2 is better)')
+                    ax.legend(fontsize=8)
                     ax.grid(True, alpha=0.3)
 
             plt.tight_layout()
@@ -425,11 +726,12 @@ class NetworkHealthAnalyzer:
         if metrics:
             alpha_means = {k: v.get('alpha_mean', 0) for k, v in metrics.items() if 'alpha_mean' in v}
             if alpha_means:
-                best_network = min(alpha_means.items(), key=lambda x: abs(x[1] - 3.0))  # Closest to 3.0
-                worst_network = max(alpha_means.items(), key=lambda x: abs(x[1] - 3.0) if x[1] > 4.0 else 0)
+                # Best is closest to 2.0 (optimal), within [2, 6] range
+                best_network = min(alpha_means.items(), key=lambda x: abs(x[1] - 2.0) if 2.0 <= x[1] <= 6.0 else float('inf'))
+                worst_network = max(alpha_means.items(), key=lambda x: abs(x[1] - 2.0))
 
                 print(f"\n✅ Healthiest network: {best_network[0]} (alpha = {best_network[1]:.3f})")
-                if worst_network[1] > 4.0:
+                if abs(worst_network[1] - 2.0) > 3.0:  # Significantly far from optimal
                     print(f"⚠️  Most concerning: {worst_network[0]} (alpha = {worst_network[1]:.3f})")
 
 
@@ -466,14 +768,16 @@ def compare_checkpoints(checkpoint_paths: list[str], output_dir: str | None = No
                 if len(alphas) > 0:
                     mean_alpha = alphas.mean()
 
-                    if 2.0 <= mean_alpha < 3.0:
+                    if 2.0 <= mean_alpha <= 5.0:
                         health = "✅ GOOD"
-                    elif 3.0 <= mean_alpha < 4.0:
-                        health = "⚠️  BORDERLINE"
-                    elif mean_alpha >= 4.0:
-                        health = "❌ Mostly Random"
+                        if mean_alpha < 2.5:
+                            health = "✅ EXCELLENT"
+                    elif 5.0 < mean_alpha <= 6.0:
+                        health = "⚠️  BORDERLINE (undertrained)"
+                    elif mean_alpha > 6.0:
+                        health = "❌ Random/Untrained"
                     else:
-                        health = "⚠️  UNDERTRAINED"
+                        health = "⚠️  OVERFIT"
 
                     ckpt_name = Path(ckpt_path).name
                     print(f"{ckpt_name:<40} {mean_alpha:>8.3f}        {health:<30}")
@@ -525,6 +829,19 @@ Examples:
         choices=['cpu', 'cuda', 'mps'],
         help='Device to load networks on (default: cpu)'
     )
+    parser.add_argument(
+        '--dead-neuron-method',
+        type=str,
+        default='activation',
+        choices=['activation', 'weight'],
+        help='Method for dead neuron detection: activation-based (default, works for any activation) or weight-based (simpler, faster)'
+    )
+    parser.add_argument(
+        '--dead-neuron-samples',
+        type=int,
+        default=1000,
+        help='Number of samples for activation-based dead neuron detection (default: 1000)'
+    )
 
     args = parser.parse_args()
 
@@ -538,7 +855,15 @@ Examples:
 
     analyzer = NetworkHealthAnalyzer(checkpoint_path, device=args.device)
     analyzer.load_checkpoint()
-    analyzer.analyze_all_networks(network_names=args.networks)
+
+    # Determine dead neuron detection method
+    use_activation_based = (args.dead_neuron_method == 'activation')
+
+    analyzer.analyze_all_networks(
+        network_names=args.networks,
+        use_activation_based=use_activation_based,
+        num_samples=args.dead_neuron_samples
+    )
     analyzer.print_summary()
     analyzer.compare_networks()
 
@@ -551,11 +876,14 @@ Examples:
     print("INTERPRETATION GUIDE")
     print("="*80)
     print("""
-Alpha (Power Law Exponent):
-  • α > 6.0  : random weights
-  • α ∈ [4, 6): possibly underfit
-  • α ∈ [2, 4): Well-trained, good generalization (IDEAL)
-  • α < 2.0  : Likely overfit, poor generalization
+Alpha (Power Law Exponent) - Based on WeightWatcher Theory:
+  • α ≈ 2.0  : OPTIMAL - best trained models (ideal target)
+  • α ∈ [2, 5]: Well-trained, good generalization (RECOMMENDED)
+  • α ∈ (5, 6]: Undertrained, needs more training
+  • α > 6.0  : Severely undertrained/random weights
+  • α < 2.0  : Overfit - early stopping recommended
+
+  Rule: "Smaller is better" within the 2-6 range, with α≈2 being optimal.
 
 Log Spectral Norm:
   • Lower values indicate better conditioning
@@ -567,8 +895,9 @@ Stable Rank:
   • Very low rank may indicate redundancy
 
 For more details, see:
+  - WeightWatcher official docs: https://weightwatcher.ai
   - Martin & Mahoney (2019): "Traditional and Heavy-Tailed Self Regularization"
-  - WeightWatcher documentation: https://github.com/CalculatedContent/WeightWatcher
+  - WeightWatcher GitHub: https://github.com/CalculatedContent/WeightWatcher
     """)
 
 

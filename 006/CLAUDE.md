@@ -301,11 +301,14 @@ bash test_network_health.sh
 
 **Key Metrics Explained:**
 
-- **Alpha (α)** - Power law exponent indicating generalization quality:
-  - `α < 2.0`: Undertrained or random weights
-  - `α ∈ [2.0, 4.0)`: **IDEAL** - Well-trained with good generalization
-  - `α ∈ [4.0, 6.0)`: Borderline - May be overtraining
-  - `α > 6.0`: Likely overfit - Poor generalization
+- **Alpha (α)** - Power law exponent indicating generalization quality ([WeightWatcher.ai](https://weightwatcher.ai)):
+  - `α ≈ 2.0`: **OPTIMAL** - Best trained models, ideal target
+  - `α ∈ [2, 5]`: **RECOMMENDED** - Well-trained with good generalization
+  - `α ∈ (5, 6]`: Undertrained - needs more training/optimization
+  - `α > 6`: Severely undertrained or random weights
+  - `α < 2`: Overfit - Early stopping recommended
+
+  **Key principle**: "Smaller is better" within the 2-6 range, with α≈2.0 being optimal.
 
 - **Log Spectral Norm**: Layer conditioning (lower is better)
 - **Stable Rank**: Effective dimensionality of weight matrices
@@ -316,9 +319,9 @@ bash test_network_health.sh
 - `{network}_health_metrics.png`: Visualization plots
 
 **Use Cases:**
-- Diagnose why an agent isn't learning (α < 2.0 = undertrained)
-- Detect overtraining (α > 4.0 = overfit)
-- Compare checkpoints to find best generalization
+- Diagnose why an agent isn't learning (α > 6 = random/undertrained)
+- Detect overtraining (α < 2 = overfit, early stopping signal)
+- Find optimal checkpoint (α ≈ 2.0 for best generalization)
 - Monitor network health during training
 
 **For detailed guide:** See `NETWORK_HEALTH_GUIDE.md`
