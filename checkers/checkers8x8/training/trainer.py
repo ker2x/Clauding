@@ -42,7 +42,6 @@ class Trainer:
         config,
         device: torch.device,
         selfplay_device: torch.device,
-        visualizer=None,
         game_visualizer=None
     ):
         """
@@ -53,14 +52,12 @@ class Trainer:
             config: Configuration object
             device: PyTorch device for training
             selfplay_device: PyTorch device for self-play
-            visualizer: Optional visualizer for real-time plotting (training metrics)
-            game_visualizer: Optional visualizer for game rendering (pygame)
+            game_visualizer: Optional visualizer for game rendering and metrics
         """
         self.network = network
         self.config = config
         self.device = device
         self.selfplay_device = selfplay_device
-        self.visualizer = visualizer
         self.game_visualizer = game_visualizer
 
         self.network.to(self.device)
@@ -224,8 +221,8 @@ class Trainer:
             self.log_metrics(metrics)
 
             # Update visualizer
-            if self.visualizer:
-                self.visualizer.update(metrics)
+            if self.game_visualizer:
+                self.game_visualizer.update_metrics(metrics)
 
             # Increment buffer generation
             self.replay_buffer.increment_generation()

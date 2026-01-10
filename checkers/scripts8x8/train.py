@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from config8x8 import Config
 from checkers8x8.network.resnet import CheckersNetwork, count_parameters
 from checkers8x8.training.trainer import Trainer
-from checkers8x8.utils.visualizer import TrainingVisualizer
 from checkers8x8.utils.game_visualizer import GameVisualizer
 
 
@@ -84,23 +83,17 @@ def main():
     print(f"Network parameters: {count_parameters(network):,}")
 
     # Create visualizers if requested
-    visualizer = None
     game_visualizer = None
     if args.visualize:
-        print("\nInitializing visualizers...")
-
-        # Training metrics visualizer (matplotlib)
-        visualizer = TrainingVisualizer(max_points=args.iterations)
-        print("✓ Training metrics visualizer ready (matplotlib)")
-
-        # Game visualizer (pygame)
-        game_visualizer = GameVisualizer(square_size=70)
-        print("✓ Game visualizer ready (pygame window will show self-play)")
+        print("\nInitializing visualizer...")
+        # Consolidated game and metrics visualizer (pygame)
+        game_visualizer = GameVisualizer(square_size=70, max_metrics=args.iterations)
+        print("✓ Integrated Visualizer ready (board and metrics in one window)")
 
     # Create trainer
     print("\nCreating trainer...")
     trainer = Trainer(network, Config, device, selfplay_device,
-                     visualizer=visualizer, game_visualizer=game_visualizer)
+                     game_visualizer=game_visualizer)
 
     # Resume from checkpoint if requested
     if args.resume:
@@ -128,12 +121,8 @@ def main():
     try:
         trainer.train(num_iterations=args.iterations)
     finally:
-        # Close visualizers if they exist
-        if visualizer:
-            print("\nClosing training visualizer...")
-            visualizer.close()
         if game_visualizer:
-            print("Closing game visualizer...")
+            print("Closing visualizer...")
             game_visualizer.close()
 
     print("\n" + "=" * 70)
