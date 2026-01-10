@@ -269,11 +269,6 @@ class GameVisualizer:
         # Stats
         move_text = self.font_medium.render(f"Move: {move_count}", True, WHITE)
         self.screen.blit(move_text, (panel_x + padding, y_offset))
-        y_offset += 30
-
-        p_color = RED_PIECE if player == 1 else WHITE
-        player_text = self.font_medium.render(f"Player: {player}", True, p_color)
-        self.screen.blit(player_text, (panel_x + padding, y_offset))
         y_offset += 40
 
         # Draw Loss Graph
