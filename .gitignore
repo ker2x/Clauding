@@ -5,3 +5,5 @@
 /checkers/checkpoints8x8/
 /checkers/logs/
 /checkers/logs8x8/
+*.o
+*.so
