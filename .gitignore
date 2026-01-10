@@ -1,3 +1,7 @@
 /.venv/
 .idea/
 .DS_Store
+/checkers/checkpoints/
+/checkers/checkpoints8x8/
+/logs/
+/logs8x8/
