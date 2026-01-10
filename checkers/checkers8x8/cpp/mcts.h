@@ -41,30 +41,15 @@ struct Node {
     // Q = mean_value
     // U = c_puct * prior * sqrt(parent_visits) / (1 + visits)
 
-    // Virtual loss adjustment: temporarily decrease Q or increase visit count?
-    // Standard way: Add virtual loss to visit count (to discourage selection)
-    // and decrease value sum. Or simpler: just use (visit_count + virtual_loss)
-    // in denominator.
-
+    // Calculate PUCT score with Virtual Loss
+    // Virtual loss increases the visit count temporarily to discourage other
+    // threads/batches from selecting the same node while it's being evaluated.
     int effective_visits = visit_count + virtual_loss;
     float q = 0.0f;
     if (effective_visits > 0) {
-      // Apply heavy penalty for virtual loss?
-      // AlphaZero just treats virtual loss as "loss" update.
-      // If virtual_loss > 0, we can subtract it from value_sum?
-      // -1 is loss. So value_sum - virtual_loss.
-      // Let's implement AlphaGo Zero virtual loss:
-      // "In the search tree, we use virtual loss to enable parallel search.
-      // When a thread selects a node ... we add a virtual loss ... "
-      // Here we do batching, not multi-threading. But same concept.
-      // While a leaf is being evaluated, we want to avoid picking same path.
-      // So we treat it as if we visited it and lost.
-
+      // Treat virtual loss as a loss for value calculation purposes
       float effective_value_sum = value_sum - virtual_loss;
       q = effective_value_sum / effective_visits;
-      // However, game result range is -1 to 1? Or 0 to 1?
-      // Our game returns 1.0 (win), -1.0 (loss).
-      // So virtual loss should be -1.0?
     }
 
     // Getting Prior
@@ -81,28 +66,21 @@ public:
   MCTS(float c_puct, int num_simulations, float dirichlet_alpha,
        float dirichlet_epsilon);
 
-  // Python Interface
-  // Returns: (policy_probs, value)
-  // Runs search from root_game
-  // Takes a callback for evaluation: evaluate_func(batch_states) ->
-  // (batch_policies, batch_values) Using simple approach: We return a BATCH of
-  // states to Python, Python evals, calls back. Wait, simpler: We implement
-  // `search_batch` that handles the loop. But we need to call Python function.
-  // We can't easily accept a python function in constructor without pybind11
-  // overhead in headers. Better: `search` returns void, but we have helper
-  // `get_leaves_to_evaluate` and `backup_values`. Python loop: while
-  // mcts.has_simulations_left():
-  //    batch = mcts.find_leaves(8)
-  //    policies, values = network(batch)
-  //    mcts.process_results(batch_indices, policies, values)
+  // Perform MCTS search
+  // Usage:
+  // 1. calls start_search(root_game)
+  // 2. Loop until is_finished():
+  //    - find_leaves(batch_size) -> returns batch of leaf states for neural net
+  //    - Neural net predicts policies and values
+  //    - process_results(batch_id, policies, values) -> expands leaves and
+  //    backups values
+  // 3. get_policy(temp) -> returns interaction policy
 
   void start_search(const Game &root_game);
 
-  // Batching Interface
-  // Returns list of leaf Node pointers (as opaque handles or indices?)
-  // Actually, passing pointers to Python and back is unsafe/messy.
-  // Let's store pending nodes internally and just return list of Game states
-  // (neural inputs). And return a batch_id.
+  // Batching methods
+  // Find a batch of leaf nodes that need evaluation.
+  // Returns a tuple of (batch_id, list_of_neural_inputs).
 
   // returns (batch_id, list_of_flat_inputs)
   std::pair<int, std::vector<std::vector<float>>> find_leaves(int batch_size);

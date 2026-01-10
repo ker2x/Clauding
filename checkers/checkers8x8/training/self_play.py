@@ -136,11 +136,7 @@ class SelfPlayGame:
                 print(f"    ⚠️  BREAK at move {move_count}: action={action}, legal={legal_at_break[:10]}, is_terminal={game.is_terminal()}")
                 break
 
-        # Game finished - determine termination reason for debugging
-        termination_reason = self._get_termination_reason(game, move_count, max_moves, use_cpp)
-        if termination_reason:
-            piece_count = self._count_pieces(game, use_cpp)
-            print(f"    Game ended after {move_count} moves: {termination_reason} | Pieces: {piece_count}")
+        # Game finished
         
         # Assign values to all positions
         outcome = game.get_result()

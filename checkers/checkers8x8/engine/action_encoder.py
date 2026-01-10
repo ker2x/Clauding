@@ -6,17 +6,17 @@ This is the KEY innovation that solves the dynamic action space problem.
 Action Encoding: from_square × 4 + direction
 
 Directions:
-    0: NW (forward-left, row-1 col-1)
-    1: NE (forward-right, row-1 col+1)
-    2: SW (backward-left, row+1 col-1)
-    3: SE (backward-right, row+1 col+1)
+    0: NE (forward-right, row-1 col+1)
+    1: NW (forward-left, row-1 col-1)
+    2: SE (backward-right, row+1 col+1)
+    3: SW (backward-left, row+1 col-1)
 
 Total action space: 32 squares × 4 directions = 128 actions
 
 Example:
-    Action 0  = Move from square 0, direction NW
-    Action 1  = Move from square 0, direction NE
-    Action 53 = Move from square 13, direction NE (13*4 + 1)
+    Action 0  = Move from square 0, direction NE
+    Action 1  = Move from square 0, direction NW
+    Action 52 = Move from square 13, direction NE (13*4 + 0)
 
 This encoding works for:
     - Simple moves (1 square diagonal)
@@ -24,7 +24,7 @@ This encoding works for:
     - Multi-captures (multiple jumps, each encoded separately... or handled in move generation)
 
 The network learns:
-    "Action 53 is good" = "Moving from square 13 toward NE is strong"
+    "Action 52 is good" = "Moving from square 13 toward NE is strong"
     NOT just "the 5th legal move is good"
 """
 
@@ -77,7 +77,7 @@ def decode_action(action: int) -> Tuple[int, int]:
 
 def get_direction_name(direction: int) -> str:
     """Get human-readable direction name."""
-    names = {0: "NW", 1: "NE", 2: "SW", 3: "SE"}
+    names = {0: "NE", 1: "NW", 2: "SE", 3: "SW"}
     return names.get(direction, "??")
 
 
@@ -96,10 +96,10 @@ if __name__ == "__main__":
     # Test encoding/decoding
     print("\nEncoding tests:")
     test_cases = [
-        (0, 0),    # Square 0, NW
-        (0, 1),    # Square 0, NE
-        (13, 1),   # Square 13, NE (should be action 53)
-        (31, 3),   # Square 31, SE (should be action 127)
+        (0, 1),    # Square 0, NW
+        (0, 0),    # Square 0, NE
+        (13, 0),   # Square 13, NE (should be action 52)
+        (31, 2),   # Square 31, SE (should be action 126)
     ]
 
     for from_sq, direction in test_cases:

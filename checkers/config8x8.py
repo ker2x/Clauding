@@ -16,8 +16,8 @@ class Config:
     POLICY_SIZE = 128  # Fixed action space: 32 squares × 4 directions
 
     # MCTS configuration
-    MCTS_SIMS_SELFPLAY = 75  # Simulations per move during self-play
-    MCTS_SIMS_EVAL = 100  # Simulations per move during evaluation
+    MCTS_SIMS_SELFPLAY = 50  # Simulations per move during self-play
+    MCTS_SIMS_EVAL = 75  # Simulations per move during evaluation
 
     # Exploration in Tree Search (PUCT algorithm)
     C_PUCT = 1.0  # Exploration constant
@@ -31,7 +31,7 @@ class Config:
     TEMPERATURE = 1.0  # Stochastic move selection
 
     # Training configuration
-    GAMES_PER_ITERATION = 30  # Games to play per iteration
+    GAMES_PER_ITERATION = 10  # Games to play per iteration
     NUM_WORKERS = 1  # Optimal for 8-core CPU (4 Perf cores)
     BUFFER_SIZE = 200_000  # Max positions in replay buffer (increased capacity)
 
@@ -47,13 +47,13 @@ class Config:
 
     # Evaluation configuration
     EVAL_FREQUENCY = 5  # Evaluate every N iterations
-    EVAL_GAMES = 20  # Games for evaluation
+    EVAL_GAMES = 11  # Games for evaluation
     PROMOTION_THRESHOLD = 0.55  # Win rate needed to become new best model
 
     # System configuration
     DEVICE = "mps"  # Training device (batch operations)
     SELFPLAY_DEVICE = "cpu"  # Self-play device (MCTS is faster on CPU)
-    NUM_THREADS = 8 # 2 threads * 4 workers = 8 threads (matches M1 core count)
+    NUM_THREADS = 8 # 1 thread * 4 workers = 4 threads (leaves room for system)
     SEED = 42  # Default seed (only used if --seed is specified; otherwise random)
 
     # Logging and checkpointing

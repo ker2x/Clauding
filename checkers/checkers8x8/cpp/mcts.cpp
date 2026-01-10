@@ -12,14 +12,11 @@ MCTS::MCTS(float c_puct, int num_simulations, float dirichlet_alpha,
       simulations_completed(0), next_batch_id(0), rng(std::random_device{}()) {}
 
 void MCTS::start_search(const Game &root_game) {
-  // 0 = parent action (dummy)
+  // Create root node (0 = dummy parent action)
   root = std::make_unique<Node>(root_game, nullptr, 0);
   simulations_completed = 0;
   next_batch_id = 0;
   pending_batches.clear();
-
-  // We need to evaluate root first?
-  // Yes. `find_leaves` will pick root if not expanded.
 }
 
 bool MCTS::is_finished() const {
@@ -51,12 +48,8 @@ MCTS::find_leaves(int batch_size) {
       continue;
     }
 
-    // Add Apply Virtual Loss
-    leaf->virtual_loss++;
-    // Also update path virtual loss?
-    // Usually virtual loss is applied to all nodes on path?
-    // "Updates the visit count and value sum of nodes visited during the
-    // selection"
+    // Apply Virtual Loss to path to discourage other threads/batches from
+    // exploring same path simultaneously
     Node *curr = leaf;
     while (curr != nullptr) {
       curr->virtual_loss++;
@@ -92,25 +85,13 @@ Node *MCTS::select_leaf(Node *node) {
 
       // Calculate Q
       float q = 0.0f;
+      // Check visits (including virtual loss)
       int visits = child->visit_count + child->virtual_loss;
       if (visits > 0) {
-        // Invert value for opponent logic?
-        // Our `game.get_result()` is from perspective of current player.
-        // Q should be value for the player at `node` (who is choosing action).
-        // Child node state is after `node` player moved.
-        // So child state is from opponent perspective.
-        // Value stored in child is from child's player perspective (opponent).
-        // So we negate it?
-        // `mean_value` in Node: represents value for the player to move at that
-        // node? Or value of the state? Standard: Value from Net is "Value for
-        // current player". So child->mean_value is good for Child's player
-        // (Opponent). So for Node's player, it is -1 * child->mean_value.
-
-        // Handling virtual loss (treated as loss = -1.0)
-        // If we add virtual loss to counts, we drive Q down.
-        // Q_child = (sum_value - virtual_loss) / (visits + virtual_loss)
-        // Evaluation: -Q_child
-
+        // Value in child node is from perspective of the player who moved to
+        // create that state. We need the value for the current node's player
+        // (parent of child), so we negate it. We also account for virtual loss
+        // (penalty) to discourage over-exploration of pending nodes.
         float child_sum = child->value_sum - child->virtual_loss;
         float child_q = child_sum / visits;
         q = -child_q;
@@ -240,20 +221,11 @@ void MCTS::backup(Node *node, float value) {
   // No, expand adds children but we count visit on the node itself?
   // Actually we update `curr` then go to parent.
 
-  // AlphaZero backup:
-  // "Leaf node... value v... "
-  // "Backward pass... update edge statistics... visit count N... Action-value
-  // Q"
-
-  // We update the path from leaf to root.
-  // The value `value` is for `node` state.
-  // `node` state is result of `parent`'s action.
-  // `parent` wants to maximize its value.
-  // If `node` state is good (value=1.0), it means `parent` made a good move.
-  // BUT `value` is usually from `node` player perspective.
-  // If `node` player is P2, and `value` is 1.0 (P2 wins).
-  // `parent` player was P1. P1 lost.
-  // So for `parent`, value is -1.0.
+  // Backpropagate value up the tree.
+  // Value is relative to the player at 'node' state.
+  // For the parent, this value needs to be flipped because it's the opponent's
+  // turn. Example: If 'node' is P2's turn and P2 wins (value 1.0), then for P1
+  // (parent), this is a loss (-1.0).
 
   float current_val = value;
 

@@ -66,6 +66,7 @@ class MCTS:
         self.device = device
 
         self.root: Optional[MCTSNode] = None
+        self.cpp_mcts = None  # To store C++ instance
 
     def search(
         self,
@@ -156,6 +157,9 @@ class MCTS:
             self.dirichlet_alpha, 
             epsilon
         )
+        
+        # Store for get_best_action checking
+        self.cpp_mcts = cpp_mcts
         
         cpp_mcts.start_search(cpp_game)
         
@@ -302,6 +306,13 @@ class MCTS:
 
     def get_best_action(self) -> int:
         """Get action with highest visit count."""
+        if USE_CPP:
+            if self.cpp_mcts is None:
+                return -1
+            # Use get_policy(0.0) which is greedy
+            policy = self.cpp_mcts.get_policy(0.0)
+            return int(np.argmax(policy))
+            
         if self.root is None or not self.root.children:
             return -1
 

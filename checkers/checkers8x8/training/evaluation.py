@@ -13,6 +13,7 @@ try:
     from ..engine.game import CheckersGame
     from ..network.resnet import CheckersNetwork
     from ..mcts.mcts import MCTS
+    from ..engine.action_encoder import decode_action
 except ImportError:
     import sys
     import os
@@ -20,6 +21,7 @@ except ImportError:
     from checkers8x8.engine.game import CheckersGame
     from checkers8x8.network.resnet import CheckersNetwork
     from checkers8x8.mcts.mcts import MCTS
+    from checkers8x8.engine.action_encoder import decode_action
 
 
 def play_evaluation_game(
@@ -63,6 +65,7 @@ def play_evaluation_game(
     current_player = 0  # 0 for model1, 1 for model2
     move_count = 0
     
+    
     while not game.is_terminal() and move_count < max_moves:
         # Run MCTS search
         mcts = mcts_instances[current_player]
@@ -74,8 +77,23 @@ def play_evaluation_game(
         
         # Greedy action selection (best action)
         action = mcts.get_best_action()
+        action = mcts.get_best_action()
         
-        if action == -1 or not game.make_action(action):
+        if action == -1:
+             break
+             
+        if not game.make_action(action):
+            print(f"DEBUG: Failed to make action {action}")
+            print(f"DEBUG: Selected action details: {decode_action(action)}")
+            print(f"DEBUG: Python Legal Actions (Indices): {game.get_legal_actions()}")
+            print(f"DEBUG: Python Legal Moves (Decoded):")
+            for m in game.get_legal_moves():
+                print(f"  {m}")
+            print("DEBUG: Board State:")
+            print(f"DEBUG: player_men: {bin(game.player_men)}")
+            print(f"DEBUG: player_kings: {bin(0)}")
+            print(f"DEBUG: opponent_men: {bin(game.opponent_men)}")
+            print(game.render())
             # Invalid action - this shouldn't happen
             break
         
@@ -83,6 +101,7 @@ def play_evaluation_game(
         move_count += 1
     
     # Get result from current game perspective
+    result = game.get_result()
     result = game.get_result()
     
     # Convert to model1's perspective

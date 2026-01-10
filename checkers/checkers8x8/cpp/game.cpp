@@ -1,7 +1,5 @@
 
 #include "game.h"
-#include <fstream>
-
 namespace checkers {
 
 // Board Lookups
@@ -13,18 +11,18 @@ const int SQUARE_TO_ROW[] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
 const int SQUARE_TO_COL[] = {1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7, 0, 2, 4, 6,
                              1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7, 0, 2, 4, 6};
 
-// Neighbor Lookups (4 directions: 0=NE, 1=NW, 2=SE, 3=SW)
-// -1 means invalid (off board)
-// Directions relative to Black (moving DOWN the board usually, but here
-// 'Forward' is UP regarding row index processing logic often, but let's stick
-// to board geometry) Actually in our bitboard: Row 0 is top (0-3). Row 7 is
-// bottom (28-31). Player 1 starts at bottom (20-31), moves UP (negative index
-// change). But wait, the python code says "Current player ALWAYS at bottom". So
-// "Forward" is always "Up" the board (towards 0). Let's define neighbors based
-// on board geometry.
+// Neighbor Directions (Relative to board geometry)
+// 0: NE (Up-Right) - Forward-Right for Player 1 (Red/Bottom)
+// 1: NW (Up-Left)  - Forward-Left for Player 1 (Red/Bottom)
+// 2: SE (Down-Right)
+// 3: SW (Down-Left)
+//
+// Coordinate System:
+// Squares 0-31 map to the 32 dark squares of the 8x8 board.
+// Row 0 is top (squares 0-3), Row 7 is bottom (squares 28-31).
 
-// Hardcoded neighbors for 8x8 (32 squares)
-// Directions: 0: Up-Right, 1: Up-Left, 2: Down-Right, 3: Down-Left
+// Precomputed neighbor lookup table (Squares 0-31, Directions 0-3).
+// Value -1 indicates the move is off the board.
 // Invalid = -1
 const int NEIGHBORS[32][4] = {
     {-1, -1, 4, 5},   {-1, -1, 5, 6},
@@ -44,57 +42,7 @@ const int NEIGHBORS[32][4] = {
     {24, -1, -1, -1}, {24, 25, -1, -1},
     {25, 26, -1, -1}, {26, 27, -1, -1} // Row 7 (28-31)
 };
-// Note: The logic above:
-// Even rows (0, 2, 4, 6) are shifted right (cols 1, 3, 5, 7)
-// Odd rows (1, 3, 5, 7) are shifted left (cols 0, 2, 4, 6)
-// Moving "Up" (smaller index) from Row 1 (square 4, col 0):
-//   - Up-Right (NE): square 0
-//   - Up-Left (NW): invalid (-1)
-// Let's rely on standard logic.
-// In "Current Player at Bottom" perspective:
-// Forward is MINUS (smaller index).
-// Forward-Left: usually -4 or -5
-// Forward-Right: usually -3 or -4
 
-// Actually, let's just use the `NEIGHBORS` table which I derived manually
-// above. Row 0 is indices 0-3. Row 1 is 4-7. Square 4 (Row 1, Col 0). UR -> 0.
-// UL -> -1. DR -> 8. DL -> 9. (Wait, 4+4=8, 4+5=9). Correct. Square 5 (Row 1,
-// Col 2). UR -> 0 (wait. 5-5=0? No. 5 is connected to 0 and 1).
-//   5 is Row 1 Col 2.
-//   Row 0: 0(1), 1(3), 2(5), 3(7).
-//   5 connects to 0 (UR? No, 0 is Left of 5) and 1 (Right of 5?).
-//   Let's check `get_neighbor` implementation from python to be 100% sure or
-//   derive carefully. Python: Even row (0,2..): UR(-3), UL(-4), DR(+5), DL(+4)
-//   Odd row (1,3..): UR(-4), UL(-5), DR(+4), DL(+3)
-// My table above:
-// Square 4 (Row 1 - Odd): UR(0=-4), UL(-1), DR(8=+4), DL(9=+5 -- WAIT).
-//   Odd Row: 4 -> UL is -1. UR is 0 (4-4). DL is 8 (4+4). DR is 9 (4+5).
-//   Wait, visual check.
-//   Row 1: . 4 . 5 . 6 . 7
-//   Row 2: 8 . 9 . 10 . 11
-//   4 is at Col 0. DL is N/A (would be -1 col). DR is 8. Correct?
-//   No, 4 is connected to 8 (which is col 1). So 4 (col 0) -> 8 (col 1) is
-//   Down-Right. So for Odd Row 4: DR (+4) -> 8. DL (N/A). UR (-4) -> 0. UL
-//   (N/A). Table for 4: {-1(UL), 0(UR), 8(DL?), 9(DR?) }. Let's stick to:
-//   0=Forward-Right, 1=Forward-Left, 2=Backward-Right, 3=Backward-Left.
-//   "Forward" = UP = Negative.
-//   Row 1 (Odd): 4. FR(-4)=0. FL(-5)=-1. BR(+4)=8. BL(+3)=? invalid?
-//   Actually 4 is connected to 8 (Col 1). 8 is > 4. So it's Back.
-//   4(0) -> 8(1). Right is increasing col. So Back-Right.
-
-// RE-GENERATING NEIGHBORS TABLE CORRECTLY
-// Directions: 0=FR, 1=FL, 2=BR, 3=BL.
-// Forward = Upper Row (Index - 4ish). Backward = Lower Row (Index + 4ish).
-// Right = Higher Col. Left = Lower Col.
-
-// Even Row (0, 2...): Offset: -3(FR), -4(FL), +5(BR), +4(BL)
-// Odd Row (1, 3...): Offset: -4(FR), -5(FL), +4(BR), +3(BL)
-
-// Examples:
-// Sq 4 (Odd): FR(0), FL(-1), BR(8), BL(7 - wait, 4 is col 0, can't go left. 7
-// is row 1 col 6. wrapping!). Need bounds checking.
-
-// Helper to generate at runtime or use corrected logic.
 int get_neighbor(int square, int dir) {
   if (square < 0 || square >= 32)
     return -1;
@@ -246,6 +194,10 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
                      std::vector<int> &current_captured,
                      std::vector<Move> &moves) const {
 
+  if (square == 21) {
+    printf("DEBUG: get_jumps for square 21. is_king=%d\n", is_king);
+  }
+
   std::vector<int> dirs;
   if (is_king)
     dirs = {0, 1, 2, 3};
@@ -256,12 +208,19 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
 
   for (int dir : dirs) {
     int mid = get_neighbor(square, dir);
-    if (mid == -1)
+    if (mid == -1) {
+      if (square == 21)
+        printf("DEBUG: dir %d neighbor -1\n", dir);
       continue;
+    }
 
     // Mid must have opponent piece
-    if (!((opp_men | opp_kings) >> mid & 1))
+    if (!((opp_men | opp_kings) >> mid & 1)) {
+      if (square == 21)
+        printf("DEBUG: dir %d mid %d empty/friend. Mask bit: %d\n", dir, mid,
+               ((opp_men | opp_kings) >> mid & 1));
       continue;
+    }
 
     // Already captured in this sequence?
     bool already_captured = false;
@@ -272,8 +231,11 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
       continue;
 
     int dest = get_neighbor(mid, dir);
-    if (dest == -1)
+    if (dest == -1) {
+      if (square == 21)
+        printf("DEBUG: dir %d mid %d dest %d invalid\n", dir, mid, dest);
       continue;
+    }
 
     // Dest must be empty (or start square if cycle? - checkers no cycles
     // usually) Check current board state (initial pieces - captured + moved
@@ -305,8 +267,14 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
       if (c == dest)
         dest_busy = false;
 
-    if (dest_busy)
+    if (dest_busy) {
+      if (square == 21)
+        printf("DEBUG: dir %d mid %d dest %d BUSY\n", dir, mid, dest);
       continue;
+    }
+
+    if (square == 21)
+      printf("DEBUG: Found jump! dir %d mid %d dest %d\n", dir, mid, dest);
 
     // Valid jump step!
     found_jump = true;
@@ -411,15 +379,16 @@ std::vector<int> Game::get_legal_actions() const {
 
     int r2, c2;
     if (m.is_jump && !m.captured_squares.empty()) {
-      // For jumps: determine first step direction by looking at first captured piece
-      // The first captured piece is at position (r_cap, c_cap)
-      // The first step goes over this piece
+      // For jumps: determine first step direction by looking at first captured
+      // piece The first captured piece is at position (r_cap, c_cap) The first
+      // step goes over this piece
       int first_captured = m.captured_squares[0];
       int r_cap = SQUARE_TO_ROW[first_captured];
       int c_cap = SQUARE_TO_COL[first_captured];
 
       // First step direction: from (r1, c1) towards (r_cap, c_cap)
-      // Since we jump OVER the captured piece, direction is same as to the captured piece
+      // Since we jump OVER the captured piece, direction is same as to the
+      // captured piece
       r2 = r_cap;
       c2 = c_cap;
     } else {
@@ -501,7 +470,8 @@ bool Game::is_terminal() const {
     return true;
 
   // Check 3-fold repetition
-  PositionKey current = {player_men, player_kings, opponent_men, opponent_kings};
+  PositionKey current = {player_men, player_kings, opponent_men,
+                         opponent_kings};
   int count = 0;
   for (const auto &key : position_history) {
     if (key == current) {

@@ -97,16 +97,17 @@ def get_direction_offset(direction: int) -> Tuple[int, int]:
     Get row/col offset for a direction.
 
     Directions:
-        0: NW (forward-left for player at bottom)
-        1: NE (forward-right for player at bottom)
-        2: SW (backward-left for player at bottom)
-        3: SE (backward-right for player at bottom)
+    Directions:
+        0: NE (forward-right for player at bottom)
+        1: NW (forward-left for player at bottom)
+        2: SE (backward-right for player at bottom)
+        3: SW (backward-left for player at bottom)
     """
     offsets = {
-        0: (-1, -1),  # NW
-        1: (-1, +1),  # NE
-        2: (+1, -1),  # SW
-        3: (+1, +1),  # SE
+        0: (-1, +1),  # NE
+        1: (-1, -1),  # NW
+        2: (+1, +1),  # SE
+        3: (+1, -1),  # SW
     }
     return offsets.get(direction, (0, 0))
 
