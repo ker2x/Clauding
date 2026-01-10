@@ -3,5 +3,5 @@
 .DS_Store
 /checkers/checkpoints/
 /checkers/checkpoints8x8/
-/logs/
-/logs8x8/
+/checkers/logs/
+/checkers/logs8x8/
