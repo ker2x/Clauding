@@ -1,0 +1,450 @@
+================================================================================
+NETWORK HEALTH ANALYSIS REPORT
+Checkpoint: checkpoints/final_model.pt
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Network: ACTOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary Metrics:
+  log_norm: 3.904011165991787
+  alpha: 2.487929661018261
+  alpha_weighted: 7.4739053061795975
+  log_alpha_norm: 7.663879641309552
+  log_spectral_norm: 3.1292393558567335
+  stable_rank: 6.7805464869941625
+
+Dead Neuron Analysis (activation_based):
+  Total neurons: 516
+  Dead neurons: 0
+  Dead ratio: 0.00%
+
+  Per-Layer Dead Neurons:
+    fc1:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 9.611012e+00, max: 1.765726e+02, mean: 3.567259e+01
+      Mean activation - min: -0.392297, max: 0.678870, mean: 0.137813
+    fc2:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 3.528066e+00, max: 2.429093e+02, mean: 2.046458e+01
+      Mean activation - min: -11.669179, max: 9.162739, mean: 1.713345
+    mean:
+      Total: 2, Dead: 0 (0.0%)
+      Activation variance - min: 1.214585e+01, max: 2.004047e+01, mean: 1.609316e+01
+      Mean activation - min: -0.115977, max: 3.513439, mean: 1.698731
+    log_std:
+      Total: 2, Dead: 0 (0.0%)
+      Activation variance - min: 5.445896e-02, max: 1.290741e-01, mean: 9.176653e-02
+      Mean activation - min: -0.856781, max: -0.551518, mean: -0.704149
+
+Input Relevance Analysis:
+  Total state inputs: 165
+  Likely unused state inputs: 5 (3.0%)
+  Threshold: 5% of max relevance
+
+  Unused state input indices:
+    [52, 53, 107, 108, 162]
+
+  Top 10 most relevant state inputs:
+    Index 127: 1.000
+    Index 129: 0.956
+    Index 72: 0.933
+    Index 17: 0.931
+    Index 123: 0.906
+    Index 131: 0.891
+    Index 74: 0.887
+    Index 19: 0.873
+    Index 21: 0.819
+    Index 76: 0.814
+
+  Top 10 least relevant state inputs:
+    Index 162: 0.021
+    Index 107: 0.023
+    Index 52: 0.024
+    Index 108: 0.035
+    Index 53: 0.042
+    Index 109: 0.051
+    Index 54: 0.051
+    Index 163: 0.051
+    Index 164: 0.062
+    Index 161: 0.128
+
+Layer-by-Layer Information Flow:
+  Number of layers: 4
+  Threshold: 5% of max
+
+  Average input usage: 95.8%
+  Average output usage: 100.0%
+
+  Per-layer details:
+  Layer                Shape           InUse    OutUse   AvgInRel   AvgOutStr 
+  --------------------------------------------------------------------------------
+  fc1                  165→256           97.0%  100.0%    0.355     0.428
+  fc2                  256→256          100.0%  100.0%    0.681     0.465
+  mean                 256→2             99.6%  100.0%    0.276     0.959
+  log_std              256→2             86.7%  100.0%    0.131     0.993
+
+
+WeightWatcher Layer-by-Layer Analysis:
+   layer_id    name         D    M    N         Q     alpha  alpha_weighted   entropy  has_esd   lambda_max layer_type  log_alpha_norm  log_norm  log_spectral_norm longname  matrix_rank         norm  num_evals  num_pl_spikes  rank_loss  rf     sigma  spectral_norm  stable_rank   status     sv_max    sv_min       warning  weak_rank_loss         xmax       xmin
+0         1  Linear  0.041272  165  256  1.551515  1.375566        4.689586  0.528365     True  2565.687257      dense        5.053969  3.957628           3.409204      fc1          165  9070.429463        165            126          0   1  0.033458    2565.687257     3.535283  success  50.652614  0.115915  over-trained               0  2565.687257   0.254738
+1         3  Linear  0.058776  256  256  1.000000  3.600293       10.258225  0.856614     True   706.764935      dense       10.273790  3.850394           2.849275      fc2          256  7085.891232        256             24          0   1  0.530783     706.764935    10.025810  success  26.585051  0.007657                             0   706.764935  71.712431
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Network: CRITIC_1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary Metrics:
+  log_norm: 3.7494593643454737
+  alpha: 2.0993960786463743
+  alpha_weighted: 6.421896718660975
+  log_alpha_norm: 6.6354320909688935
+  log_spectral_norm: 3.106327081939618
+  stable_rank: 4.4212313429161725
+
+Dead Neuron Analysis (activation_based):
+  Total neurons: 513
+  Dead neurons: 0
+  Dead ratio: 0.00%
+
+  Per-Layer Dead Neurons:
+    fc1:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 8.808187e+00, max: 1.173009e+02, mean: 2.782819e+01
+      Mean activation - min: -0.570991, max: 1.373095, mean: 0.077002
+    fc2:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 1.836842e+00, max: 1.793480e+02, mean: 1.543396e+01
+      Mean activation - min: -8.711078, max: 4.823221, mean: -0.137495
+    fc_out:
+      Total: 1, Dead: 0 (0.0%)
+      Activation variance - min: 1.198164e+03, max: 1.198164e+03, mean: 1.198164e+03
+      Mean activation - min: -64.526352, max: -64.526352, mean: -64.526352
+
+Input Relevance Analysis:
+  Total state inputs: 165
+  Likely unused state inputs: 18 (10.9%)
+  Threshold: 5% of max relevance
+  Total action inputs: 2
+  Likely unused action inputs: 2 (100.0%)
+
+  Unused state input indices:
+    [6, 7, 8, 9, 14, 52, 53, 54, 61, 63, 64, 69, 107, 108, 109, 162, 163, 164]
+
+  Unused action input indices:
+    [0, 1]
+
+  Top 10 most relevant state inputs:
+    Index 126: 1.000
+    Index 127: 0.857
+    Index 123: 0.827
+    Index 129: 0.802
+    Index 71: 0.789
+    Index 72: 0.761
+    Index 131: 0.743
+    Index 17: 0.739
+    Index 16: 0.669
+    Index 74: 0.659
+
+  Top 10 least relevant state inputs:
+    Index 52: 0.009
+    Index 107: 0.010
+    Index 162: 0.012
+    Index 108: 0.015
+    Index 54: 0.016
+    Index 109: 0.016
+    Index 53: 0.016
+    Index 164: 0.021
+    Index 163: 0.023
+    Index 14: 0.034
+
+Layer-by-Layer Information Flow:
+  Number of layers: 3
+  Threshold: 5% of max
+
+  Average input usage: 96.0%
+  Average output usage: 100.0%
+
+  Per-layer details:
+  Layer                Shape           InUse    OutUse   AvgInRel   AvgOutStr 
+  --------------------------------------------------------------------------------
+  fc1                  167→256           88.0%  100.0%    0.253     0.476
+  fc2                  256→256          100.0%  100.0%    0.631     0.440
+  fc_out               256→1            100.0%  100.0%    0.341     1.000
+
+
+WeightWatcher Layer-by-Layer Analysis:
+   layer_id    name         D    M    N         Q     alpha  alpha_weighted   entropy  has_esd   lambda_max layer_type  log_alpha_norm  log_norm  log_spectral_norm longname  matrix_rank         norm  num_evals  num_pl_spikes  rank_loss  rf     sigma  spectral_norm  stable_rank   status     sv_max    sv_min       warning  weak_rank_loss         xmax       xmin
+0         1  Linear  0.048451  167  256  1.532934  1.375341        4.461285  0.546856     True  1752.940238      dense        4.876591  3.841095           3.243767      fc1          167  6935.780830        167            123          0   1  0.033843    1752.940238     3.956656  success  41.868129  0.053187  over-trained               0  1752.940238   0.253425
+1         3  Linear  0.053116  256  256  1.000000  2.823451        8.382508  0.774678     True   930.865755      dense        8.394273  3.657823           2.968887      fc2          256  4548.030491        256             35          0   1  0.308220     930.865755     4.885807  success  30.510093  0.008206                             0   930.865755  32.324172
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Network: CRITIC_2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary Metrics:
+  log_norm: 3.7455610144492395
+  alpha: 2.1514369725945683
+  alpha_weighted: 6.519510930448048
+  log_alpha_norm: 6.753043587124975
+  log_spectral_norm: 3.0741329811621547
+  stable_rank: 4.711122679733696
+
+Dead Neuron Analysis (activation_based):
+  Total neurons: 513
+  Dead neurons: 0
+  Dead ratio: 0.00%
+
+  Per-Layer Dead Neurons:
+    fc1:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 7.000726e+00, max: 1.080473e+02, mean: 2.663552e+01
+      Mean activation - min: -0.317471, max: 0.890496, mean: 0.058472
+    fc2:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 1.590997e+00, max: 1.840530e+02, mean: 1.542779e+01
+      Mean activation - min: -9.872691, max: 7.231546, mean: -0.163739
+    fc_out:
+      Total: 1, Dead: 0 (0.0%)
+      Activation variance - min: 7.405526e+02, max: 7.405526e+02, mean: 7.405526e+02
+      Mean activation - min: -55.659111, max: -55.659111, mean: -55.659111
+
+Input Relevance Analysis:
+  Total state inputs: 165
+  Likely unused state inputs: 16 (9.7%)
+  Threshold: 5% of max relevance
+  Total action inputs: 2
+  Likely unused action inputs: 2 (100.0%)
+
+  Unused state input indices:
+    [6, 7, 8, 9, 14, 52, 53, 54, 63, 64, 107, 108, 109, 162, 163, 164]
+
+  Unused action input indices:
+    [0, 1]
+
+  Top 10 most relevant state inputs:
+    Index 126: 1.000
+    Index 123: 0.871
+    Index 127: 0.867
+    Index 71: 0.813
+    Index 72: 0.783
+    Index 17: 0.766
+    Index 131: 0.742
+    Index 129: 0.739
+    Index 16: 0.686
+    Index 133: 0.646
+
+  Top 10 least relevant state inputs:
+    Index 52: 0.009
+    Index 107: 0.011
+    Index 162: 0.012
+    Index 54: 0.013
+    Index 108: 0.014
+    Index 109: 0.015
+    Index 53: 0.017
+    Index 163: 0.019
+    Index 164: 0.021
+    Index 8: 0.041
+
+Layer-by-Layer Information Flow:
+  Number of layers: 3
+  Threshold: 5% of max
+
+  Average input usage: 96.0%
+  Average output usage: 100.0%
+
+  Per-layer details:
+  Layer                Shape           InUse    OutUse   AvgInRel   AvgOutStr 
+  --------------------------------------------------------------------------------
+  fc1                  167→256           89.2%  100.0%    0.257     0.477
+  fc2                  256→256          100.0%  100.0%    0.591     0.491
+  fc_out               256→1             98.8%  100.0%    0.279     1.000
+
+
+WeightWatcher Layer-by-Layer Analysis:
+   layer_id    name         D    M    N         Q     alpha  alpha_weighted   entropy  has_esd   lambda_max layer_type  log_alpha_norm  log_norm  log_spectral_norm longname  matrix_rank         norm  num_evals  num_pl_spikes  rank_loss  rf     sigma  spectral_norm  stable_rank   status     sv_max    sv_min       warning  weak_rank_loss         xmax       xmin
+0         1  Linear  0.044669  167  256  1.532934  1.380528        4.412784  0.550573     True  1571.977445      dense        4.870500  3.829464           3.196446      fc1          167  6752.486290        167            125          0   1  0.034035    1571.977445     4.295536  success  39.648171  0.059644  over-trained               0  1571.977445   0.251566
+1         3  Linear  0.037275  256  256  1.000000  2.922346        8.626238  0.784240     True   894.993028      dense        8.635587  3.661658           2.951820      fc2          256  4588.368798        256             36          0   1  0.320391     894.993028     5.126709  success  29.916434  0.003570                             0   894.993028  33.216388
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Network: CRITIC_TARGET_1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary Metrics:
+  log_norm: 3.7494483001552794
+  alpha: 2.099386388710474
+  alpha_weighted: 6.421925964043721
+  log_alpha_norm: 6.635452394937074
+  log_spectral_norm: 3.1063481061056897
+  stable_rank: 4.420881905492611
+
+Dead Neuron Analysis (activation_based):
+  Total neurons: 513
+  Dead neurons: 0
+  Dead ratio: 0.00%
+
+  Per-Layer Dead Neurons:
+    fc1:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 8.714065e+00, max: 1.169237e+02, mean: 2.738294e+01
+      Mean activation - min: -0.567731, max: 1.143882, mean: 0.048972
+    fc2:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 1.920147e+00, max: 1.760998e+02, mean: 1.509906e+01
+      Mean activation - min: -9.970420, max: 5.239640, mean: -0.208535
+    fc_out:
+      Total: 1, Dead: 0 (0.0%)
+      Activation variance - min: 1.189781e+03, max: 1.189781e+03, mean: 1.189781e+03
+      Mean activation - min: -66.199722, max: -66.199722, mean: -66.199722
+
+Input Relevance Analysis:
+  Total state inputs: 165
+  Likely unused state inputs: 18 (10.9%)
+  Threshold: 5% of max relevance
+  Total action inputs: 2
+  Likely unused action inputs: 2 (100.0%)
+
+  Unused state input indices:
+    [6, 7, 8, 9, 14, 52, 53, 54, 61, 63, 64, 69, 107, 108, 109, 162, 163, 164]
+
+  Unused action input indices:
+    [0, 1]
+
+  Top 10 most relevant state inputs:
+    Index 126: 1.000
+    Index 127: 0.857
+    Index 123: 0.827
+    Index 129: 0.802
+    Index 71: 0.789
+    Index 72: 0.761
+    Index 131: 0.743
+    Index 17: 0.739
+    Index 16: 0.669
+    Index 74: 0.659
+
+  Top 10 least relevant state inputs:
+    Index 52: 0.009
+    Index 107: 0.010
+    Index 162: 0.011
+    Index 108: 0.015
+    Index 54: 0.016
+    Index 109: 0.016
+    Index 53: 0.016
+    Index 164: 0.021
+    Index 163: 0.023
+    Index 14: 0.034
+
+Layer-by-Layer Information Flow:
+  Number of layers: 3
+  Threshold: 5% of max
+
+  Average input usage: 96.0%
+  Average output usage: 100.0%
+
+  Per-layer details:
+  Layer                Shape           InUse    OutUse   AvgInRel   AvgOutStr 
+  --------------------------------------------------------------------------------
+  fc1                  167→256           88.0%  100.0%    0.253     0.476
+  fc2                  256→256          100.0%  100.0%    0.631     0.440
+  fc_out               256→1            100.0%  100.0%    0.341     1.000
+
+
+WeightWatcher Layer-by-Layer Analysis:
+   layer_id    name         D    M    N         Q     alpha  alpha_weighted  entropy  has_esd   lambda_max layer_type  log_alpha_norm  log_norm  log_spectral_norm longname  matrix_rank         norm  num_evals  num_pl_spikes  rank_loss  rf     sigma  spectral_norm  stable_rank   status     sv_max    sv_min       warning  weak_rank_loss         xmax       xmin
+0         1  Linear  0.048396  167  256  1.532934  1.375349        4.461317  0.54685     True  1752.954174      dense        4.876610  3.841088           3.243771      fc1          167  6935.663729        167            123          0   1  0.033844    1752.954174     3.956557  success  41.868296  0.052471  over-trained               0  1752.954174   0.253436
+1         3  Linear  0.053047  256  256  1.000000  2.823424        8.382535  0.77466     True   930.948485      dense        8.394295  3.657809           2.968926      fc2          256  4547.875548        256             35          0   1  0.308215     930.948485     4.885206  success  30.511448  0.008533                             0   930.948485  32.323236
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Network: CRITIC_TARGET_2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Summary Metrics:
+  log_norm: 3.74553883464103
+  alpha: 2.1516308129701964
+  alpha_weighted: 6.520072969985864
+  log_alpha_norm: 6.75362626455304
+  log_spectral_norm: 3.074134581802915
+  stable_rank: 4.710852520873612
+
+Dead Neuron Analysis (activation_based):
+  Total neurons: 513
+  Dead neurons: 0
+  Dead ratio: 0.00%
+
+  Per-Layer Dead Neurons:
+    fc1:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 7.504537e+00, max: 1.060732e+02, mean: 2.624497e+01
+      Mean activation - min: -0.552050, max: 1.003654, mean: 0.080219
+    fc2:
+      Total: 256, Dead: 0 (0.0%)
+      Activation variance - min: 1.566222e+00, max: 1.770662e+02, mean: 1.565090e+01
+      Mean activation - min: -10.119710, max: 7.367224, mean: -0.199689
+    fc_out:
+      Total: 1, Dead: 0 (0.0%)
+      Activation variance - min: 8.275525e+02, max: 8.275525e+02, mean: 8.275525e+02
+      Mean activation - min: -55.326916, max: -55.326916, mean: -55.326916
+
+Input Relevance Analysis:
+  Total state inputs: 165
+  Likely unused state inputs: 16 (9.7%)
+  Threshold: 5% of max relevance
+  Total action inputs: 2
+  Likely unused action inputs: 2 (100.0%)
+
+  Unused state input indices:
+    [6, 7, 8, 9, 14, 52, 53, 54, 63, 64, 107, 108, 109, 162, 163, 164]
+
+  Unused action input indices:
+    [0, 1]
+
+  Top 10 most relevant state inputs:
+    Index 126: 1.000
+    Index 123: 0.871
+    Index 127: 0.867
+    Index 71: 0.813
+    Index 72: 0.783
+    Index 17: 0.766
+    Index 131: 0.742
+    Index 129: 0.739
+    Index 16: 0.686
+    Index 133: 0.646
+
+  Top 10 least relevant state inputs:
+    Index 52: 0.009
+    Index 107: 0.011
+    Index 162: 0.012
+    Index 54: 0.013
+    Index 108: 0.014
+    Index 109: 0.015
+    Index 53: 0.017
+    Index 163: 0.018
+    Index 164: 0.021
+    Index 8: 0.041
+
+Layer-by-Layer Information Flow:
+  Number of layers: 3
+  Threshold: 5% of max
+
+  Average input usage: 96.0%
+  Average output usage: 100.0%
+
+  Per-layer details:
+  Layer                Shape           InUse    OutUse   AvgInRel   AvgOutStr 
+  --------------------------------------------------------------------------------
+  fc1                  167→256           89.2%  100.0%    0.257     0.477
+  fc2                  256→256          100.0%  100.0%    0.591     0.491
+  fc_out               256→1             98.8%  100.0%    0.279     1.000
+
+
+WeightWatcher Layer-by-Layer Analysis:
+   layer_id    name         D    M    N         Q     alpha  alpha_weighted   entropy  has_esd   lambda_max layer_type  log_alpha_norm  log_norm  log_spectral_norm longname  matrix_rank         norm  num_evals  num_pl_spikes  rank_loss  rf     sigma  spectral_norm  stable_rank   status     sv_max    sv_min       warning  weak_rank_loss         xmax       xmin
+0         1  Linear  0.044776  167  256  1.532934  1.380331        4.412136  0.550575     True  1571.933692      dense        4.869907  3.829441           3.196434      fc1          167  6752.126904        167            125          0   1  0.034018    1571.933692     4.295427  success  39.647619  0.058431  over-trained               0  1571.933692   0.251203
+1         3  Linear  0.037126  256  256  1.000000  2.922931        8.628009  0.784226     True   895.024536      dense        8.637345  3.661637           2.951835      fc2          256  4588.144352        256             36          0   1  0.320488     895.024536     5.126278  success  29.916961  0.003419                             0   895.024536  33.220425
+

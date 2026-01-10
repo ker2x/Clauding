@@ -20,6 +20,7 @@ WeightWatcher provides insights into:
   * Tracks how information propagates through each layer
   * Identifies bottlenecks and underutilized layers
   * Shows input/output usage ratios for every layer
+  * Neuron-by-neuron visualizations for each layer (similar to input relevance)
   * Helps optimize network architecture
 
 Usage:
@@ -1181,6 +1182,77 @@ class NetworkHealthAnalyzer:
                 plt.close()
 
                 print(f"   ✓ Saved {name} layer flow plot to {layer_flow_plot_path}")
+
+            # Plot per-neuron relevance for each layer (NEW - detailed neuron-by-neuron analysis)
+            if 'layer_relevance' in result and 'error' not in result['layer_relevance']:
+                layer_rel = result['layer_relevance']
+                layer_stats = layer_rel['layer_stats']
+                threshold = layer_rel['threshold']
+
+                # Create one figure per layer showing neuron-by-neuron details
+                for layer_stat in layer_stats:
+                    layer_name = layer_stat['layer_name']
+                    layer_idx = layer_stat['layer_index']
+                    input_relevance = layer_stat['input_relevance']
+                    output_strength = layer_stat['output_strength']
+
+                    # Create figure with two subplots (input and output)
+                    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+                    fig.suptitle(f'Neuron-by-Neuron Analysis: {name.upper()} - Layer {layer_idx} ({layer_name})',
+                                fontsize=16, fontweight='bold')
+
+                    # Subplot 1: Input relevance (which inputs from previous layer are used)
+                    weak_inputs = input_relevance < threshold
+                    colors_input = ['red' if weak else 'teal' for weak in weak_inputs]
+
+                    ax1.bar(range(len(input_relevance)), input_relevance, color=colors_input,
+                           edgecolor='black', linewidth=0.5)
+                    ax1.axhline(threshold, color='orange', linestyle='--', linewidth=2,
+                               label=f"Threshold ({threshold*100:.0f}% of max)")
+                    ax1.set_xlabel('Input Neuron Index (from previous layer)')
+                    ax1.set_ylabel('Normalized Relevance')
+                    ax1.set_title(f'Input Neuron Relevance (which inputs matter)\n'
+                                 f'({weak_inputs.sum()}/{len(input_relevance)} weak inputs - marked red)')
+                    ax1.legend()
+                    ax1.grid(True, alpha=0.3, axis='y')
+
+                    # Add usage stats
+                    usage = layer_stat['input_usage_ratio'] * 100
+                    ax1.text(0.98, 0.98, f'Input Usage: {usage:.1f}%',
+                            transform=ax1.transAxes, ha='right', va='top',
+                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                            fontsize=12)
+
+                    # Subplot 2: Output strength (which output neurons are strong)
+                    weak_outputs = output_strength < threshold
+                    colors_output = ['red' if weak else 'coral' for weak in weak_outputs]
+
+                    ax2.bar(range(len(output_strength)), output_strength, color=colors_output,
+                           edgecolor='black', linewidth=0.5)
+                    ax2.axhline(threshold, color='orange', linestyle='--', linewidth=2,
+                               label=f"Threshold ({threshold*100:.0f}% of max)")
+                    ax2.set_xlabel('Output Neuron Index (in this layer)')
+                    ax2.set_ylabel('Normalized Strength')
+                    ax2.set_title(f'Output Neuron Strength (how strong each neuron is)\n'
+                                 f'({weak_outputs.sum()}/{len(output_strength)} weak outputs - marked red)')
+                    ax2.legend()
+                    ax2.grid(True, alpha=0.3, axis='y')
+
+                    # Add usage stats
+                    usage = layer_stat['output_usage_ratio'] * 100
+                    ax2.text(0.98, 0.98, f'Output Usage: {usage:.1f}%',
+                            transform=ax2.transAxes, ha='right', va='top',
+                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                            fontsize=12)
+
+                    plt.tight_layout()
+
+                    # Save plot
+                    neuron_plot_path = os.path.join(plots_dir, f'{name}_layer{layer_idx:02d}_{layer_name.replace(".", "_")}_neurons.png')
+                    plt.savefig(neuron_plot_path, dpi=150, bbox_inches='tight')
+                    plt.close()
+
+                    print(f"   ✓ Saved {name} layer {layer_idx} neuron-by-neuron plot to {neuron_plot_path}")
 
         print(f"\n✅ All plots saved to: {plots_dir}/")
 
