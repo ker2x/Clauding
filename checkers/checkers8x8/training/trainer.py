@@ -151,28 +151,19 @@ class Trainer:
 
             # Move network to self-play device
             self.network.to(self.selfplay_device)
+            # IMPORTANT: Share memory for multiprocessing
+            self.network.share_memory()
             self.network.eval()
 
-            # Create visualization callback if game visualizer exists
-            on_move_callback = None
-            if self.game_visualizer:
-                def on_move(game, policy, move_count, current_player):
-                    """Convert game state to visualizer format and render."""
-                    # Get absolute board array (no perspective switching)
-                    board = game.to_absolute_board_array()
-                    
-                    # Render
-                    self.game_visualizer.render(board, policy, move_count, current_player)
-
-
-                on_move_callback = on_move
-
-            states, policies, values = play_games_sequential(
+            # Run parallel self-play
+            from .self_play import play_games_parallel
+            
+            states, policies, values = play_games_parallel(
                 self.network,
                 self.config,
                 self.selfplay_device,
                 num_games=self.config.GAMES_PER_ITERATION,
-                on_move=on_move_callback
+                game_visualizer=self.game_visualizer
             )
 
             # Move network back to training device
@@ -188,11 +179,13 @@ class Trainer:
             print(f"  Time: {metrics['time_selfplay']:.1f}s")
 
             # 2. Training
-            print(f"\n[2/2] Training ({self.config.TRAINING_STEPS_PER_ITERATION} steps)...")
+            num_new_samples = len(states)
+            num_steps = self._get_dynamic_steps(num_new_samples)
+            print(f"\n[2/2] Training ({num_steps} steps, reuse ratio scaling)...")
             t_start = time.time()
 
             if len(self.replay_buffer) >= self.config.BATCH_SIZE:
-                train_metrics = self.train_network(self.config.TRAINING_STEPS_PER_ITERATION)
+                train_metrics = self.train_network(num_steps)
                 metrics.update(train_metrics)
             else:
                 print(f"  Skipping (buffer size {len(self.replay_buffer)} < batch size {self.config.BATCH_SIZE})")
@@ -243,6 +236,34 @@ class Trainer:
         print("\n" + "=" * 70)
         print("🎉 TRAINING COMPLETE!")
         print("=" * 70)
+
+    def _get_dynamic_steps(self, num_new_samples: int) -> int:
+        """
+        Calculate training steps based on a Sample Reuse Ratio.
+        
+        The ratio (how many times each new sample is seen) scales from 
+        MIN_SAMPLE_REUSE to MAX_SAMPLE_REUSE based on buffer fullness.
+        """
+        current_size = len(self.replay_buffer)
+        capacity = self.config.BUFFER_SIZE
+        
+        if current_size < self.config.BATCH_SIZE:
+            # Fallback for very first iteration
+            return int((num_new_samples * self.config.MIN_SAMPLE_REUSE) / self.config.BATCH_SIZE)
+            
+        # Scale reuse factor from 5.0 to 30.0 (maxes out at 50% buffer capacity)
+        saturation_point = capacity * 0.5
+        scale = min(1.0, current_size / saturation_point)
+        
+        current_reuse = self.config.MIN_SAMPLE_REUSE + scale * (
+            self.config.MAX_SAMPLE_REUSE - self.config.MIN_SAMPLE_REUSE
+        )
+        
+        # Steps = (New Samples * Reuse Factor) / Batch Size
+        steps = (num_new_samples * current_reuse) / self.config.BATCH_SIZE
+        
+        # Ensure at least some training happens, but cap it to avoid extreme scenarios
+        return max(10, int(steps))
 
     def train_network(self, num_steps: int) -> Dict[str, float]:
         """
@@ -306,6 +327,10 @@ class Trainer:
                 avg_loss = np.mean(total_losses[-10:]) if total_losses else 0
                 print(f"\r  [{bar}] {step + 1}/{num_steps} steps | "
                       f"loss: {avg_loss:.4f}", end="", flush=True)
+                
+                # Refresh visualizer to keep window responsive
+                if self.game_visualizer:
+                    self.game_visualizer.render()
 
         print()  # New line after completion
         self.network.eval()
@@ -385,9 +410,10 @@ class Trainer:
         on_move_callback = None
         if self.game_visualizer:
             def on_move(game, policy, move_count, current_player):
-                """Convert game state to visualizer format and render."""
-                board = game.to_absolute_board_array()
-                self.game_visualizer.render(board, policy, move_count, current_player)
+                """Convert game state to visualizer format and render if needed."""
+                if self.game_visualizer.should_render():
+                    board = game.to_absolute_board_array()
+                    self.game_visualizer.render(board, policy, move_count, current_player)
             on_move_callback = on_move
 
         # Evaluate

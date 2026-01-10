@@ -32,14 +32,15 @@ class Config:
 
     # Training configuration
     GAMES_PER_ITERATION = 30  # Games to play per iteration
-    NUM_WORKERS = 8  # Parallel self-play workers (not implemented yet, sequential for now)
+    NUM_WORKERS = 6  # Parallel self-play workers
     BUFFER_SIZE = 200_000  # Max positions in replay buffer (increased capacity)
 
     # Data Sampling
     RECENCY_TAU = 50  # Exponential weighting constant for recent data
 
     BATCH_SIZE = 256  # Mini-batch size for training
-    TRAINING_STEPS_PER_ITERATION = 150  # Gradient steps per iteration
+    MIN_SAMPLE_REUSE = 3   # Average training passes per state (early/random data)
+    MAX_SAMPLE_REUSE = 15  # Average training passes per state (mature/expert data)
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4
     GRAD_CLIP = 5.0  # Gradient clipping max norm
@@ -62,7 +63,7 @@ class Config:
     LOG_FREQUENCY = 1  # Log metrics every N iterations
 
     # Game configuration
-    MAX_GAME_LENGTH = 200  # Maximum moves per game
+    MAX_GAME_LENGTH = 400  # Maximum moves per game (100-200 is typical, 400 covers all edge cases)
 
     @classmethod
     def get_device(cls) -> torch.device:
@@ -119,7 +120,7 @@ class Config:
         print(f"  Buffer size: {cls.BUFFER_SIZE:,}")
         print(f"  Recency tau: {cls.RECENCY_TAU}")
         print(f"  Batch size: {cls.BATCH_SIZE}")
-        print(f"  Training steps per iteration: {cls.TRAINING_STEPS_PER_ITERATION}")
+        print(f"  Sample Reuse: {cls.MIN_SAMPLE_REUSE} to {cls.MAX_SAMPLE_REUSE}x (Dynamic)")
         print(f"  Learning rate: {cls.LEARNING_RATE}")
         print(f"  Weight decay: {cls.WEIGHT_DECAY}")
         print(f"  Gradient clipping: {cls.GRAD_CLIP}")

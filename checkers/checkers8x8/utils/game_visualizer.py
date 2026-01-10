@@ -4,8 +4,16 @@ Pygame-based real-time game visualization for 8x8 checkers.
 Shows the board state and policy heatmap during self-play.
 """
 
+import os
+import warnings
+
+# Silence pygame prompt and setuptools warnings
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
+os.environ['PYTHONWARNINGS'] = "ignore::UserWarning:pkg_resources,ignore::DeprecationWarning:pkg_resources"
+
 import pygame
 import numpy as np
+import time
 from typing import Optional, Dict
 from collections import deque
 
@@ -82,6 +90,20 @@ class GameVisualizer:
         self.font_small = pygame.font.Font(None, 20)
 
         self.clock = pygame.time.Clock()
+        self.last_render_time = 0
+        self.min_render_interval = 0.033  # ~30 FPS max
+
+        # Precompute action to board index mapping for heatmap
+        self._action_to_board_idx = self._precompute_action_mapping()
+
+        # State storage for refresh-only renders
+        self.last_game_array = np.zeros((8, 8), dtype=np.int8)
+        self.last_policy = None
+        self.last_move_count = 0
+        self.last_player = 1
+
+        # Visualization toggles
+        self.show_heatmap = False
 
     def update_metrics(self, metrics: Dict):
         """
@@ -151,40 +173,74 @@ class GameVisualizer:
         for entry in history:
             self.update_metrics(entry)
 
+    def should_render(self, force: bool = False) -> bool:
+        """Check if it's time to render a new frame based on throttling."""
+        if force:
+            return True
+        return time.time() - self.last_render_time >= self.min_render_interval
+
     def render(
         self,
-        game_array: np.ndarray,
+        game_array: Optional[np.ndarray] = None,
         policy: Optional[np.ndarray] = None,
-        move_count: int = 0,
-        player: int = 1
+        move_count: Optional[int] = None,
+        player: Optional[int] = None,
+        force: bool = False
     ):
         """
         Render the current game state and metrics.
 
         Args:
-            game_array: 8x8 board array
-            policy: Policy distribution over 128 actions
-            move_count: Current move number
-            player: Current player (1 or 2)
+            game_array: 8x8 board array (Optional - uses last if None)
+            policy: Policy distribution (Optional - uses last if None)
+            move_count: Current move number (Optional - uses last if None)
+            player: Current player (Optional - uses last if None)
+            force: Whether to force render regardless of throttle
         """
+        # Update cached state if new data is provided
+        if game_array is not None:
+            self.last_game_array = game_array
+        if policy is not None:
+            self.last_policy = policy
+        if move_count is not None:
+            self.last_move_count = move_count
+        if player is not None:
+            self.last_player = player
+
+        # Throttle rendering to save performance
+        current_time = time.time()
+        if not force and current_time - self.last_render_time < self.min_render_interval:
+            # Still process events to keep window responsive
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.close()
+                    return False
+            return True
+
+        self.last_render_time = current_time
+
         # Clear screen
         self.screen.fill(BLACK)
 
         # Draw board and pieces
-        self._draw_board(game_array, policy)
+        self._draw_board(self.last_game_array, self.last_policy)
 
         # Draw info panel (text and graphs)
-        self._draw_info_panel(move_count, player)
+        self._draw_info_panel(self.last_move_count, self.last_player)
 
         # Update display
         pygame.display.flip()
-        self.clock.tick(30)  # 30 FPS
+        # No clock.tick() here, we use time-based throttling instead
 
         # Process events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
                 return False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_h:
+                    self.show_heatmap = not self.show_heatmap
+                    print(f"Heatmap: {'ON' if self.show_heatmap else 'OFF'}")
 
         return True
 
@@ -208,8 +264,8 @@ class GameVisualizer:
                     (x, y, self.square_size, self.square_size)
                 )
 
-        # Draw policy heatmap (if provided)
-        if policy is not None:
+        # Draw policy heatmap (if provided and enabled)
+        if policy is not None and self.show_heatmap:
             self._draw_policy_heatmap(policy)
 
         # Draw pieces
@@ -230,30 +286,9 @@ class GameVisualizer:
         square_probs = np.zeros(64)  # 8x8 board
 
         # Aggregate policy probabilities by destination square
-        for action_idx in range(128):
-            if policy[action_idx] > 0.01:  # Only show significant probabilities
-                # Decode action: from_square * 4 + direction
-                from_square = action_idx // 4
-                direction = action_idx % 4
-
-                # Map to board position
-                from_row, from_col = square_to_row_col(from_square)
-
-                # Direction offsets
-                dir_offsets = {
-                    0: (-1, -1),  # NW
-                    1: (-1, +1),  # NE
-                    2: (+1, -1),  # SW
-                    3: (+1, +1),  # SE
-                }
-
-                dr, dc = dir_offsets[direction]
-                to_row, to_col = from_row + dr, from_col + dc
-
-                # Check bounds
-                if 0 <= to_row < 8 and 0 <= to_col < 8:
-                    board_idx = to_row * 8 + to_col
-                    square_probs[board_idx] += policy[action_idx]
+        for action_idx, board_idx in self._action_to_board_idx:
+            if board_idx != -1 and policy[action_idx] > 0.01:
+                square_probs[board_idx] += policy[action_idx]
 
         # Normalize
         if square_probs.max() > 0:
@@ -274,6 +309,32 @@ class GameVisualizer:
                 overlay.set_alpha(alpha // 2)  # Semi-transparent
                 overlay.fill(POLICY_COLOR)
                 self.screen.blit(overlay, (x, y))
+
+    def _precompute_action_mapping(self):
+        """Precompute the mapping from action index to target board index."""
+        mapping = []
+        dir_offsets = {
+            0: (-1, -1),  # NW
+            1: (-1, +1),  # NE
+            2: (+1, -1),  # SW
+            3: (+1, +1),  # SE
+        }
+
+        for action_idx in range(128):
+            from_square = action_idx // 4
+            direction = action_idx % 4
+            
+            from_row, from_col = square_to_row_col(from_square)
+            dr, dc = dir_offsets[direction]
+            to_row, to_col = from_row + dr, from_col + dc
+            
+            if 0 <= to_row < 8 and 0 <= to_col < 8:
+                board_idx = to_row * 8 + to_col
+                mapping.append((action_idx, board_idx))
+            else:
+                mapping.append((action_idx, -1))
+        
+        return mapping
 
     def _draw_piece(self, row: int, col: int, piece: int):
         """

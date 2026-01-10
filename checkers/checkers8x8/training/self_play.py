@@ -4,7 +4,10 @@ Self-play game generation for training.
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
+import time
 from typing import List, Tuple
+from queue import Empty
 
 try:
     from ..engine.game import CheckersGame
@@ -223,6 +226,170 @@ def play_games_sequential(
 
     print()  # New line after completion
 
+    return all_states, all_policies, all_values
+
+
+def self_play_worker(
+    rank: int,
+    network: CheckersNetwork,
+    config,
+    device: torch.device,
+    games_to_play: int,
+    result_queue: mp.Queue,
+    vis_queue: mp.Queue = None
+):
+    """
+    Worker process for parallel self-play.
+    
+    Args:
+        rank: Worker ID
+        network: Shared neural network
+        config: Configuration object
+        device: Device to run on (usually CPU)
+        games_to_play: Number of games this worker should play
+        result_queue: Queue to send game results [(states, policies, values)]
+        vis_queue: Queue to send visualization updates (only used by rank 0)
+    """
+    # Initialize game generator
+    # Note: Each worker gets its own MCTS instance but shares the network weights
+    self_play = SelfPlayGame(network, config, device)
+    
+    for _ in range(games_to_play):
+        # Setup visualization callback if we are the visualization worker (rank 0)
+        on_move = None
+        if rank == 0 and vis_queue is not None:
+            def on_move_callback(game, policy, move_count, current_player):
+                # Only send update if we should render (simple throttle check could be here too)
+                # But actual throttle is on consumer side. We send data here.
+                # To minimize IPC overhead, we can do a quick check or just send all 
+                # and let main process throttle. For now, send all.
+                try:
+                    # Convert to absolute board for visualization
+                    board = game.to_absolute_board_array()
+                    vis_queue.put_nowait((board, policy, move_count, current_player))
+                except Exception:
+                    pass  # Ignore queue full errors
+            on_move = on_move_callback
+
+        # Play game
+        states, policies, values = self_play.play_game(on_move=on_move)
+        
+        # specific check for empty game (should not happen but good for safety)
+        if len(states) > 0:
+            result_queue.put((states, policies, values))
+
+
+def play_games_parallel(
+    network: CheckersNetwork,
+    config,
+    device: torch.device,
+    num_games: int,
+    game_visualizer=None
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+    """
+    Play games in parallel using multiple processes.
+    
+    Args:
+        network: Neural network (must be in shared memory)
+        config: Configuration
+        device: Device (should be CPU for parallel workers)
+        num_games: Total games to play
+        game_visualizer: Visualization instance (for main thread rendering)
+        
+    Returns:
+        (states, policies, values): Aggregated training examples
+    """
+    num_workers = config.NUM_WORKERS
+    games_per_worker = num_games // num_workers
+    remainder = num_games % num_workers
+    
+    # Establish queues
+    result_queue = mp.Queue()
+    vis_queue = mp.Queue() if game_visualizer else None
+    
+    processes = []
+    
+    # Start workers
+    print(f"  Starting {num_workers} workers...")
+    for rank in range(num_workers):
+        # Distribute remainder games
+        worker_games = games_per_worker + (1 if rank < remainder else 0)
+        
+        if worker_games == 0:
+            continue
+            
+        p = mp.Process(
+            target=self_play_worker,
+            args=(
+                rank, 
+                network, 
+                config, 
+                device, 
+                worker_games, 
+                result_queue, 
+                vis_queue
+            )
+        )
+        p.start()
+        processes.append(p)
+        
+    # Collect results
+    all_states = []
+    all_policies = []
+    all_values = []
+    
+    collected_games = 0
+    
+    # Progress bar setup
+    bar_width = 40
+    print("  ", end="", flush=True)
+    
+    while collected_games < num_games:
+        # 1. Process visualization updates (Worker 0 -> Main Thread)
+        if vis_queue and game_visualizer:
+            try:
+                # Drain queue up to latest frame
+                latest_vis = None
+                while True:
+                    latest_vis = vis_queue.get_nowait()
+            except Empty:
+                pass
+            
+            if latest_vis and game_visualizer.should_render():
+                 game_visualizer.render(*latest_vis)
+        
+        # 2. Process Game Results
+        try:
+            # Non-blocking check for results
+            data = result_queue.get(timeout=0.05)
+            states, policies, values = data
+            
+            all_states.extend(states)
+            all_policies.extend(policies)
+            all_values.extend(values)
+            
+            collected_games += 1
+            
+            # Update progress
+            progress = collected_games / num_games
+            filled = int(bar_width * progress)
+            bar = '█' * filled + '░' * (bar_width - filled)
+            print(f"\r  [{bar}] {collected_games}/{num_games} games | "
+                  f"{len(all_states)} examples", end="", flush=True)
+                  
+        except Empty:
+            # If no results yet, check if processes are alive
+            if not any(p.is_alive() for p in processes) and result_queue.empty():
+                print("\n  Warning: All workers died prematurely.")
+                break
+            continue
+
+    print() # Newline
+    
+    # Clean up
+    for p in processes:
+        p.join()
+        
     return all_states, all_policies, all_values
 
 

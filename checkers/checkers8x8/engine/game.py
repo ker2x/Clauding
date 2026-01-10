@@ -38,6 +38,7 @@ class CheckersGame:
 
         self.current_player = 1  # Player 1 starts
         self.move_count = 0
+        self.max_moves = 400  # Default safety cap
         self.position_history = defaultdict(int)
         self._update_position_hash()
 
@@ -50,6 +51,7 @@ class CheckersGame:
         game.opponent_kings = self.opponent_kings
         game.current_player = self.current_player
         game.move_count = self.move_count
+        game.max_moves = self.max_moves
         game.position_history = self.position_history.copy()
         return game
 
@@ -189,8 +191,8 @@ class CheckersGame:
         if self.position_history[position] >= 3:
             return True
 
-        # Draw by move limit
-        if self.move_count >= 200:
+        # Draw by move limit (safety cap)
+        if self.move_count >= self.max_moves:
             return True
 
         return False

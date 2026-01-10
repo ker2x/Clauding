@@ -1,16 +1,29 @@
-"""
-Training script for 8x8 American Checkers with Fixed Action Space.
-"""
-
-import sys
 import os
+import sys
+import warnings
+
+# MUST happen before any other imports to be effective
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
+# Suppress the pkg_resources warning globally if possible
+warnings.filterwarnings("ignore", category=UserWarning, module="pkg_resources")
+warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
+
 import argparse
-import torch
 import random
 import numpy as np
+import torch
+import warnings
 
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+import torch.multiprocessing as mp
+
+# Set start method to spawn (required for PyTorch + macOS)
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
 
 from config8x8 import Config
 from checkers8x8.network.resnet import CheckersNetwork, count_parameters
