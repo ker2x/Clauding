@@ -27,7 +27,8 @@ def play_evaluation_game(
     model2: CheckersNetwork,
     config,
     device: torch.device,
-    max_moves: int = 200
+    max_moves: int = 200,
+    on_move=None
 ) -> float:
     """
     Play one evaluation game between two models.
@@ -38,6 +39,7 @@ def play_evaluation_game(
         config: Configuration object
         device: PyTorch device
         max_moves: Maximum moves before draw
+        on_move: Optional callback for move visualization
 
     Returns:
         Result from model1's perspective: 1.0 (win), 0.0 (loss), 0.5 (draw)
@@ -65,6 +67,10 @@ def play_evaluation_game(
         # Run MCTS search
         mcts = mcts_instances[current_player]
         policy = mcts.search(game, add_noise=False)
+        
+        # Callback for visualization
+        if on_move:
+            on_move(game, policy, move_count, game.current_player)
         
         # Greedy action selection (best action)
         action = mcts.get_best_action()
@@ -99,7 +105,8 @@ def evaluate_models(
     best_model: CheckersNetwork,
     config,
     device: torch.device,
-    num_games: int = None
+    num_games: int = None,
+    on_move=None
 ) -> Dict[str, float]:
     """
     Evaluate current model against best model.
@@ -112,6 +119,7 @@ def evaluate_models(
         config: Configuration object
         device: PyTorch device
         num_games: Number of games to play (default: config.EVAL_GAMES)
+        on_move: Optional callback for move visualization
 
     Returns:
         Dictionary with evaluation results
@@ -134,10 +142,10 @@ def evaluate_models(
         # Alternate which model goes first
         if game_idx % 2 == 0:
             # Current model plays as player 1
-            result = play_evaluation_game(current_model, best_model, config, device)
+            result = play_evaluation_game(current_model, best_model, config, device, on_move=on_move)
         else:
             # Best model plays as player 1, flip result
-            result = play_evaluation_game(best_model, current_model, config, device)
+            result = play_evaluation_game(best_model, current_model, config, device, on_move=on_move)
             result = 1.0 - result  # Flip: 1->0, 0->1, 0.5->0.5
         
         # Count results

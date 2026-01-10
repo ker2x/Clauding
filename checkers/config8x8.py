@@ -16,8 +16,8 @@ class Config:
     POLICY_SIZE = 128  # Fixed action space: 32 squares × 4 directions
 
     # MCTS configuration
-    MCTS_SIMS_SELFPLAY = 50  # Simulations per move during self-play
-    MCTS_SIMS_EVAL = 50  # Simulations per move during evaluation
+    MCTS_SIMS_SELFPLAY = 75  # Simulations per move during self-play
+    MCTS_SIMS_EVAL = 100  # Simulations per move during evaluation
 
     # Exploration in Tree Search (PUCT algorithm)
     C_PUCT = 1.0  # Exploration constant
@@ -31,7 +31,7 @@ class Config:
     TEMPERATURE = 1.0  # Stochastic move selection
 
     # Training configuration
-    GAMES_PER_ITERATION = 10  # Games to play per iteration
+    GAMES_PER_ITERATION = 30  # Games to play per iteration
     NUM_WORKERS = 8  # Parallel self-play workers (not implemented yet, sequential for now)
     BUFFER_SIZE = 200_000  # Max positions in replay buffer (increased capacity)
 
@@ -39,7 +39,7 @@ class Config:
     RECENCY_TAU = 50  # Exponential weighting constant for recent data
 
     BATCH_SIZE = 256  # Mini-batch size for training
-    TRAINING_STEPS_PER_ITERATION = 300  # Gradient steps per iteration (increased for more learning)
+    TRAINING_STEPS_PER_ITERATION = 150  # Gradient steps per iteration
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4
     GRAD_CLIP = 5.0  # Gradient clipping max norm

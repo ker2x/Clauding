@@ -97,6 +97,60 @@ class GameVisualizer:
             self.metrics_history['buffer_size'].append(metrics.get('buffer_size', 0))
             self.metrics_history['iterations'].append(metrics.get('iteration', 0))
 
+    def load_history(self, log_file: str, max_iteration: Optional[int] = None):
+        """
+        Load metrics history from a CSV log file.
+
+        Args:
+            log_file: Path to the CSV file
+            max_iteration: Optional maximum iteration to load (exclusive)
+        """
+        import csv
+        from pathlib import Path
+
+        log_path = Path(log_file)
+        if not log_path.exists():
+            return
+
+        history = []
+        try:
+            with open(log_path, 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        iter_val = int(row['iteration'])
+                        if max_iteration is not None and iter_val > max_iteration:
+                            continue
+                        
+                        history.append({
+                            'iteration': iter_val,
+                            'total_loss': float(row['total_loss']),
+                            'policy_loss': float(row['policy_loss']),
+                            'value_loss': float(row['value_loss']),
+                            'buffer_size': int(row['buffer_size'])
+                        })
+                    except (ValueError, KeyError):
+                        continue
+        except Exception as e:
+            print(f"Warning: Could not load history from {log_file}: {e}")
+            return
+
+        # If we have duplicate iterations (e.g. training restarts),
+        # we want to find the sequence that leads to max_iteration.
+        if max_iteration is not None:
+            # Search backwards for the most recent run that ends at or before max_iteration
+            actual_history = []
+            for i in range(len(history) - 1, -1, -1):
+                if history[i]['iteration'] <= max_iteration:
+                    actual_history.insert(0, history[i])
+                    if history[i]['iteration'] == 1:
+                        break
+            history = actual_history
+
+        # Populate deques
+        for entry in history:
+            self.update_metrics(entry)
+
     def render(
         self,
         game_array: np.ndarray,
@@ -273,31 +327,15 @@ class GameVisualizer:
 
         # Draw Loss Graph
         y_offset = self._draw_graph_box(
-            "Losses (Total, Policy, Value)", 
+            "Training Losses", 
             [self.metrics_history['total_loss'], self.metrics_history['policy_loss'], self.metrics_history['value_loss']],
             [GRAPH_COLOR_TOTAL, GRAPH_COLOR_POLICY, GRAPH_COLOR_VALUE],
             panel_x + padding, y_offset, 
-            self.info_width - 2 * padding, 120
-        )
-        
-        y_offset += 20
-
-        # Draw Buffer Graph
-        y_offset = self._draw_graph_box(
-            "Replay Buffer Size", 
-            [self.metrics_history['buffer_size']],
-            [GRAPH_COLOR_BUFFER],
-            panel_x + padding, y_offset, 
-            self.info_width - 2 * padding, 100
+            self.info_width - 2 * padding, 220,  # Increased height to use the extra space
+            labels=["Total", "Policy", "Value"]
         )
 
-        # Legend (simplified)
-        y_offset += 20
-        legend_y = self.window_height - 100
-        legend_text = self.font_small.render("Legend: Red=P1, Black=P2, Blue=AI Plan", True, WHITE)
-        self.screen.blit(legend_text, (panel_x + padding, legend_y))
-
-    def _draw_graph_box(self, title, data_lists, colors, x, y, w, h):
+    def _draw_graph_box(self, title, data_lists, colors, x, y, w, h, labels=None):
         """Draw a box with one or more lines of data."""
         # Box background
         pygame.draw.rect(self.screen, (10, 10, 10), (x, y, w, h))
@@ -327,6 +365,18 @@ class GameVisualizer:
                 points.append((px, py))
             
             pygame.draw.lines(self.screen, color, False, points, 2)
+
+        # Draw legend
+        if labels:
+            legend_x = x + 5
+            legend_y = y + h - 20
+            for label, color in zip(labels, colors):
+                # Color swatch
+                pygame.draw.rect(self.screen, color, (legend_x, legend_y, 10, 10))
+                # Label
+                surf = self.font_small.render(label, True, WHITE)
+                self.screen.blit(surf, (legend_x + 15, legend_y - 2))
+                legend_x += 70  # Space between legend items
 
         # Show current value of first data list if available
         if len(data_lists[0]) > 0:

@@ -235,6 +235,11 @@ class Trainer:
             if (iteration + 1) % self.config.EVAL_FREQUENCY == 0:
                 self.evaluate_and_update_best(iteration + 1)
 
+        # Final save and evaluation regardless of frequency
+        self.save_checkpoint(num_iterations)
+        if num_iterations > self.start_iteration and num_iterations % self.config.EVAL_FREQUENCY != 0:
+            self.evaluate_and_update_best(num_iterations)
+
         print("\n" + "=" * 70)
         print("🎉 TRAINING COMPLETE!")
         print("=" * 70)
@@ -346,7 +351,7 @@ class Trainer:
         checkpoint_dir = Path(self.config.CHECKPOINT_DIR)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load best model (or use current model if first evaluation)
+        # Load best model (or save current as best if none exists)
         if self.best_model_path.exists():
             print(f"  Loading best model from {self.best_model_path}...")
             best_model = CheckersNetwork(
@@ -359,12 +364,31 @@ class Trainer:
             best_model.to(self.selfplay_device)
             best_model.eval()
         else:
-            print("  No best model found, using current model as baseline")
-            best_model = self.network
+            print("  No best model found, creating INITIAL baseline from current model")
+            torch.save({
+                'network_state_dict': self.network.state_dict(),
+                'iteration': iteration,
+                'win_rate': 0.5,
+            }, self.best_model_path)
+            print(f"  💾 Saved initial baseline to {self.best_model_path}")
+            
+            # In a short run, there is no point evaluating against exactly ourselves
+            print("  Skipping evaluation for this step as we just established the baseline.")
+            print("-" * 70)
+            return
 
         # Move current model to eval device
         self.network.to(self.selfplay_device)
         self.network.eval()
+
+        # Create visualization callback if game visualizer exists
+        on_move_callback = None
+        if self.game_visualizer:
+            def on_move(game, policy, move_count, current_player):
+                """Convert game state to visualizer format and render."""
+                board = game.to_absolute_board_array()
+                self.game_visualizer.render(board, policy, move_count, current_player)
+            on_move_callback = on_move
 
         # Evaluate
         results = evaluate_models(
@@ -372,6 +396,7 @@ class Trainer:
             best_model=best_model,
             config=self.config,
             device=self.selfplay_device,
+            on_move=on_move_callback
         )
 
         # Move network back to training device
@@ -428,6 +453,11 @@ class Trainer:
         self.start_iteration = checkpoint['iteration']
 
         print(f"  ✓ Resuming from iteration {self.start_iteration}")
+
+        # Restore visualizer history if available
+        if self.game_visualizer:
+            print("  📊 Restoring metrics history for visualization...")
+            self.game_visualizer.load_history(str(self.log_file), max_iteration=self.start_iteration)
 
 
 # Testing

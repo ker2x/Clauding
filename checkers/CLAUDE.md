@@ -8,44 +8,50 @@ This is an **AlphaZero-style reinforcement learning system** for 10x10 Internati
 
 **Key Architecture**: Bitboard game engine → ResNet neural network → MCTS search → Self-play training → Iterative improvement through evaluation tournaments.
 
+## Environment & Setup
+
+> [!IMPORTANT]
+> Always use the python interpreter located in `../.venv/bin/python` for running all scripts and commands in this project.
+> Example: `../.venv/bin/python scripts8x8/train.py`
+
 ## Common Commands
 
 ### Testing
 ```bash
 # Test game engine (core rules and bitboard logic)
-python tests/test_engine.py
+../.venv/bin/python tests/test_engine.py
 
 # Integration test (full pipeline with reduced settings)
-python tests/test_integration.py
+../.venv/bin/python tests/test_integration.py
 
 # Test individual components
-python checkers/network/resnet.py          # Neural network
-python checkers/training/replay_buffer.py  # Replay buffer
-python checkers/utils/checkpoint.py        # Checkpoint system
+../.venv/bin/python checkers/network/resnet.py          # Neural network
+../.venv/bin/python checkers/training/replay_buffer.py  # Replay buffer
+../.venv/bin/python checkers/utils/checkpoint.py        # Checkpoint system
 ```
 
 ### Training
 ```bash
 # Start training from scratch
-python scripts/train.py --iterations 100
+../.venv/bin/python scripts/train.py --iterations 100
 
 # Resume from checkpoint
-python scripts/train.py --resume checkpoints/checkpoint_iter_50.pt --iterations 50
+../.venv/bin/python scripts/train.py --resume checkpoints/checkpoint_iter_50.pt --iterations 50
 
 # Quick progress demo (1-2 minutes, shows all monitoring features)
-python scripts/demo_progress.py
+../.venv/bin/python scripts/demo_progress.py
 ```
 
 ### Monitoring
 ```bash
 # View training metrics and plots
-python checkers/utils/visualization.py logs/training_log.csv
+../.venv/bin/python checkers/utils/visualization.py logs/training_log.csv
 
 # Print training summary
-python -c "from checkers.utils.visualization import print_training_summary; print_training_summary()"
+../.venv/bin/python -c "from checkers.utils.visualization import print_training_summary; print_training_summary()"
 
 # View config
-python config.py
+../.venv/bin/python config.py
 ```
 
 ## Architecture
