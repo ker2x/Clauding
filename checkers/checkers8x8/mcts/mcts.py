@@ -23,6 +23,13 @@ except ImportError:
     from network.resnet import CheckersNetwork
     from engine.action_encoder import NUM_ACTIONS
 
+try:
+    import checkers_cpp
+    USE_CPP = True
+except ImportError:
+    USE_CPP = False
+    print("Warning: checkers_cpp not found, using slow Python MCTS")
+
 
 class MCTS:
     """
@@ -75,6 +82,9 @@ class MCTS:
         Returns:
             Policy distribution over all 128 actions based on visit counts
         """
+        if USE_CPP:
+            return self._search_cpp(game, add_noise)
+            
         # Initialize root node
         self.root = MCTSNode(prior=1.0, parent=None)
 
@@ -110,6 +120,71 @@ class MCTS:
         # Get policy from visit counts
         policy = self._get_action_probs(temperature=1.0)
         return policy
+
+    def _search_cpp(self, game, add_noise: bool) -> np.ndarray:
+        """Run MCTS using C++ extension."""
+        
+        # 1. Create/Copy C++ Game
+        if isinstance(game, checkers_cpp.Game):
+            # Already C++ game, usage proper copy constructor
+            cpp_game = checkers_cpp.Game(game)
+        else:
+            # Convert Python Game to C++ Game
+            cpp_game = checkers_cpp.Game()
+            cpp_game.player_men = game.player_men
+            cpp_game.player_kings = game.player_kings
+            cpp_game.opponent_men = game.opponent_men
+            cpp_game.opponent_kings = game.opponent_kings
+            cpp_game.current_player = game.current_player
+            cpp_game.move_count = game.move_count
+            
+            # Copy position history (critical for draw detection)
+            # PyBind11 handles List -> std::vector conversion
+            # Convert Python dict {key: count} to C++ vector [key, key, ...]
+            history_list = []
+            for key, count in game.position_history.items():
+                history_list.extend([key] * count)
+            cpp_game.position_history = history_list
+        
+        # 2. Setup C++ MCTS
+        # If noise disabled, set epsilon to 0
+        epsilon = self.dirichlet_epsilon if add_noise else 0.0
+        
+        cpp_mcts = checkers_cpp.MCTS(
+            self.c_puct, 
+            self.num_simulations, 
+            self.dirichlet_alpha, 
+            epsilon
+        )
+        
+        cpp_mcts.start_search(cpp_game)
+        
+        
+        # 3. Batch Loop
+        batch_size = 16
+        
+        while not cpp_mcts.is_finished():
+            # Get batch of leaves
+            batch_id, inputs = cpp_mcts.find_leaves(batch_size)
+            
+            if batch_id == -1:
+                break
+                
+            # Inputs is list of flat floats. 
+            input_tensor = torch.tensor(inputs, dtype=torch.float32, device=self.device)
+            input_tensor = input_tensor.view(-1, 8, 8, 8)
+            
+            with torch.no_grad():
+                policy_logits, values = self.network(input_tensor)
+                
+            # Softmax
+            policy_probs = torch.softmax(policy_logits, dim=1).cpu().numpy()
+            values = values.cpu().numpy().flatten()
+            
+            cpp_mcts.process_results(batch_id, policy_probs.tolist(), values.tolist())
+            
+        # 4. Get Result
+        return np.array(cpp_mcts.get_policy(1.0))
 
     def _simulate(self, game: CheckersGame, node: MCTSNode):
         """

@@ -32,7 +32,7 @@ class Config:
 
     # Training configuration
     GAMES_PER_ITERATION = 30  # Games to play per iteration
-    NUM_WORKERS = 6  # Parallel self-play workers
+    NUM_WORKERS = 1  # Optimal for 8-core CPU (4 Perf cores)
     BUFFER_SIZE = 200_000  # Max positions in replay buffer (increased capacity)
 
     # Data Sampling
@@ -53,7 +53,7 @@ class Config:
     # System configuration
     DEVICE = "mps"  # Training device (batch operations)
     SELFPLAY_DEVICE = "cpu"  # Self-play device (MCTS is faster on CPU)
-    NUM_THREADS = 8  # CPU threads for PyTorch
+    NUM_THREADS = 8 # 2 threads * 4 workers = 8 threads (matches M1 core count)
     SEED = 42  # Default seed (only used if --seed is specified; otherwise random)
 
     # Logging and checkpointing

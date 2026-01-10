@@ -147,16 +147,22 @@ def flip_bitboard(bitboard: int) -> int:
 
     Player 1 sees board normally (bottom to top).
     Player 2 sees board flipped (their pieces at bottom).
+    
+    IMPORTANT: Flips row AND mirrors column horizontally to prevent artifacts.
+    A piece at (row, col) becomes (7-row, 7-col).
     """
     result = 0
     for square in range(NUM_SQUARES):
         if get_bit(bitboard, square):
-            # Map to flipped position
-            row = square // 4
-            col = square % 4
+            # Get actual board coordinates
+            row, col = square_to_row_col(square)
+            # Flip row and mirror column horizontally
             flipped_row = 7 - row
-            flipped_square = flipped_row * 4 + col
-            result = set_bit(result, flipped_square)
+            flipped_col = 7 - col
+            # Map back to square number
+            flipped_square = row_col_to_square(flipped_row, flipped_col)
+            if flipped_square != -1:
+                result = set_bit(result, flipped_square)
     return result
 
 

@@ -61,7 +61,14 @@ class SelfPlayGame:
                 - policies: List of MCTS policy distributions (128,)
                 - values: List of game outcomes from each state's perspective
         """
-        game = CheckersGame()
+        # Use C++ Game if available, else Python
+        try:
+            import checkers_cpp
+            game = checkers_cpp.Game()
+            use_cpp = True
+        except ImportError:
+            game = CheckersGame()
+            use_cpp = False
 
         # Create MCTS instance
         mcts = MCTS(
@@ -84,12 +91,25 @@ class SelfPlayGame:
         # Play until terminal or max moves
         while not game.is_terminal() and move_count < max_moves:
             # Store current state
-            state = game.to_neural_input()
+            raw_state = game.to_neural_input()
+            if use_cpp:
+                # Convert flat list to (8, 8, 8) array
+                state = np.array(raw_state, dtype=np.float32).reshape(8, 8, 8)
+            else:
+                state = raw_state
+                
             states.append(state)
             players.append(game.current_player)
 
             # Run MCTS to get policy
+            legal_before_mcts = game.get_legal_actions()
             policy = mcts.search(game, add_noise=True)
+            legal_after_mcts = game.get_legal_actions()
+
+            # DEBUG: Check if legal actions changed
+            if set(legal_before_mcts) != set(legal_after_mcts):
+                print(f"    ⚠️  MCTS CHANGED GAME STATE! before={legal_before_mcts[:5]}, after={legal_after_mcts[:5]}")
+
             policies.append(policy)
 
             # Select move based on temperature
@@ -101,7 +121,7 @@ class SelfPlayGame:
                 temperature = 0.0
 
             # Sample action from policy
-            action = self._sample_action(policy, temperature)
+            action = self._sample_action(policy, temperature, game)
 
             # Call visualization callback before applying move
             if on_move:
@@ -111,39 +131,121 @@ class SelfPlayGame:
             if action != -1 and game.make_action(action):
                 move_count += 1
             else:
-                # Should not happen, but safety check
+                # Game ended (no legal moves)
+                legal_at_break = game.get_legal_actions()
+                print(f"    ⚠️  BREAK at move {move_count}: action={action}, legal={legal_at_break[:10]}, is_terminal={game.is_terminal()}")
                 break
 
-        # Game finished - assign values to all positions
+        # Game finished - determine termination reason for debugging
+        termination_reason = self._get_termination_reason(game, move_count, max_moves, use_cpp)
+        if termination_reason:
+            piece_count = self._count_pieces(game, use_cpp)
+            print(f"    Game ended after {move_count} moves: {termination_reason} | Pieces: {piece_count}")
+        
+        # Assign values to all positions
         outcome = game.get_result()
         values = self._compute_values(players, outcome, game.current_player)
 
         return states, policies, values
 
-    def _sample_action(self, policy: np.ndarray, temperature: float) -> int:
+    def _get_termination_reason(self, game, move_count: int, max_moves: int, use_cpp: bool) -> str:
+        """Determine why the game ended."""
+        if move_count >= max_moves:
+            return "MOVE_LIMIT"
+
+        # Check if game is actually terminal
+        if not game.is_terminal():
+            return "INVALID (not terminal)"
+
+        # Check for no legal moves (win/loss)
+        try:
+            legal_actions = game.get_legal_actions()
+            if not legal_actions or len(legal_actions) == 0:
+                result = game.get_result()
+                if result == -1.0:
+                    return "WIN (opponent has no moves)"
+                elif result == 1.0:
+                    return "WIN (current player won)"  # Shouldn't happen but handle it
+                return "LOSS (no legal moves)"
+        except:
+            pass
+
+        if use_cpp:
+            # For C++ game, check if it's repetition by checking result
+            result = game.get_result()
+            if result == 0.0:
+                return "DRAW (3-fold repetition)"
+            return "TERMINAL (unknown)"
+        else:
+            # For Python game, explicitly check repetition
+            position = (game.player_men, game.player_kings,
+                       game.opponent_men, game.opponent_kings)
+            if game.position_history[position] >= 3:
+                return "DRAW (3-fold repetition)"
+
+            return "DRAW (other)"
+    
+    def _count_pieces(self, game, use_cpp: bool) -> str:
+        """Count pieces on the board for debugging."""
+        if use_cpp:
+            # Count bits in bitboards
+            p1_men = bin(game.player_men).count('1')
+            p1_kings = bin(game.player_kings).count('1')
+            p2_men = bin(game.opponent_men).count('1')
+            p2_kings = bin(game.opponent_kings).count('1')
+        else:
+            p1_men = bin(game.player_men).count('1')
+            p1_kings = bin(game.player_kings).count('1')
+            p2_men = bin(game.opponent_men).count('1')
+            p2_kings = bin(game.opponent_kings).count('1')
+        
+        total_p1 = p1_men + p1_kings
+        total_p2 = p2_men + p2_kings
+        return f"P1:{total_p1}({p1_men}m+{p1_kings}k) vs P2:{total_p2}({p2_men}m+{p2_kings}k)"
+
+
+    def _sample_action(self, policy: np.ndarray, temperature: float, game=None) -> int:
         """
         Sample action from policy distribution.
 
         Args:
             policy: Policy distribution (128,)
             temperature: Temperature for sampling
+            game: Optional game object to get legal actions if policy is invalid
 
         Returns:
             Selected action index
         """
-        legal_actions = np.where(policy > 0)[0]
+        # CRITICAL BUG FIX: Policy might have values for ILLEGAL actions!
+        # We must intersect policy actions with actual legal actions
+        if game is not None:
+            actual_legal = set(game.get_legal_actions())
+            policy_actions = np.where(policy > 0)[0]
 
-        if len(legal_actions) == 0:
-            return -1
+            # Get intersection: actions that are both in policy AND legal
+            legal_actions = np.array([a for a in policy_actions if a in actual_legal])
+
+            # If no overlap, fall back to random legal action
+            if len(legal_actions) == 0:
+                if len(actual_legal) > 0:
+                    chosen = int(np.random.choice(list(actual_legal)))
+                    return chosen
+                else:
+                    return -1  # Game is terminal
+        else:
+            # No game object, trust the policy
+            legal_actions = np.where(policy > 0)[0]
+            if len(legal_actions) == 0:
+                return -1
 
         if temperature == 0:
-            # Greedy: select max probability
-            return legal_actions[np.argmax(policy[legal_actions])]
+            # Greedy: select max probability from legal actions
+            return int(legal_actions[np.argmax(policy[legal_actions])])
         else:
             # Temperature scaling
             legal_probs = policy[legal_actions] ** (1.0 / temperature)
             legal_probs = legal_probs / legal_probs.sum()
-            return np.random.choice(legal_actions, p=legal_probs)
+            return int(np.random.choice(legal_actions, p=legal_probs))
 
     def _compute_values(
         self,
@@ -229,6 +331,51 @@ def play_games_sequential(
     return all_states, all_policies, all_values
 
 
+def get_board_array_from_game(game) -> np.ndarray:
+    """
+    Convert game state to 8x8 array for visualization.
+    Handles both Python CheckersGame and C++ Game objects.
+    """
+    if hasattr(game, 'to_absolute_board_array'):
+        return game.to_absolute_board_array()
+        
+    # Reimplement logic for C++ object using bitboards
+    from checkers8x8.engine.bitboard import flip_bitboard, get_set_squares, square_to_row_col
+    
+    board = np.zeros((8, 8), dtype=np.int8)
+    
+    if game.current_player == 1:
+        p1_men, p1_kings = game.player_men, game.player_kings
+        p2_men, p2_kings = game.opponent_men, game.opponent_kings
+        p1_men = int(p1_men) if isinstance(p1_men, float) else p1_men # cast just in case
+        needs_flip = False
+    else:
+        p2_men, p2_kings = game.player_men, game.player_kings
+        p1_men, p1_kings = game.opponent_men, game.opponent_kings
+        needs_flip = True
+    
+    if needs_flip:
+        p1_men = flip_bitboard(p1_men)
+        p1_kings = flip_bitboard(p1_kings)
+        p2_men = flip_bitboard(p2_men)
+        p2_kings = flip_bitboard(p2_kings)
+        
+    for square in get_set_squares(p1_men):
+        row, col = square_to_row_col(square)
+        board[row, col] = 1
+    for square in get_set_squares(p1_kings):
+        row, col = square_to_row_col(square)
+        board[row, col] = 2
+    for square in get_set_squares(p2_men):
+        row, col = square_to_row_col(square)
+        board[row, col] = -1
+    for square in get_set_squares(p2_kings):
+        row, col = square_to_row_col(square)
+        board[row, col] = -2
+        
+    return board
+
+
 def self_play_worker(
     rank: int,
     network: CheckersNetwork,
@@ -265,7 +412,8 @@ def self_play_worker(
                 # and let main process throttle. For now, send all.
                 try:
                     # Convert to absolute board for visualization
-                    board = game.to_absolute_board_array()
+                    # Use helper to support both Python and C++ objects
+                    board = get_board_array_from_game(game)
                     vis_queue.put_nowait((board, policy, move_count, current_player))
                 except Exception:
                     pass  # Ignore queue full errors
