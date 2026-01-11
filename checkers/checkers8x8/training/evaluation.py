@@ -46,7 +46,15 @@ def play_evaluation_game(
     Returns:
         Result from model1's perspective: 1.0 (win), 0.0 (loss), 0.5 (draw)
     """
-    game = CheckersGame()
+    # Use C++ Game if available, else Python
+    try:
+        import checkers_cpp
+        game = checkers_cpp.Game()
+        use_cpp = True
+    except ImportError:
+        game = CheckersGame()
+        use_cpp = False
+
     models = [model1, model2]
     
     # Create MCTS instances for both models (no exploration noise)

@@ -99,9 +99,16 @@ class CheckersGame:
         for move in legal_moves:
             # Check if this move matches the action
             if move.from_square == from_square:
+                # CRITICAL: For captures, use direction to FIRST captured piece
+                # This must match the encoding logic in Move.to_actions()
+                if move.captured_squares:
+                    target_square = move.captured_squares[0]
+                else:
+                    target_square = move.to_square
+
                 # Check if direction matches
                 from_row, from_col = square_to_row_col(from_square)
-                to_row, to_col = square_to_row_col(move.to_square)
+                to_row, to_col = square_to_row_col(target_square)
 
                 dr = to_row - from_row
                 dc = to_col - from_col

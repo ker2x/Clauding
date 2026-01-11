@@ -13,7 +13,7 @@ from typing import Dict
 try:
     from ..network.resnet import CheckersNetwork
     from .replay_buffer import ReplayBuffer
-    from .self_play import play_games_sequential
+    from .self_play import play_games_sequential, get_board_array_from_game
     from .evaluation import evaluate_models
 except ImportError:
     import sys
@@ -21,7 +21,7 @@ except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
     from checkers8x8.network.resnet import CheckersNetwork
     from checkers8x8.training.replay_buffer import ReplayBuffer
-    from checkers8x8.training.self_play import play_games_sequential
+    from checkers8x8.training.self_play import play_games_sequential, get_board_array_from_game
     from checkers8x8.training.evaluation import evaluate_models
 
 
@@ -412,7 +412,7 @@ class Trainer:
             def on_move(game, policy, move_count, current_player):
                 """Convert game state to visualizer format and render if needed."""
                 if self.game_visualizer.should_render():
-                    board = game.to_absolute_board_array()
+                    board = get_board_array_from_game(game)
                     self.game_visualizer.render(board, policy, move_count, current_player)
             on_move_callback = on_move
 
