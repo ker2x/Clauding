@@ -1,0 +1,12 @@
+# Application bundle
+WindTunnel.app/
+
+# Binaries
+*.out
+*.exe
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib

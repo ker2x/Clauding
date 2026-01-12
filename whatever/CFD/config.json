@@ -1,0 +1,26 @@
+{
+  "simulation": {
+    "grid_width": 1024,
+    "grid_height": 512,
+    "steps_per_frame": 50,
+    "relaxation_time": 0.7,
+    "initial_wind_speed": 0.05,
+    "max_wind_speed": 0.15
+  },
+  "visualization": {
+    "velocity_colormap": "viridis",
+    "vorticity_contour_levels": 8,
+    "vorticity_threshold": 0.01
+  },
+  "interaction": {
+    "initial_brush_size": 5,
+    "min_brush_size": 1,
+    "max_brush_size": 20
+  },
+  "comments": {
+    "steps_per_frame": "Higher = more accurate but slower. 1-10 recommended.",
+    "relaxation_time": "tau: 0.5-1.0. Lower = less viscous. Must be > 0.5 for stability.",
+    "initial_wind_speed": "In lattice units. Keep < 0.1 for stability. 0.05 is gentle.",
+    "max_wind_speed": "Maximum slider value. Keep < 0.2 to avoid instability."
+  }
+}

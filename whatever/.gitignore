@@ -1,0 +1,13 @@
+# C++ Compiled Binaries
+cpp_lumen/lumen_particles
+cpp_lumen_native/LumenNative
+*.o
+*.out
+
+# Mac System Files
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
