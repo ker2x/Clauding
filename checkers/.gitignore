@@ -1,0 +1,20 @@
+# Python build artifacts
+*.egg-info/
+__pycache__/
+build/
+dist/
+*.pyc
+*.pyo
+
+# Compiled binaries
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+
+# Checkpoints and logs
+checkpoints/
+checkpoints8x8/
+logs/
+logs8x8/
