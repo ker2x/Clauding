@@ -1,0 +1,6 @@
+# Build artifacts
+MetalBeginner
+MetalBeginner.dSYM/
+
+# macOS
+.DS_Store

@@ -1,0 +1,6 @@
+# Build artifacts
+SwiftMetal
+SwiftMetal.dSYM/
+
+# macOS
+.DS_Store
