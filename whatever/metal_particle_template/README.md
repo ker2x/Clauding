@@ -43,6 +43,31 @@ Install command line tools if needed:
 xcode-select --install
 ```
 
+## Libraries and Dependencies
+
+**Zero external dependencies**. This template uses only built-in macOS frameworks:
+
+- **Metal** - Core GPU framework for compute and graphics
+- **MetalKit** - High-level utilities (MTKView, render loop)
+- **AppKit** - macOS windowing and event handling
+- **QuartzCore** - High-precision timing (CACurrentMediaTime)
+
+**Pure Metal Implementation** - This template does NOT use:
+- ❌ Metal Performance Shaders (MPS) for neural networks
+- ❌ MPSGraph for computation graphs
+- ❌ CoreML for machine learning
+- ❌ Accelerate framework
+- ❌ Any third-party libraries
+
+All compute operations (particle physics, force calculations) are **hand-coded in Metal Shading Language**. This approach provides:
+- Full control over GPU execution
+- Direct buffer management
+- Educational clarity - see exactly how GPU programming works
+- Minimal binary size (~77 KB)
+- No external dependencies to manage
+
+> **Documentation Note**: When creating new projects based on this template, always document your library choices explicitly. List both what you DO use and what you DON'T use (especially when alternatives might be expected). This prevents confusion and helps future developers understand your technical decisions. See `CLAUDE.md` for the "What, Why, How" documentation framework.
+
 ## How It Works
 
 This template implements a particle life simulation where thousands of particles interact based on configurable attraction/repulsion rules. The simulation runs entirely on the GPU for high performance.
