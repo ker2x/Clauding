@@ -1,0 +1,9 @@
+# Mac binaries
+MetalParticles
+*.dSYM/
+*.o
+*.a
+*.dylib
+
+# Mac system files
+.DS_Store
