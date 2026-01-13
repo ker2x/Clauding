@@ -90,13 +90,17 @@ class Engine:
         # Neural Field
         self.model = NeuralAura().to(device)
         self.model.eval()
-        
+
         # Density Map (used for self-organization logic)
         self.density_map = torch.zeros(DENSITY_RES, DENSITY_RES, device=device)
-        
+
         self.running = True
         self.paused = False
         self.mutation_rate = 0.05
+
+        # Perform initial mutation to avoid boring flat field
+        self.mutate()
+        print("Initial neural field mutation applied")
         
         # Interaction
         self.mouse_pos = torch.zeros(1, 2, device=device)
