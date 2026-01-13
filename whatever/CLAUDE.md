@@ -16,10 +16,61 @@ For detailed documentation on each project, algorithms, and data structures, see
 
 - **Creativity first**: Prioritize interesting emergent behaviors and visual appeal
 - **Performance vs readability**: Optimize for performance, but never sacrifice code clarity or stability
+- **New Metal projects**: Use `metal_particle_template/` as the starting point for new Metal simulations. Never edit the template itself
 - **Apple APIs**: When writing or commenting on Metal/AppKit/Swift code, explain Apple-specific concepts for developers unfamiliar with the ecosystem
 - **Math explanations**: When implementing complex algorithms (FFT, Navier-Stokes, Lattice Boltzmann, etc.), include comments explaining the underlying mathematics
 - **Python library choice**: Prefer JAX for GPU acceleration; use PyTorch only for complex neural networks
 - **No Xcode IDE**: All Swift/ObjC++ code must build and run from command line only (Xcode CLI tools are fine)
+
+## Documentation Requirements
+
+Every project README must include the **"What, Why, How"** framework:
+
+### What (Libraries & Dependencies)
+Be **explicit and complete** about library choices:
+- ✅ List all frameworks/libraries used (Metal, MetalKit, AppKit, JAX, PyTorch, etc.)
+- ✅ **Equally important**: List what's NOT used when it might be expected
+  - Example: "No CoreML, no MPSGraph, no BNNS" for custom Metal implementations
+  - Example: "No TensorFlow, pure JAX" for Python projects
+- ✅ Explain whether implementations are custom or framework-based
+  - "Custom neural network in Metal compute shaders" vs "Using MPSGraph"
+  - "Hand-coded matrix operations" vs "Using Accelerate framework"
+
+### Why (Rationale)
+Justify technical decisions:
+- Why raw Metal instead of MPS/CoreML? (control, education, mutation flexibility)
+- Why JAX instead of PyTorch? (performance, functional programming)
+- Why custom implementation? (learning, flexibility, specific requirements)
+- Trade-offs made (binary size, startup time, maintainability)
+
+### How (Implementation Details)
+Document the approach:
+- Architecture overview (kernel pipeline, buffer layout, etc.)
+- Key algorithms and their mathematical basis
+- Performance characteristics (FPS, memory usage, complexity)
+- Coordinate systems and data flow
+
+### Example Structure
+```markdown
+### Libraries and Dependencies
+**Zero external dependencies**. Uses only built-in frameworks:
+- Metal, MetalKit, AppKit, QuartzCore
+
+**100% Custom Implementation** - Does NOT use:
+- ❌ CoreML / MPSGraph / BNNS
+- ❌ Any ML framework
+
+**Why this approach?**
+- Full control over implementation
+- Educational transparency
+- [other reasons]
+
+**How it works:**
+- Custom matrix-vector multiply in Metal
+- [technical details]
+```
+
+This level of clarity prevents confusion and helps future developers understand both what the code does and why it was built that way.
 
 ## Build Commands
 
