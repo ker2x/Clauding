@@ -1,0 +1,10 @@
+# Swift Particle Template - Git Ignore
+
+# Compiled binary
+SwiftParticles
+
+# Debug symbols
+*.dSYM/
+
+# macOS system files
+.DS_Store

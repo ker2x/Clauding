@@ -1,0 +1,6 @@
+# Build output
+MandelbulbV2
+*.dSYM/
+
+# macOS
+.DS_Store
