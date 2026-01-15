@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Multi-platform computational simulation suite featuring particle systems, cellular automata, fluid dynamics, and quantum mechanics visualizations. Contains 6 Metal GPU projects, 1 Swift CFD simulator, and 17 Python simulations.
+Multi-platform computational simulation suite featuring particle systems, cellular automata, fluid dynamics, and quantum mechanics visualizations. Contains 8 Metal GPU projects (ObjC++), 1 Swift CFD simulator, and 8 Python simulations.
 
 **Host**: MacBook Air M3 16GB
 
@@ -21,6 +21,33 @@ For detailed documentation on each project, algorithms, and data structures, see
 - **Math explanations**: When implementing complex algorithms (FFT, Navier-Stokes, Lattice Boltzmann, etc.), include comments explaining the underlying mathematics
 - **Python library choice**: Prefer JAX for GPU acceleration; use PyTorch only for complex neural networks
 - **No Xcode IDE**: All Swift/ObjC++ code must build and run from command line only (Xcode CLI tools are fine)
+
+## User Consultation (IMPORTANT)
+
+**Always use AskUserQuestion before starting significant work:**
+
+### New Applications
+Before creating a new project, ask about:
+- Visual style preferences (colors, aesthetics, mood)
+- Interaction model (mouse, keyboard, MIDI, etc.)
+- Performance targets (resolution, FPS, particle count)
+- Specific algorithms or papers to implement
+- Output format (realtime window, video export, screenshots)
+
+### Major Refactoring
+Before restructuring existing code, confirm:
+- Which parts to preserve vs. rewrite
+- Whether to maintain backwards compatibility
+- Performance vs. readability trade-offs
+- Scope of changes (single file vs. multi-file)
+
+### Algorithm Choices
+When multiple valid approaches exist, present options:
+- e.g., "Ray marching vs. ray tracing for this scene?"
+- e.g., "Euler vs. RK4 integration for particles?"
+- e.g., "Grid-based vs. particle-based fluid simulation?"
+
+**Rationale**: These are creative/artistic projects where user vision matters. A quick question upfront avoids hours of rework and ensures the result matches expectations.
 
 ## Documentation Requirements
 
@@ -133,7 +160,10 @@ device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 | Project | Purpose |
 |---------|---------|
-| `metal_particle_template/` | Reference template for Metal particle simulations |
+| `metal_particle_template/` | Reference template for Metal particle simulations (ObjC++) |
+| `swift_particle_template/` | Reference template for Metal particle simulations (Swift) |
+| `metal_neural_aura/` | Neural network-driven particle forces (131K particles) |
+| `metal_lumen/` | Particle life simulation (20K particles) |
 | `metal_neural_lava/` | 3D Navier-Stokes fluid + raytracing (64³ grid) |
 | `metal_neural_crystal/` | 3D NCA + raytracing (128³ grid) |
 | `metal_physarum/` | 1M agent slime mold simulation |

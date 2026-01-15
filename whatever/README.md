@@ -8,20 +8,19 @@ A comprehensive summary of all simulation and visualization projects for future 
 
 | Project | Tech Stack | Type | Scale | Description |
 |---------|-----------|------|-------|-------------|
-| `metal_particle_template` | ObjC++/Metal | Particle Life | 20K | **Reference template** for Metal projects |
+| `metal_particle_template` | ObjC++/Metal | Particle Life | 20K | **Reference template** for Metal projects (ObjC++) |
+| `swift_particle_template` | Swift/Metal | Particle Life | 20K | **Reference template** for Metal projects (Swift) |
 | `metal_chromatic_bloom` | ObjC++/Metal | Particle Art | 30K | Bloom effect with color cycling |
 | `metal_neural_crystal` | ObjC++/Metal | 3D NCA + RT | 128³ | Neural cellular automata + raytracing |
 | `metal_neural_lava` | ObjC++/Metal | 3D Fluid + RT | 64³ | Navier-Stokes fluid sim + raytracing |
 | `metal_neural_lenia` | ObjC++/Metal | Lenia CA | 1280×720 | Continuous cellular automata |
 | `metal_physarum` | ObjC++/Metal | Physarum | 1M agents | Slime mold multi-species warfare |
-| `cpp_lumen_native` | ObjC++/Metal | Particle Life | 20K | Native port of Lumen particle sim |
+| `metal_lumen` | ObjC++/Metal | Particle Life | 20K | Particle life simulation |
+| `metal_neural_aura` | ObjC++/Metal | Neural Field | 131K | Neural network particle forces |
 | `CFD` | Swift/Metal | Wind Tunnel | 512×256 | LBM fluid dynamics (D2Q9) |
-| `particle_swarm*.py` | Python | Swarm | 3K | Three variants: PyTorch/Numba/ModernGL |
 | `reaction_diffusion*.py` | Python | Turing Patterns | Fullscreen | Gray-Scott with JAX acceleration |
-| `evolving_creatures*.py` | Python | Evolution | 100 agents | Genetic algo + neural networks |
-| `lumen_*.py` | Python | Photonic Life | 15-100 | Creatures that sense light rays |
+| `evolving_creatures_grid.py` | Python | Evolution | 100 agents | Genetic algo + neural networks |
 | `photonic_resonance*.py` | Python | Wave Billiards | 1024-2048² | 2D wave equation in cavities |
-| `generative_art.py` | Python | Multi-mode | Varies | Particles/Fractal/CA/Attractors/Flow |
 | `aura_sim.py` | Python/PyTorch | Neural Field | ~1K | Neural network driving particle forces |
 | `satori_quantum.py` | Python/PyTorch | Bohmian QM | 16K particles | Quantum pilot-wave simulation |
 | `xenobots_softbody.py` | Python/PyTorch | Soft-body Evo | 40 bots | Evolutionary soft robots |
@@ -46,9 +45,10 @@ project_name/
 ---
 
 ### metal_particle_template
-> **The canonical reference template for Metal particle simulations**
+> **The canonical reference template for Metal particle simulations (Objective-C++)**
 
 **Path**: `metal_particle_template/`
+**Language**: Objective-C++ (.mm) + Metal
 
 #### Data Structures
 ```cpp
@@ -92,6 +92,34 @@ fragment float4 fragment_main(...) { /* Point rendering */ }
 - **Q**: Quit
 - **R**: Randomize particles & matrix
 - **Space**: Pause/Resume
+
+---
+
+### swift_particle_template
+> **The Swift equivalent of metal_particle_template**
+
+**Path**: `swift_particle_template/`
+**Language**: Pure Swift + Metal
+
+#### Overview
+Identical functionality to `metal_particle_template` but using Swift's modern syntax:
+- 50% more concise (~500 vs ~650 lines)
+- Stronger type safety with Swift's optional system
+- Same Metal shaders (language-agnostic)
+- Same GPU performance
+
+#### Key Swift Features
+```swift
+// Swift style
+let device = MTLCreateSystemDefaultDevice()
+app.setActivationPolicy(.regular)
+
+// vs Objective-C++ style
+MTLDevice* device = MTLCreateSystemDefaultDevice();
+[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+```
+
+**Use this template** if you prefer Swift over Objective-C++ for new projects.
 
 ---
 
@@ -285,15 +313,46 @@ struct Params {
 
 ---
 
-### cpp_lumen_native
-> Native Metal port of the Lumen particle life simulation
+### metal_lumen
+> Metal particle life simulation
 
-**Path**: `cpp_lumen_native/`
+**Path**: `metal_lumen/`
+**Language**: Objective-C++ (.mm) + Metal
 
-#### Similar to metal_particle_template but with:
-- Different color palette (Cyan, Magenta, Yellow, Electric Green, Orange, Purple)
+#### Features
+- 20K particles with 6 interaction types
+- Color palette: Cyan, Magenta, Yellow, Electric Green, Orange, Purple
 - FPS counter in window title
-- Distinct force parameters
+- Same particle life algorithm as `metal_particle_template`
+
+---
+
+### metal_neural_aura
+> Neural network-driven particle forces with GPU compute
+
+**Path**: `metal_neural_aura/`
+**Language**: Objective-C++ (.mm) + Metal
+
+#### Features
+- 131K particles driven by a 3-layer MLP (65→128→128→2)
+- 100% custom neural network in Metal shaders (no CoreML/MPS)
+- Fourier positional encoding (32 frequency pairs)
+- Density-aware forces via 128×128 grid
+- Real-time weight mutation for evolving behaviors
+
+#### Neural Network
+```cpp
+// Total ~25,000 parameters in Metal buffers
+// Layer 1: 65 → 128 (Fourier features + density)
+// Layer 2: 128 → 128
+// Layer 3: 128 → 2 (force output)
+```
+
+#### Controls
+- **Space**: Mutate network weights
+- **R**: Reset particles
+- **P**: Pause/Resume
+- **Q**: Quit
 
 ---
 
@@ -500,47 +559,6 @@ def update_step(U_list, V_list, ...):
 
 ---
 
-### evolving_creatures.py
-> Genetic algorithm + neural networks
-
-#### DNA Encoding
-```python
-class DNA:
-    def __init__(self, genes=None):
-        if genes is None:
-            # 13 genes: 3 body + 10 neural weights
-            self.genes = np.random.uniform(-1, 1, 13)
-        
-    # genes[0]: size modifier
-    # genes[1]: speed modifier  
-    # genes[2]: sensor range
-    # genes[3:13]: neural network weights
-```
-
-#### Neural Network Brain
-```python
-# 3 inputs → 2 hidden → 2 outputs (steering)
-def brain_forward(self):
-    inputs = [self.food_dir, self.creature_dir, self.energy_level]
-    
-    # Hidden layer (2 neurons)
-    h = [tanh(sum(inputs * weights_in[i])) for i in range(2)]
-    
-    # Output layer (2 neurons: turn_left, turn_right)
-    out = [tanh(sum(h * weights_out[i])) for i in range(2)]
-    
-    steering = out[0] - out[1]  # Differential steering
-```
-
-#### Evolution
-```python
-def reproduce(self):
-    if self.energy > REPRODUCTION_THRESHOLD:
-        child_dna = self.dna.mutate()  # Copy with noise
-        self.energy -= REPRODUCTION_COST
-        return Creature(self.x, self.y, dna=child_dna)
-```
-
 ### evolving_creatures_grid.py
 > Discrete grid version with larger brain
 
@@ -554,39 +572,6 @@ UPDATES_PER_FRAME = 10  # Faster evolution
 ```
 
 ---
-
-### lumen_jax.py
-> Photonic creatures with JAX raycasting
-
-#### Ray-Circle Intersection
-```python
-@jit
-def intersect_circles_jax(P, D, circles):
-    """Vectorized ray-circle intersection for all rays × all circles"""
-    # P: ray origins [N_rays, 2]
-    # D: ray directions [N_rays, 2]
-    # circles: [N_circles, 3] (x, y, radius)
-    
-    # Quadratic formula for line-circle intersection
-    # Returns: t (distance), hit_mask, normals
-```
-
-#### Multi-Bounce Raycasting
-```python
-@jit
-def cast_light_rays_jax(origin, all_circles):
-    def bounce_step(carry, _):
-        pos, dir, energy, hits = carry
-        t, hit_idx, normal = intersect_circles_jax(pos, dir, all_circles)
-        
-        # Refraction through lenses (Snell's law approximation)
-        new_dir = refract(dir, normal, 1.0, 1.5)
-        
-        return (pos + t*dir, new_dir, energy * 0.9, hits + hit_mask)
-    
-    # Scan through MAX_BOUNCES iterations
-    return lax.scan(bounce_step, initial, None, length=MAX_BOUNCES)
-```
 
 ---
 
@@ -801,4 +786,4 @@ xcode-select --install  # Command line tools
 
 ---
 
-*Last updated: 2026-01-12*
+*Last updated: 2026-01-14*
