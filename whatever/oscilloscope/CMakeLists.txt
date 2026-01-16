@@ -21,6 +21,7 @@ set(SOURCES
     AGC.c
     AudioCaptureManager.mm
     OscilloscopeView.mm
+    MainWindowController.mm
     main.mm
 )
 
@@ -30,6 +31,7 @@ set(HEADERS
     AGC.h
     AudioCaptureManager.h
     OscilloscopeView.h
+    MainWindowController.h
 )
 
 # Resource files

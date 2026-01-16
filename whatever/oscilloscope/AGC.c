@@ -22,13 +22,27 @@ void agc_init_custom(AGCState *state, float target_level, float min_gain,
                      float max_gain, float initial_peak) {
     if (!state) return;
 
-    state->peak_level = initial_peak > 0.0f ? initial_peak : 0.05f;
+    // SECURITY: Validate parameter ranges to prevent invalid configurations
+    if (target_level <= 0.0f || target_level > 1.0f) {
+        target_level = AGC_TARGET_LEVEL; // Use default if invalid
+    }
+    
+    if (min_gain < 0.0f || max_gain <= min_gain || max_gain > 1000.0f) {
+        min_gain = AGC_MIN_GAIN;
+        max_gain = AGC_MAX_GAIN;
+    }
+    
+    if (initial_peak <= 0.0f || initial_peak > 10.0f) {
+        initial_peak = 0.05f; // Safe default
+    }
+
+    state->peak_level = initial_peak;
     state->current_gain = target_level / state->peak_level;
     state->target_level = target_level;
     state->max_gain = max_gain;
     state->min_gain = min_gain;
 
-    // Clamp initial gain
+    // Clamp initial gain to valid range
     if (state->current_gain > max_gain) state->current_gain = max_gain;
     if (state->current_gain < min_gain) state->current_gain = min_gain;
 }
@@ -112,7 +126,8 @@ float agc_soft_clip(float sample) {
 
 void agc_process(AGCState *state, float *samples, uint32_t count,
                  int agc_enabled) {
-    if (!state || !samples || count == 0) return;
+    // SECURITY: Validate inputs to prevent buffer overflow and invalid operations
+    if (!state || !samples || count == 0 || count > 65536) return;
 
     if (agc_enabled) {
         // Step 1: Find peak in current buffer

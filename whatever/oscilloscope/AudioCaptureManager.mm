@@ -421,6 +421,13 @@ deviceChangeListener(AudioObjectID inObjectID, UInt32 inNumberAddresses,
 
 - (NSUInteger)getLatestSamples:(float *)outBuffer
                     maxSamples:(NSUInteger)maxSamples {
+  // SECURITY: Validate input parameters to prevent buffer overflow
+  if (!outBuffer || maxSamples == 0 || maxSamples > RING_BUFFER_SIZE) {
+    NSLog(@"AudioCaptureManager: Invalid parameters - outBuffer=%p, maxSamples=%lu", 
+          outBuffer, (unsigned long)maxSamples);
+    return 0;
+  }
+
   // Read from lock-free ring buffer
   NSUInteger samplesRead =
       lfringbuffer_read(&_ringBuffer, outBuffer, (uint32_t)maxSamples);

@@ -1,310 +1,170 @@
-#import "AudioCaptureManager.h"
-#import "OscilloscopeView.h"
-#import <AVFoundation/AVFoundation.h>
 #import <Cocoa/Cocoa.h>
-#import <Metal/Metal.h>
-#import <MetalKit/MetalKit.h>
+#import "MainWindowController.h"
 
 @interface AppDelegate : NSObject <NSApplicationDelegate>
-@property(strong, nonatomic) NSWindow *window;
-@property(strong, nonatomic) OscilloscopeView *oscilloscopeView;
-@property(strong, nonatomic) AudioCaptureManager *audioManager;
-@property(strong, nonatomic) NSTimer *updateTimer;
-@property(strong, nonatomic) AVCaptureSession *captureSession;
+@property(strong, nonatomic) MainWindowController *mainWindowController;
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-  // Create standard menu bar
-  [self createMenuBar];
+    // Create modern menu bar
+    [self createMenuBar];
 
-  // Create window
-  NSRect frame = NSMakeRect(0, 0, 1200, 800);
-  NSWindowStyleMask styleMask =
-      NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-      NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    // Create main window controller
+    self.mainWindowController = [[MainWindowController alloc] init];
+    [self.mainWindowController.window makeKeyAndOrderFront:nil];
 
-  self.window = [[NSWindow alloc] initWithContentRect:frame
-                                            styleMask:styleMask
-                                              backing:NSBackingStoreBuffered
-                                                defer:NO];
+    // Activate app to bring it to front
+    [NSApp activateIgnoringOtherApps:YES];
 
-  [self.window setTitle:@"Vintage Oscilloscope"];
-  [self.window center];
-
-  // Create Metal device
-  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-  if (!device) {
-    NSLog(@"Metal is not supported on this device");
-    [NSApp terminate:nil];
-    return;
-  }
-
-  // Create oscilloscope view
-  self.oscilloscopeView = [[OscilloscopeView alloc] initWithFrame:frame
-                                                           device:device];
-  self.oscilloscopeView.preferredFramesPerSecond = 60;
-
-  [self.window setContentView:self.oscilloscopeView];
-  [self.window makeKeyAndOrderFront:nil];
-
-  // Activate app to bring it to front (must be after window creation)
-  [NSApp activateIgnoringOtherApps:YES];
-
-  // Request microphone permission and start audio capture
-  [self requestMicrophonePermission];
-
-  NSLog(@"Oscilloscope started - requesting microphone access...");
-
-  // Monitor key events
-  [NSEvent
-      addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
-                                   handler:^NSEvent *_Nullable(NSEvent *event) {
-                                     if ([self handleKeyDown:event]) {
-                                       return nil;
-                                     }
-                                     return event;
-                                   }];
+    // Set up keyboard event monitoring for global shortcuts
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                          handler:^NSEvent *_Nullable(NSEvent *event) {
+        return [self handleGlobalKeyDown:event];
+    }];
 }
 
-- (BOOL)handleKeyDown:(NSEvent *)event {
-  if (!self.audioManager)
-    return NO;
+- (NSEvent *)handleGlobalKeyDown:(NSEvent *)event {
+    // Handle global keyboard shortcuts
+    if (self.mainWindowController) {
+        BOOL handled = NO;
 
-  BOOL handled = NO;
+        // 'a' or 'A' to toggle AGC
+        if ([event.charactersIgnoringModifiers caseInsensitiveCompare:@"a"] == NSOrderedSame) {
+            [self.mainWindowController toggleAGC:nil];
+            handled = YES;
+        }
 
-  // 'a' or 'A' to toggle AGC
-  if ([event.charactersIgnoringModifiers caseInsensitiveCompare:@"a"] ==
-      NSOrderedSame) {
-    self.audioManager.agcEnabled = !self.audioManager.agcEnabled;
-    [self updateWindowTitle];
-    handled = YES;
-  }
+        // Up/Down arrows to adjust gain
+        if (event.keyCode == 126) { // Up Arrow
+            [self.mainWindowController increaseGain:nil];
+            handled = YES;
+        }
+        if (event.keyCode == 125) { // Down Arrow
+            [self.mainWindowController decreaseGain:nil];
+            handled = YES;
+        }
 
-  // Up/Down arrows to adjust gain
-  if (event.keyCode == 126) { // Up Arrow
-    self.audioManager.gain += 1.0f;
-    if (self.audioManager.gain > 100.0f)
-      self.audioManager.gain = 100.0f;
-    self.audioManager.agcEnabled = NO;
-    [self updateWindowTitle];
-    handled = YES;
-  }
-  if (event.keyCode == 125) { // Down Arrow
-    self.audioManager.gain -= 1.0f;
-    if (self.audioManager.gain < 1.0f)
-      self.audioManager.gain = 1.0f;
-    self.audioManager.agcEnabled = NO;
-    [self updateWindowTitle];
-    handled = YES;
-  }
+        if (handled) {
+            return nil; // Event consumed
+        }
+    }
 
-  return handled;
-}
-
-- (void)updateWindowTitle {
-  if (!self.window || !self.audioManager)
-    return;
-
-  NSString *status;
-  if (self.audioManager.agcEnabled) {
-    status = [NSString
-        stringWithFormat:@"Vintage Oscilloscope [AGC: ON] (Gain: %.1fx)",
-                         self.audioManager.gain];
-  } else {
-    status = [NSString
-        stringWithFormat:@"Vintage Oscilloscope [AGC: OFF] (Gain: %.1fx)",
-                         self.audioManager.gain];
-  }
-  [self.window setTitle:status];
+    return event; // Pass through
 }
 
 - (void)createMenuBar {
-  // Create main menu bar
-  NSMenu *menuBar = [[NSMenu alloc] init];
+    // Create comprehensive macOS menu bar
+    NSMenu *menuBar = [[NSMenu alloc] init];
 
-  // App menu
-  NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
-  [menuBar addItem:appMenuItem];
+    // App menu
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    [menuBar addItem:appMenuItem];
 
-  NSMenu *appMenu = [[NSMenu alloc] init];
-  [appMenuItem setSubmenu:appMenu];
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Oscilloscope"];
+    [appMenuItem setSubmenu:appMenu];
 
-  // Add Quit menu item with Cmd+Q
-  NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit Oscilloscope"
-                                                    action:@selector(terminate:)
-                                             keyEquivalent:@"q"];
-  [appMenu addItem:quitItem];
+    // App menu items
+    [appMenu addItemWithTitle:@"About Vintage Oscilloscope" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Preferences..." action:@selector(showPreferences:) keyEquivalent:@","];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Hide Vintage Oscilloscope" action:@selector(hide:) keyEquivalent:@"h"];
+    [appMenu addItemWithTitle:@"Hide Others" action:@selector(hideOtherApplications:) keyEquivalent:@"h"];
+    [[appMenu itemWithTitle:@"Hide Others"] setKeyEquivalentModifierMask:NSEventModifierFlagOption | NSEventModifierFlagCommand];
+    [appMenu addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Quit Vintage Oscilloscope" action:@selector(terminate:) keyEquivalent:@"q"];
 
-  [NSApp setMainMenu:menuBar];
+    // File menu
+    NSMenuItem *fileMenuItem = [[NSMenuItem alloc] init];
+    [fileMenuItem setTitle:@"File"];
+    [menuBar addItem:fileMenuItem];
+
+    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+    [fileMenuItem setSubmenu:fileMenu];
+
+    [fileMenu addItemWithTitle:@"New Window" action:@selector(newDocument:) keyEquivalent:@"n"];
+    [fileMenu addItem:[NSMenuItem separatorItem]];
+    [fileMenu addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+
+    // Edit menu
+    NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
+    [editMenuItem setTitle:@"Edit"];
+    [menuBar addItem:editMenuItem];
+
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+    [editMenuItem setSubmenu:editMenu];
+
+    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+    [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+
+    // View menu
+    NSMenuItem *viewMenuItem = [[NSMenuItem alloc] init];
+    [viewMenuItem setTitle:@"View"];
+    [menuBar addItem:viewMenuItem];
+
+    NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+    [viewMenuItem setSubmenu:viewMenu];
+
+    [viewMenu addItemWithTitle:@"Actual Size" action:@selector(actualSize:) keyEquivalent:@"0"];
+    [viewMenu addItemWithTitle:@"Zoom In" action:@selector(zoomIn:) keyEquivalent:@"="];
+    [viewMenu addItemWithTitle:@"Zoom Out" action:@selector(zoomOut:) keyEquivalent:@"-"];
+    [viewMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *agcItem = [[NSMenuItem alloc] initWithTitle:@"Toggle AGC" action:@selector(toggleAGC:) keyEquivalent:@"a"];
+    [agcItem setTarget:self.mainWindowController];
+    [viewMenu addItem:agcItem];
+
+    [viewMenu addItem:[NSMenuItem separatorItem]];
+    [viewMenu addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
+
+    // Window menu
+    NSMenuItem *windowMenuItem = [[NSMenuItem alloc] init];
+    [windowMenuItem setTitle:@"Window"];
+    [menuBar addItem:windowMenuItem];
+
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+    [windowMenuItem setSubmenu:windowMenu];
+
+    [windowMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+    [windowMenu addItem:[NSMenuItem separatorItem]];
+    [windowMenu addItemWithTitle:@"Bring All to Front" action:@selector(arrangeInFront:) keyEquivalent:@""];
+
+    // Help menu
+    NSMenuItem *helpMenuItem = [[NSMenuItem alloc] init];
+    [helpMenuItem setTitle:@"Help"];
+    [menuBar addItem:helpMenuItem];
+
+    NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
+    [helpMenuItem setSubmenu:helpMenu];
+
+    [helpMenu addItemWithTitle:@"Vintage Oscilloscope Help" action:@selector(showHelp:) keyEquivalent:@"?"];
+
+    [NSApp setMainMenu:menuBar];
 }
 
-- (void)requestMicrophonePermission {
-  // Request microphone access
-  switch ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]) {
-  case AVAuthorizationStatusAuthorized: {
-    NSLog(@"Microphone access already authorized");
-    [self startAudioCapture];
-    break;
-  }
+// MARK: - NSMenuDelegate methods
 
-  case AVAuthorizationStatusNotDetermined: {
-    NSLog(@"Requesting microphone permission...");
-    [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio
-                             completionHandler:^(BOOL granted) {
-                               dispatch_async(dispatch_get_main_queue(), ^{
-                                 if (granted) {
-                                   NSLog(@"Microphone permission granted!");
-                                   [self startAudioCapture];
-                                 } else {
-                                   NSLog(@"Microphone permission denied!");
-                                   [self showPermissionDeniedAlert];
-                                 }
-                               });
-                             }];
-    break;
-  }
+- (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+    SEL action = [menuItem action];
 
-  case AVAuthorizationStatusDenied:
-  case AVAuthorizationStatusRestricted: {
-    NSLog(@"Microphone access denied or restricted");
-    [self showPermissionDeniedAlert];
-    break;
-  }
-  }
-}
-
-- (void)startAudioCapture {
-
-  // Set up audio capture
-  self.audioManager = [[AudioCaptureManager alloc] init];
-  [self.audioManager start];
-
-  // Set up AVCaptureSession to receive interruption notifications
-  // Note: macOS kills the app when microphone permission is revoked, but this
-  // handles other interruptions (e.g., audio device disconnection)
-  [self setupCaptureSessionForInterruptionNotifications];
-
-  // Create timer and add to run loop with common modes
-  self.updateTimer = [NSTimer timerWithTimeInterval:1.0 / 60.0
-                                             target:self
-                                           selector:@selector(updateAudio)
-                                           userInfo:nil
-                                            repeats:YES];
-  [[NSRunLoop mainRunLoop] addTimer:self.updateTimer
-                            forMode:NSRunLoopCommonModes];
-
-  NSLog(@"Audio capture started - speak into your microphone!");
-  [self updateWindowTitle];
-}
-
-- (void)setupCaptureSessionForInterruptionNotifications {
-  self.captureSession = [[AVCaptureSession alloc] init];
-
-  // Add audio input to the session
-  AVCaptureDevice *audioDevice =
-      [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
-  if (audioDevice) {
-    NSError *error = nil;
-    AVCaptureDeviceInput *audioInput =
-        [AVCaptureDeviceInput deviceInputWithDevice:audioDevice error:&error];
-    if (audioInput && [self.captureSession canAddInput:audioInput]) {
-      [self.captureSession addInput:audioInput];
-    } else {
-      NSLog(@"Could not add audio input to capture session: %@", error);
+    if (action == @selector(toggleAGC:)) {
+        // Update menu item state based on AGC status
+        if (self.mainWindowController.audioManager) {
+            [menuItem setState:self.mainWindowController.audioManager.agcEnabled ? NSControlStateValueOn : NSControlStateValueOff];
+        }
+        return YES;
     }
-  }
 
-  // Register for interruption notifications
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(handleSessionInterruption:)
-             name:AVCaptureSessionWasInterruptedNotification
-           object:self.captureSession];
-
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(handleSessionInterruptionEnded:)
-             name:AVCaptureSessionInterruptionEndedNotification
-           object:self.captureSession];
-
-  // Start the session (required to receive notifications)
-  [self.captureSession startRunning];
-  NSLog(@"AVCaptureSession started for interruption monitoring");
+    return YES;
 }
-
-- (void)handleSessionInterruption:(NSNotification *)notification {
-  NSLog(@"⚠️ Audio session interrupted: %@", notification.userInfo);
-
-  // Stop our audio capture
-  [self.audioManager stop];
-
-  // Show alert on main thread
-  dispatch_async(dispatch_get_main_queue(), ^{
-    NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Audio Interrupted"];
-    [alert setInformativeText:
-               @"Audio capture was interrupted (device disconnected or in use "
-               @"by another application). Please reconnect your audio device "
-               @"or close other audio applications."];
-    [alert addButtonWithTitle:@"OK"];
-    [alert runModal];
-  });
-}
-
-- (void)handleSessionInterruptionEnded:(NSNotification *)notification {
-  NSLog(@"Audio session interruption ended - restarting capture");
-
-  // Restart our audio capture
-  [self.audioManager start];
-}
-
-- (void)showPermissionDeniedAlert {
-  NSAlert *alert = [[NSAlert alloc] init];
-  [alert setMessageText:@"Microphone Access Required"];
-  [alert
-      setInformativeText:
-          @"This app needs microphone access to visualize audio. Please grant "
-          @"permission in System Settings > Privacy & Security > Microphone."];
-  [alert addButtonWithTitle:@"OK"];
-  [alert runModal];
-}
-
-- (void)updateAudio {
-
-  float samples[512];
-  NSUInteger count = [self.audioManager getLatestSamples:samples
-                                              maxSamples:512];
-
-  static int debugFrame = 0;
-  if (++debugFrame % 60 == 0) {
-    NSLog(@"DEBUG: count=%lu, samples[0]=%f", (unsigned long)count, count > 0 ? samples[0] : 0.0f);
-  }
-
-  [self.oscilloscopeView updateWithAudioSamples:samples count:count];
-
-  // Update title periodically if AGC is on to show current gain
-  if (self.audioManager.agcEnabled) {
-    static int frame = 0;
-    if (++frame % 10 == 0) { // Update every 10 frames (~6Hz)
-      [self updateWindowTitle];
-    }
-  }
-}
-
-- (void)applicationWillTerminate:(NSNotification *)notification {
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [self.captureSession stopRunning];
-  [self.updateTimer invalidate];
-  [self.audioManager stop];
-}
-
-- (BOOL)applicationShouldTerminateAfterLastWindowClosed:
-    (NSApplication *)sender {
-  return YES;
-}
-
 @end
 
 int main(int argc, const char *argv[]) {

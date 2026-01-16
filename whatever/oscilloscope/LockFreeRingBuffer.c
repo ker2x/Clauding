@@ -28,8 +28,8 @@ void lfringbuffer_init(LockFreeRingBuffer *rb) {
 // 4. Update head pointer atomically to publish the write
 uint32_t lfringbuffer_write(LockFreeRingBuffer *rb, const float *samples,
                             uint32_t count) {
-  // Validate inputs
-  if (!rb || !samples || count == 0) {
+  // SECURITY: Validate inputs to prevent buffer overflow
+  if (!rb || !samples || count == 0 || count > RING_BUFFER_SIZE) {
     return 0;
   }
 
@@ -99,8 +99,8 @@ uint32_t lfringbuffer_write(LockFreeRingBuffer *rb, const float *samples,
 // 4. Update tail pointer atomically to consume the data
 uint32_t lfringbuffer_read(LockFreeRingBuffer *rb, float *samples,
                            uint32_t count) {
-  // Validate inputs
-  if (!rb || !samples || count == 0) {
+  // SECURITY: Validate inputs to prevent buffer overflow
+  if (!rb || !samples || count == 0 || count > RING_BUFFER_SIZE) {
     return 0;
   }
 

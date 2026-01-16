@@ -171,18 +171,28 @@ typedef struct {
 }
 
 - (void)updateWithAudioSamples:(const float *)samples count:(NSUInteger)count {
-  if (!samples) {
+  // SECURITY: Validate input parameters to prevent buffer overflow
+  if (!samples || count == 0 || count > SAMPLE_BUFFER_SIZE) {
+    NSLog(@"OscilloscopeView: Invalid audio samples - samples=%p, count=%lu", 
+          samples, (unsigned long)count);
+    _sampleCount = 0; // Clear any previous data
     return;
   }
-  NSUInteger copyCount = MIN(count, SAMPLE_BUFFER_SIZE);
-  memcpy(_audioSamples, samples, copyCount * sizeof(float));
-  _sampleCount = copyCount;
+  
+  memcpy(_audioSamples, samples, count * sizeof(float));
+  _sampleCount = count;
 }
 
 - (void)drawInMTKView:(MTKView *)view {
   @autoreleasepool {
+    // SECURITY: Validate texture and buffer state before Metal operations
+    if (!_audioTexture || !_uniformBuffer || !_waveformPipeline || !_accumulationPipeline || !_displayPipeline) {
+      NSLog(@"OscilloscopeView: Metal resources not initialized");
+      return;
+    }
+    
     // Update audio texture (Metal requires width > 0)
-    if (_sampleCount > 0) {
+    if (_sampleCount > 0 && _sampleCount <= SAMPLE_BUFFER_SIZE) {
       MTLRegion region = MTLRegionMake2D(0, 0, _sampleCount, 1);
       [_audioTexture replaceRegion:region
                        mipmapLevel:0
