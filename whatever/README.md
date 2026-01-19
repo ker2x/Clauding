@@ -24,6 +24,7 @@ A comprehensive summary of all simulation and visualization projects for future 
 | `aura_sim.py` | Python/PyTorch | Neural Field | ~1K | Neural network driving particle forces |
 | `satori_quantum.py` | Python/PyTorch | Bohmian QM | 16K particles | Quantum pilot-wave simulation |
 | `xenobots_softbody.py` | Python/PyTorch | Soft-body Evo | 40 bots | Evolutionary soft robots |
+| `symbiotic_swarm_symphony.py` | Python/JAX | Swarm Art | 8K particles | Emergent multi-species flocking with trail deposition |
 
 ---
 
@@ -726,6 +727,61 @@ def evolve(self):
         parent = elite_dna[random.choice(range(6))]
         child = parent + torch.randn_like(parent) * MUTATION_SCALE
 ```
+
+---
+
+### symbiotic_swarm_symphony.py
+> Emergent art through multi-species particle swarms with chemical trail communication
+
+#### Symbiotic Dynamics
+```python
+NUM_SPECIES = 3
+NUM_PARTICLES = 8000
+
+# Interaction matrix defines species relationships
+interaction_matrix = np.array([
+    [0.5, -0.3, 0.1],   # RED: self-attract, repel GREEN, attract BLUE
+    [-0.3, 0.5, -0.1],  # GREEN: self-attract, repel RED, repel BLUE
+    [0.1, -0.1, 0.5]    # BLUE: self-attract, repel GREEN, self-attract
+])
+
+# Distance-dependent force curve
+force_mag = jnp.where(dist < 20, -force_strength / (dist + 1),
+                    jnp.where(dist < sense_distance,
+                            force_strength * interaction_strength / (dist + 1),
+                            0))
+```
+
+#### Trail System
+```python
+TRAIL_SIZE = 256  # Low-res grid for performance
+DIFFUSE_STEPS = 2
+DECAY_RATE = 0.98
+
+# Particles deposit chemical trails
+self.trail_grid[grid_y[i], grid_x[i], species_idx] += self.deposit_rate
+
+# Diffuse and decay trails
+diffused = (roll_up + roll_down + roll_left + roll_right) * 0.25
+trail_grid = diffused * DECAY_RATE
+```
+
+#### Color Evolution
+```python
+# Species colors slowly mutate over time
+if random.random() < self.color_mutation_rate:
+    species_idx = random.randint(0, NUM_SPECIES - 1)
+    self.species_colors[species_idx] += np.random.normal(0, 1, 3)
+    self.species_colors[species_idx] = np.clip(self.species_colors[species_idx], 50, 255)
+```
+
+#### Controls
+- **Q/W**: Adjust force strength
+- **E/R**: Adjust friction
+- **T/Y**: Adjust max speed
+- **U/I**: Adjust sensing distance
+- **O/P**: Adjust trail deposit rate
+- **Space**: Reset simulation
 
 ---
 

@@ -495,12 +495,6 @@ static OSStatus inputCallback(void *inRefCon,
                       1, // Input bus
                       inNumberFrames, &bufferList);
 
-  static int callbackCount = 0;
-  if (++callbackCount % 200 == 1) {
-    NSLog(@"DEBUG callback: status=%d, frames=%u", (int)status,
-          (unsigned)inNumberFrames);
-  }
-
   if (status == noErr) {
     // Write to lock-free ring buffer (uses only atomics, real-time safe)
     lfringbuffer_write([manager ringBuffer], tempBuffer, inNumberFrames);

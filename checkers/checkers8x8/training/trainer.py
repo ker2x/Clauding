@@ -432,17 +432,19 @@ class Trainer:
         print(f"\n  Results: W{results['wins']} L{results['losses']} D{results['draws']}")
         print(f"  Win rate: {win_rate:.1%}")
 
-        # Promote if win rate exceeds threshold
-        if win_rate >= self.config.PROMOTION_THRESHOLD:
-            print(f"  🏆 NEW BEST MODEL! (Win rate: {win_rate:.1%} >= {self.config.PROMOTION_THRESHOLD:.1%})")
+        # Promote if wins > losses (ignores draws)
+        win_loss_diff = results['win_loss_diff']
+        if win_loss_diff > 0:
+            print(f"  🏆 NEW BEST MODEL! (W{results['wins']} > L{results['losses']}, diff: +{win_loss_diff})")
             torch.save({
                 'network_state_dict': self.network.state_dict(),
                 'iteration': iteration,
                 'win_rate': win_rate,
+                'win_loss_diff': win_loss_diff,
             }, self.best_model_path)
             print(f"  💾 Saved to {self.best_model_path}")
         else:
-            print(f"  ⚠️  Model not promoted (Win rate: {win_rate:.1%} < {self.config.PROMOTION_THRESHOLD:.1%})")
+            print(f"  ⚠️  Model not promoted (W{results['wins']} <= L{results['losses']}, diff: {win_loss_diff})")
 
         print("-" * 70)
 

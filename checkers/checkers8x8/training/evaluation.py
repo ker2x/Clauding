@@ -197,6 +197,7 @@ def evaluate_models(
         'draws': draws,
         'total_games': num_games,
         'win_rate': win_rate,
+        'win_loss_diff': wins - losses,  # For promotion: wins > losses (ignores draws)
     }
 
 

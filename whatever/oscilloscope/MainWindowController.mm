@@ -339,7 +339,8 @@
 - (void)increaseGain:(id)sender {
     if (!self.audioManager) return;
     self.audioManager.gain += 1.0f;
-    if (self.audioManager.gain > 100.0f) self.audioManager.gain = 100.0f;
+    // Cap at 50.0 to match AGC_MAX_GAIN and slider range
+    if (self.audioManager.gain > 50.0f) self.audioManager.gain = 50.0f;
     self.audioManager.agcEnabled = NO;
     [self syncGainSlider];
     [self updateAGCButtonState];
@@ -349,6 +350,7 @@
 - (void)decreaseGain:(id)sender {
     if (!self.audioManager) return;
     self.audioManager.gain -= 1.0f;
+    // Cap at 1.0 to match AGC_MIN_GAIN
     if (self.audioManager.gain < 1.0f) self.audioManager.gain = 1.0f;
     self.audioManager.agcEnabled = NO;
     [self syncGainSlider];
