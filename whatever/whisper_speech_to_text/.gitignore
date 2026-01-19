@@ -1,0 +1,9 @@
+# Build artifacts
+.build/
+*.app/
+
+# Downloaded models (large files)
+models/
+
+# Swift Package Manager
+Package.resolved

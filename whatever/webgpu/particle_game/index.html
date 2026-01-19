@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Swarm - WebGPU Survival</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="ui-layer">
+        <div id="score-board">
+            <div class="label">SCORE</div>
+            <div id="score-value">0</div>
+        </div>
+        <div id="controls-hint">
+            WASD to Move &bull; Click to Shoot
+        </div>
+        <div id="game-over-screen" class="hidden">
+            <h1>SYSTEM CRITICAL</h1>
+            <p>CORE DESTROYED</p>
+            <button id="restart-btn">REBOOT SYSTEM</button>
+        </div>
+    </div>
+    <canvas id="gpu-canvas"></canvas>
+    <script type="module" src="main.js"></script>
+</body>
+
+</html>
