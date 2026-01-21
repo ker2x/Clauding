@@ -9,3 +9,6 @@
 *.so
 *.egg-info/
 __pycache__/
+/grokking/*.png
+/grokking/*.mp4
+/grokking/*.pt
