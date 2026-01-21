@@ -33,7 +33,7 @@ class Config:
     # Training configuration
     GAMES_PER_ITERATION = 20  # Games to play per iteration
     NUM_WORKERS = 2  # Optimal for 8-core CPU (4 Perf cores)
-    BUFFER_SIZE = 2_000_000  # Max positions in replay buffer (10x larger for diversity)
+    BUFFER_SIZE = 20_000  # Max positions in replay buffer
 
     # Data Sampling
     RECENCY_TAU = 50  # Exponential weighting constant for recent data

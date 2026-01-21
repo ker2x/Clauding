@@ -162,6 +162,9 @@ def benchmark_opponent(
     losses = 0
     draws = 0
     total_moves = 0
+    moves_wins = []
+    moves_losses = []
+    moves_draws = []
 
     for game_idx in range(num_games):
         # Alternate who plays first
@@ -174,10 +177,13 @@ def benchmark_opponent(
 
         if result == 1.0:
             wins += 1
+            moves_wins.append(num_moves)
         elif result == 0.0:
             losses += 1
+            moves_losses.append(num_moves)
         else:
             draws += 1
+            moves_draws.append(num_moves)
 
         # Progress indicator
         if (game_idx + 1) % 10 == 0 or (game_idx + 1) == num_games:
@@ -195,7 +201,10 @@ def benchmark_opponent(
         'losses': losses,
         'draws': draws,
         'win_rate': win_rate,
-        'avg_moves': total_moves / num_games
+        'avg_moves': total_moves / num_games,
+        'avg_moves_win': sum(moves_wins) / len(moves_wins) if moves_wins else None,
+        'avg_moves_loss': sum(moves_losses) / len(moves_losses) if moves_losses else None,
+        'avg_moves_draw': sum(moves_draws) / len(moves_draws) if moves_draws else None,
     }
 
 
@@ -315,7 +324,8 @@ def save_results(results: List[Dict], iteration: int, elo: int, log_path: str):
         if write_header:
             writer.writerow([
                 'timestamp', 'iteration', 'estimated_elo',
-                'opponent', 'games', 'wins', 'losses', 'draws', 'win_rate'
+                'opponent', 'games', 'wins', 'losses', 'draws', 'win_rate',
+                'avg_moves', 'avg_moves_win', 'avg_moves_loss', 'avg_moves_draw'
             ])
 
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -330,31 +340,43 @@ def save_results(results: List[Dict], iteration: int, elo: int, log_path: str):
                 r['wins'],
                 r['losses'],
                 r['draws'],
-                f"{r['win_rate']:.3f}"
+                f"{r['win_rate']:.3f}",
+                f"{r['avg_moves']:.1f}",
+                f"{r['avg_moves_win']:.1f}" if r['avg_moves_win'] is not None else '',
+                f"{r['avg_moves_loss']:.1f}" if r['avg_moves_loss'] is not None else '',
+                f"{r['avg_moves_draw']:.1f}" if r['avg_moves_draw'] is not None else '',
             ])
 
     print(f"\nResults saved to {log_path}")
 
 
+def format_avg_moves(value) -> str:
+    """Format average moves value, handling None."""
+    return f"{value:>5.1f}" if value is not None else "    -"
+
+
 def print_results_table(results: List[Dict], model_path: str, elo: int):
     """Print results in nice table format."""
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 100)
     print(f"Benchmark Results: {model_path}")
-    print("=" * 70)
+    print("=" * 100)
     print()
 
     # Table header
-    print(f"{'Opponent':<16} | {'Games':>5} | {'Wins':>4} | {'Losses':>6} | {'Draws':>5} | {'Win Rate':>8}")
-    print("-" * 70)
+    print(f"{'Opponent':<12} | {'Games':>5} | {'W':>3} | {'L':>3} | {'D':>3} | "
+          f"{'Win%':>6} | {'AvgLen':>6} | {'W Len':>5} | {'L Len':>5} | {'D Len':>5}")
+    print("-" * 100)
 
     for r in results:
-        print(f"{r['opponent']:<16} | {r['games']:>5} | {r['wins']:>4} | {r['losses']:>6} | "
-              f"{r['draws']:>5} | {r['win_rate']*100:>7.1f}%")
+        print(f"{r['opponent']:<12} | {r['games']:>5} | {r['wins']:>3} | {r['losses']:>3} | "
+              f"{r['draws']:>3} | {r['win_rate']*100:>5.1f}% | {r['avg_moves']:>6.1f} | "
+              f"{format_avg_moves(r['avg_moves_win'])} | {format_avg_moves(r['avg_moves_loss'])} | "
+              f"{format_avg_moves(r['avg_moves_draw'])}")
 
-    print("-" * 70)
+    print("-" * 100)
     print()
     print(f"Estimated strength: ~{elo} ELO ({get_strength_description(elo)})")
-    print("=" * 70)
+    print("=" * 100)
 
 
 def main():
