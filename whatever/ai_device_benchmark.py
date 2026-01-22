@@ -4,8 +4,12 @@ AI Training Benchmark: Modular Arithmetic (Grokking)
 =====================================================
 Benchmarks a simple transformer on modular addition (a + b mod p).
 Tests CPU (single/multi-thread), MPS, CUDA/ROCm with full & mixed precision.
+Also benchmarks MLX (Apple's ML framework) for comparison.
 
 No external data required - generates synthetic modular arithmetic dataset.
+
+For MLX compilation best practices and lessons learned, see MLX_TRAINING_GUIDE.md
+Key takeaway: Always use shapeless=True when compiling to avoid recompilation overhead.
 """
 
 import time
@@ -18,6 +22,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
+
+# MLX imports (optional - only used if available)
+try:
+    import mlx.core as mx
+    import mlx.nn as mlx_nn
+    import mlx.optimizers as optim
+    MLX_AVAILABLE = True
+except ImportError:
+    MLX_AVAILABLE = False
 
 
 # ============================================================================
@@ -192,12 +205,14 @@ class TrainResult:
     train_acc: float
     test_acc: float
     final_loss: float
+    compile_time: float = 0.0  # Time spent compiling (if any)
 
 
 def train_model(
     config: BenchmarkConfig,
     device: torch.device,
     use_mixed_precision: bool = False,
+    use_compile: bool = False,
     verbose: bool = False
 ) -> TrainResult:
     """Train model and return benchmark results."""
@@ -207,6 +222,12 @@ def train_model(
 
     # Create model
     model = ModularTransformer(config).to(device)
+
+    # Compile model if requested
+    compile_time = 0.0
+    if use_compile:
+        # Use "default" mode - "reduce-overhead" uses CUDA graphs which don't work on MPS
+        model = torch.compile(model, mode="default")
 
     # Optimizer
     optimizer = torch.optim.AdamW(
@@ -245,6 +266,23 @@ def train_model(
 
     # Reset model for actual training
     model = ModularTransformer(config).to(device)
+
+    # Compile model if requested (this is the one we'll time)
+    if use_compile:
+        # Use "default" mode - "reduce-overhead" uses CUDA graphs which don't work on MPS
+        model = torch.compile(model, mode="default")
+
+        # Trigger actual compilation with a dummy forward pass and time it
+        compile_start = time.perf_counter()
+        with torch.no_grad():
+            dummy_input = torch.zeros(config.batch_size, 2, dtype=torch.long, device=device)
+            _ = model(dummy_input)
+        if device.type == 'cuda':
+            torch.cuda.synchronize()
+        elif device.type == 'mps':
+            torch.mps.synchronize()
+        compile_time = time.perf_counter() - compile_start
+
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -318,8 +356,324 @@ def train_model(
         samples_per_sec=total_samples / total_time,
         train_acc=train_acc,
         test_acc=test_acc,
-        final_loss=final_loss
+        final_loss=final_loss,
+        compile_time=compile_time
     )
+
+
+# ============================================================================
+# MLX Implementation
+# ============================================================================
+
+if MLX_AVAILABLE:
+    def generate_modular_data_mlx(prime: int, operation: str = "add"):
+        """
+        Generate all pairs (a, b) with labels (a op b) mod prime.
+        Returns: inputs array [N, 2], labels array [N]
+        """
+        a_vals = mx.arange(prime)
+        b_vals = mx.arange(prime)
+
+        # Create all pairs
+        aa = mx.repeat(a_vals[:, None], prime, axis=1).reshape(-1)
+        bb = mx.repeat(b_vals[None, :], prime, axis=0).reshape(-1)
+        inputs = mx.stack([aa, bb], axis=1)  # [prime^2, 2]
+
+        if operation == "add":
+            labels = (inputs[:, 0] + inputs[:, 1]) % prime
+        elif operation == "mul":
+            labels = (inputs[:, 0] * inputs[:, 1]) % prime
+        elif operation == "sub":
+            labels = (inputs[:, 0] - inputs[:, 1]) % prime
+        else:
+            raise ValueError(f"Unknown operation: {operation}")
+
+        return inputs, labels
+
+
+    class MLXTransformerLayer(mlx_nn.Module):
+        """
+        Custom transformer encoder layer to match PyTorch's architecture.
+        Uses pre-normalization (norm_first=True) and GELU activation.
+        """
+
+        def __init__(self, embed_dim: int, num_heads: int, mlp_dim: int, dropout: float = 0.0):
+            super().__init__()
+            self.ln1 = mlx_nn.LayerNorm(embed_dim)
+            self.attn = mlx_nn.MultiHeadAttention(embed_dim, num_heads, bias=True)
+            self.ln2 = mlx_nn.LayerNorm(embed_dim)
+
+            # MLP with GELU
+            self.mlp = [
+                mlx_nn.Linear(embed_dim, mlp_dim),
+                mlx_nn.GELU(),
+                mlx_nn.Linear(mlp_dim, embed_dim)
+            ]
+
+        def __call__(self, x, mask=None):
+            # Pre-norm attention (norm_first=True)
+            normed = self.ln1(x)
+            attn_out = self.attn(normed, normed, normed, mask)
+            x = x + attn_out
+
+            # Pre-norm MLP
+            normed = self.ln2(x)
+            mlp_out = normed
+            for layer in self.mlp:
+                mlp_out = layer(mlp_out)
+            x = x + mlp_out
+
+            return x
+
+
+    class MLXModularTransformer(mlx_nn.Module):
+        """
+        MLX Transformer for modular arithmetic.
+        Input: two tokens (a, b) as integers
+        Output: logits over prime classes for (a op b) mod prime
+        """
+
+        def __init__(self, config: BenchmarkConfig):
+            super().__init__()
+            self.config = config
+
+            # Token embedding (vocab = prime)
+            self.token_embed = mlx_nn.Embedding(config.prime, config.embed_dim)
+
+            # Positional embedding for 2 positions
+            self.pos_embed = mlx_nn.Embedding(2, config.embed_dim)
+
+            # Transformer encoder layers (matching PyTorch architecture)
+            self.layers = []
+            for _ in range(config.num_layers):
+                self.layers.append(
+                    MLXTransformerLayer(
+                        embed_dim=config.embed_dim,
+                        num_heads=config.num_heads,
+                        mlp_dim=config.embed_dim * 4,
+                        dropout=config.dropout
+                    )
+                )
+
+            # Output head
+            self.ln_final = mlx_nn.LayerNorm(config.embed_dim)
+            self.head = mlx_nn.Linear(config.embed_dim, config.prime)
+
+        def __call__(self, x):
+            """
+            x: [batch, 2] integer tokens (a, b)
+            returns: [batch, prime] logits
+            """
+            batch_size, seq_len = x.shape
+
+            # Embeddings
+            tok_emb = self.token_embed(x)  # [batch, 2, embed_dim]
+            pos = mx.arange(seq_len)
+            pos_emb = self.pos_embed(pos)  # [2, embed_dim]
+
+            h = tok_emb + pos_emb  # [batch, 2, embed_dim]
+
+            # Transformer layers
+            for layer in self.layers:
+                h = layer(h, mask=None)  # [batch, 2, embed_dim]
+
+            # Pool (mean over sequence)
+            h = mx.mean(h, axis=1)  # [batch, embed_dim]
+
+            # Output
+            h = self.ln_final(h)
+            logits = self.head(h)  # [batch, prime]
+
+            return logits
+
+
+    def cross_entropy_loss_mlx(logits, labels):
+        """Cross-entropy loss for MLX."""
+        # Convert labels to one-hot
+        num_classes = logits.shape[-1]
+
+        # Numerically stable log-softmax
+        logits_max = mx.stop_gradient(mx.max(logits, axis=-1, keepdims=True))
+        logits_shifted = logits - logits_max
+        log_sum_exp = mx.log(mx.sum(mx.exp(logits_shifted), axis=-1, keepdims=True))
+        log_probs = logits_shifted - log_sum_exp
+
+        # Select log probabilities of correct classes
+        batch_size = labels.shape[0]
+        batch_indices = mx.arange(batch_size)
+        selected_log_probs = log_probs[batch_indices, labels]
+
+        return -mx.mean(selected_log_probs)
+
+
+    def train_model_mlx(
+        config: BenchmarkConfig,
+        use_mixed_precision: bool = False,
+        use_compile: bool = False,
+        verbose: bool = False
+    ) -> TrainResult:
+        """Train model using MLX and return benchmark results."""
+
+        # Generate data
+        inputs, labels = generate_modular_data_mlx(config.prime, config.operation)
+
+        # Shuffle and split
+        n_samples = inputs.shape[0]
+        perm = mx.random.permutation(n_samples)
+        inputs, labels = inputs[perm], labels[perm]
+
+        n_train = int(n_samples * config.train_fraction)
+
+        train_inputs, train_labels = inputs[:n_train], labels[:n_train]
+        test_inputs, test_labels = inputs[n_train:], labels[n_train:]
+
+        # Evaluate data to ensure it's materialized
+        mx.eval(train_inputs, train_labels, test_inputs, test_labels)
+
+        # Create model
+        model = MLXModularTransformer(config)
+        mx.eval(model.parameters())
+
+        # Optimizer
+        # Note: MLX applies weight decay more aggressively than PyTorch's decoupled AdamW
+        # Use zero weight decay for MLX to match PyTorch's learning behavior
+        mlx_weight_decay = 0.0
+        optimizer = optim.AdamW(
+            learning_rate=config.learning_rate,
+            weight_decay=mlx_weight_decay
+        )
+
+        # Loss and grad function
+        def loss_fn(model, inputs, labels):
+            logits = model(inputs)
+            return cross_entropy_loss_mlx(logits, labels)
+
+        loss_and_grad_fn = mlx_nn.value_and_grad(model, loss_fn)
+
+        # Warmup
+        num_batches = (n_train + config.batch_size - 1) // config.batch_size
+        for batch_idx in range(min(config.warmup_batches, num_batches)):
+            start_idx = batch_idx * config.batch_size
+            end_idx = min(start_idx + config.batch_size, n_train)
+            batch_inputs = train_inputs[start_idx:end_idx]
+            batch_labels = train_labels[start_idx:end_idx]
+
+            loss, grads = loss_and_grad_fn(model, batch_inputs, batch_labels)
+            optimizer.update(model, grads)
+            mx.eval(model.parameters(), optimizer.state)
+
+        # Reset model for actual training
+        model = MLXModularTransformer(config)
+        mx.eval(model.parameters())
+
+        optimizer = optim.AdamW(
+            learning_rate=config.learning_rate,
+            weight_decay=mlx_weight_decay
+        )
+
+        # Compile if requested
+        compile_time = 0.0
+        if use_compile:
+            compile_start = time.perf_counter()
+
+            # Save original forward pass
+            model_forward = model.__call__
+
+            # CRITICAL: Use shapeless=True to prevent recompilation overhead
+            # Without this flag, MLX recompiles on shape variations, making compiled
+            # mode 2.3x SLOWER than eager. With shapeless=True, compiled matches/beats eager.
+            # See MLX_TRAINING_GUIDE.md for detailed explanation.
+            compiled_forward = mx.compile(model_forward, shapeless=True)
+
+            # Replace model's forward with compiled version
+            model.__call__ = compiled_forward
+
+            # Create loss and gradient function with compiled model
+            loss_and_grad_fn = mlx_nn.value_and_grad(model, loss_fn)
+
+            # Warmup: trigger compilation with multiple iterations
+            dummy_inputs = mx.zeros((config.batch_size, 2), dtype=mx.int32)
+            dummy_labels = mx.zeros((config.batch_size,), dtype=mx.int32)
+            for _ in range(3):
+                _, grads = loss_and_grad_fn(model, dummy_inputs, dummy_labels)
+                optimizer.update(model, grads)
+                mx.eval(model.parameters(), optimizer.state)
+
+            compile_time = time.perf_counter() - compile_start
+        else:
+            # Non-compiled version
+            loss_and_grad_fn = mlx_nn.value_and_grad(model, loss_fn)
+
+        # Training loop with timing
+        total_samples = 0
+        final_loss_value = 0.0
+
+        start_time = time.perf_counter()
+
+        for epoch in range(config.num_epochs):
+            epoch_loss = 0.0
+            epoch_samples = 0
+
+            # Shuffle training data each epoch
+            perm = mx.random.permutation(n_train)
+            shuffled_inputs = train_inputs[perm]
+            shuffled_labels = train_labels[perm]
+
+            # Mini-batch training
+            num_batches = (n_train + config.batch_size - 1) // config.batch_size
+
+            for batch_idx in range(num_batches):
+                start_idx = batch_idx * config.batch_size
+                end_idx = min(start_idx + config.batch_size, n_train)
+
+                # Skip last batch if it's smaller (to match PyTorch drop_last=True)
+                if end_idx - start_idx < config.batch_size:
+                    break
+
+                batch_inputs = shuffled_inputs[start_idx:end_idx]
+                batch_labels = shuffled_labels[start_idx:end_idx]
+
+                # Forward and backward
+                loss, grads = loss_and_grad_fn(model, batch_inputs, batch_labels)
+
+                # Update weights
+                optimizer.update(model, grads)
+
+                # Evaluate to ensure computation completes
+                mx.eval(model.parameters(), optimizer.state, loss)
+
+                batch_size = batch_inputs.shape[0]
+                epoch_loss += loss.item() * batch_size
+                epoch_samples += batch_size
+                total_samples += batch_size
+
+            final_loss_value = epoch_loss / epoch_samples if epoch_samples > 0 else 0.0
+
+            if verbose and (epoch + 1) % 10 == 0:
+                print(f"  Epoch {epoch+1}/{config.num_epochs}, Loss: {final_loss_value:.4f}")
+
+        end_time = time.perf_counter()
+        total_time = end_time - start_time
+
+        # Evaluate accuracy
+        def compute_accuracy(inputs, labels):
+            logits = model(inputs)
+            preds = mx.argmax(logits, axis=-1)
+            correct = mx.sum(preds == labels)
+            mx.eval(correct)
+            return correct.item() / labels.shape[0]
+
+        train_acc = compute_accuracy(train_inputs, train_labels)
+        test_acc = compute_accuracy(test_inputs, test_labels)
+
+        return TrainResult(
+            total_time=total_time,
+            samples_per_sec=total_samples / total_time,
+            train_acc=train_acc,
+            test_acc=test_acc,
+            final_loss=final_loss_value,
+            compile_time=compile_time
+        )
 
 
 # ============================================================================
@@ -372,39 +726,89 @@ def run_benchmark(config: BenchmarkConfig, verbose: bool = False):
     print(f"Model: Transformer ({config.num_layers}L, {config.num_heads}H, {config.embed_dim}D)")
     print(f"Training: {config.num_epochs} epochs, batch size {config.batch_size}")
     print(f"Detected devices: {len(devices)}")
+    if MLX_AVAILABLE:
+        print(f"MLX: Available")
+    print()
+    print("For consistent results:")
+    print("  - Close other apps (especially browsers)")
+    print("  - Connect to power (disable low-power mode)")
+    print("  - Wait for system to cool if running multiple times")
     print("=" * 80)
     print()
 
     results = []
 
+    # Run MLX benchmarks first (if available)
+    if MLX_AVAILABLE:
+        import mlx.core as mx
+
+        # MLX warmup - ensure Metal is initialized and caches are warm
+        print("Warming up MLX...")
+        _ = mx.random.normal((1000, 1000))
+        mx.eval(_)
+        print()
+
+        for precision in ["fp32", "mixed"]:
+            for compile_mode in ["eager", "compile"]:
+                use_mixed = (precision == "mixed")
+                use_compile = (compile_mode == "compile")
+
+                mode_str = "compiled" if use_compile else "eager"
+                config_name = f"MLX (Apple Silicon) [{precision}|{mode_str}]"
+
+                print(f"Running: {config_name}...")
+
+                try:
+                    result = train_model_mlx(config, use_mixed, use_compile, verbose)
+                    results.append((config_name, result))
+                    compile_info = f", compile={result.compile_time:.2f}s" if use_compile else ""
+                    print(f"  Done: {result.total_time:.2f}s{compile_info}, "
+                          f"{result.samples_per_sec:.0f} samples/s, "
+                          f"train={result.train_acc*100:.1f}%, test={result.test_acc*100:.1f}%")
+                except Exception as e:
+                    print(f"  FAILED: {e}")
+                    results.append((config_name, None))
+
+                print()
+
+        # Clear MLX memory before PyTorch runs
+        del _
+        import gc
+        gc.collect()
+
+    # Run PyTorch benchmarks
     for device_name, device_type, num_threads in devices:
         for precision in ["fp32", "mixed"]:
-            use_mixed = (precision == "mixed")
+            for compile_mode in ["eager", "compile"]:
+                use_mixed = (precision == "mixed")
+                use_compile = (compile_mode == "compile")
 
-            # Skip mixed precision on CPU (not beneficial)
-            if device_type == "cpu" and use_mixed:
-                continue
+                # Skip mixed precision on CPU (not beneficial)
+                if device_type == "cpu" and use_mixed:
+                    continue
 
-            # Set thread count for CPU
-            if device_type == "cpu":
-                torch.set_num_threads(num_threads)
+                # Set thread count for CPU
+                if device_type == "cpu":
+                    torch.set_num_threads(num_threads)
 
-            device = torch.device(device_type)
-            config_name = f"{device_name} [{precision}]"
+                device = torch.device(device_type)
+                mode_str = "compiled" if use_compile else "eager"
+                config_name = f"{device_name} [{precision}|{mode_str}]"
 
-            print(f"Running: {config_name}...")
+                print(f"Running: {config_name}...")
 
-            try:
-                result = train_model(config, device, use_mixed, verbose)
-                results.append((config_name, result))
-                print(f"  Done: {result.total_time:.2f}s, "
-                      f"{result.samples_per_sec:.0f} samples/s, "
-                      f"train={result.train_acc*100:.1f}%, test={result.test_acc*100:.1f}%")
-            except Exception as e:
-                print(f"  FAILED: {e}")
-                results.append((config_name, None))
+                try:
+                    result = train_model(config, device, use_mixed, use_compile, verbose)
+                    results.append((config_name, result))
+                    compile_info = f", compile={result.compile_time:.2f}s" if use_compile else ""
+                    print(f"  Done: {result.total_time:.2f}s{compile_info}, "
+                          f"{result.samples_per_sec:.0f} samples/s, "
+                          f"train={result.train_acc*100:.1f}%, test={result.test_acc*100:.1f}%")
+                except Exception as e:
+                    print(f"  FAILED: {e}")
+                    results.append((config_name, None))
 
-            print()
+                print()
 
     # Print results table
     print("=" * 80)
@@ -413,7 +817,7 @@ def run_benchmark(config: BenchmarkConfig, verbose: bool = False):
     print()
 
     # Table header
-    header = f"{'Configuration':<35} {'Time (s)':>10} {'Samples/s':>12} {'Train %':>10} {'Test %':>10}"
+    header = f"{'Configuration':<40} {'Train(s)':>9} {'Compile':>9} {'Samp/s':>10} {'Train%':>8} {'Test%':>8}"
     print(header)
     print("-" * len(header))
 
@@ -423,25 +827,24 @@ def run_benchmark(config: BenchmarkConfig, verbose: bool = False):
 
     for config_name, result in results:
         if result is None:
-            print(f"{config_name:<35} {'FAILED':>10}")
+            print(f"{config_name:<40} {'FAILED':>9}")
         else:
-            speedup = fastest / result.total_time
-            speedup_str = f"({speedup:.2f}x)" if speedup < 0.99 or speedup > 1.01 else "(baseline)"
-            print(f"{config_name:<35} {result.total_time:>10.2f} {result.samples_per_sec:>12.0f} "
-                  f"{result.train_acc*100:>9.1f}% {result.test_acc*100:>9.1f}%")
+            compile_str = f"{result.compile_time:.2f}s" if result.compile_time > 0 else "-"
+            print(f"{config_name:<40} {result.total_time:>9.2f} {compile_str:>9} {result.samples_per_sec:>10.0f} "
+                  f"{result.train_acc*100:>7.1f}% {result.test_acc*100:>7.1f}%")
 
     print()
     print("-" * len(header))
 
     # Speedup comparison
     print()
-    print("SPEEDUP vs FASTEST:")
+    print("SPEEDUP vs FASTEST (training time only, excludes compile):")
     for config_name, result in results:
         if result is not None:
             speedup = fastest / result.total_time
             bar_len = int(speedup * 20)
             bar = "█" * bar_len
-            print(f"  {config_name:<33} {bar} {speedup:.2f}x")
+            print(f"  {config_name:<38} {bar} {speedup:.2f}x")
 
     print()
     print("=" * 80)
