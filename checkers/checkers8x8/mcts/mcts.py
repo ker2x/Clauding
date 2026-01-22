@@ -7,7 +7,7 @@ move objects and action indices during search.
 
 import numpy as np
 import torch
-from typing import Optional
+from typing import Optional, List
 
 try:
     from .node import MCTSNode
@@ -45,7 +45,8 @@ class MCTS:
         num_simulations: int = 100,
         dirichlet_alpha: float = 0.3,
         dirichlet_epsilon: float = 0.25,
-        device: torch.device = torch.device("cpu")
+        device: torch.device = torch.device("cpu"),
+        batch_size: int = 16
     ):
         """
         Initialize MCTS.
@@ -57,6 +58,7 @@ class MCTS:
             dirichlet_alpha: Alpha parameter for Dirichlet noise
             dirichlet_epsilon: Weight of Dirichlet noise vs network prior
             device: PyTorch device
+            batch_size: Number of leaf nodes to evaluate in parallel (default: 16)
         """
         self.network = network
         self.c_puct = c_puct
@@ -64,6 +66,7 @@ class MCTS:
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
         self.device = device
+        self.batch_size = batch_size
 
         self.root: Optional[MCTSNode] = None
         self.cpp_mcts = None  # To store C++ instance
@@ -112,11 +115,34 @@ class MCTS:
         priors = [policy_probs[action] for action in legal_actions]
         self.root.expand(legal_actions, priors)
 
-        # Run simulations
-        for _ in range(self.num_simulations):
-            # Clone game state for simulation
-            sim_game = game.clone()
-            self._simulate(sim_game, self.root)
+        # Run simulations in batches
+        sims_completed = 0
+        while sims_completed < self.num_simulations:
+            # Collect a batch of leaf nodes
+            batch_games = []
+            batch_nodes = []
+            batch_paths = []
+
+            current_batch_size = min(self.batch_size, self.num_simulations - sims_completed)
+
+            for _ in range(current_batch_size):
+                sim_game = game.clone()
+                node, path = self._select_leaf(sim_game, self.root)
+
+                # Skip if terminal
+                if sim_game.is_terminal():
+                    value = sim_game.get_result()
+                    self._backup_path(path, value)
+                    sims_completed += 1
+                else:
+                    batch_games.append(sim_game)
+                    batch_nodes.append(node)
+                    batch_paths.append(path)
+
+            # Evaluate batch with neural network
+            if batch_games:
+                self._evaluate_and_expand_batch(batch_games, batch_nodes, batch_paths)
+                sims_completed += len(batch_games)
 
         # Get policy from visit counts
         policy = self._get_action_probs(temperature=1.0)
@@ -165,11 +191,9 @@ class MCTS:
         
         
         # 3. Batch Loop
-        batch_size = 16
-        
         while not cpp_mcts.is_finished():
             # Get batch of leaves
-            batch_id, inputs = cpp_mcts.find_leaves(batch_size)
+            batch_id, inputs = cpp_mcts.find_leaves(self.batch_size)
             
             if batch_id == -1:
                 break
@@ -231,6 +255,105 @@ class MCTS:
 
         # Backup: propagate value up the tree
         node.backup(value)
+
+    def _select_leaf(self, game: CheckersGame, node: MCTSNode) -> tuple:
+        """
+        Select leaf node for expansion.
+
+        Args:
+            game: Current game state (will be modified)
+            node: Starting node
+
+        Returns:
+            (leaf_node, path): Leaf node and path from root
+        """
+        path = [node]
+
+        while not node.is_leaf() and not game.is_terminal():
+            action, node = node.select_child(self.c_puct)
+            path.append(node)
+
+            # Apply action to game
+            if not game.make_action(action):
+                break
+
+        return node, path
+
+    def _evaluate_and_expand_batch(
+        self,
+        games: List[CheckersGame],
+        nodes: List[MCTSNode],
+        paths: List[list]
+    ):
+        """
+        Evaluate and expand a batch of leaf nodes.
+
+        Args:
+            games: List of game states at leaf nodes
+            nodes: List of leaf nodes to expand
+            paths: List of paths from root to each leaf
+        """
+        # Prepare batch input
+        states = []
+        legal_actions_list = []
+
+        for game in games:
+            legal_actions = game.get_legal_actions()
+            if not legal_actions:
+                # Terminal node
+                legal_actions_list.append([])
+                states.append(None)
+            else:
+                legal_actions_list.append(legal_actions)
+                states.append(game.to_neural_input())
+
+        # Filter out terminal states
+        valid_indices = [i for i, s in enumerate(states) if s is not None]
+
+        if not valid_indices:
+            return
+
+        # Batch evaluate with network
+        valid_states = [states[i] for i in valid_indices]
+        state_tensor = torch.from_numpy(np.stack(valid_states)).to(self.device)
+
+        with torch.no_grad():
+            policy_logits, values = self.network(state_tensor)
+
+        # Process each result
+        for batch_idx, game_idx in enumerate(valid_indices):
+            game = games[game_idx]
+            node = nodes[game_idx]
+            path = paths[game_idx]
+            legal_actions = legal_actions_list[game_idx]
+
+            # Mask illegal actions
+            mask = torch.full((1, policy_logits.shape[1]), float('-inf'), device=self.device)
+            for action in legal_actions:
+                mask[0, action] = 0.0
+
+            masked_logits = policy_logits[batch_idx:batch_idx+1] + mask
+            policy = torch.softmax(masked_logits, dim=1)[0].cpu().numpy()
+            value = values[batch_idx, 0].item()
+
+            # Expand node
+            priors = [policy[action] for action in legal_actions]
+            node.expand(legal_actions, priors)
+
+            # Backup value
+            self._backup_path(path, value)
+
+    def _backup_path(self, path: List[MCTSNode], value: float):
+        """
+        Backup value through path.
+
+        Args:
+            path: List of nodes from root to leaf
+            value: Value to backup
+        """
+        for node in reversed(path):
+            node.backup(value)
+            value = -value  # Flip value for opponent
 
     def _evaluate_state(
         self,
