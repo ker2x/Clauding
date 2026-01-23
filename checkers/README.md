@@ -1,293 +1,335 @@
-# AlphaZero-Style Checkers AI
+# AlphaZero Checkers
 
-A complete implementation of AlphaZero-style reinforcement learning for 10x10 International Draughts, trained purely through self-play with no initial data.
+**Train a checkers AI from scratch using AlphaZero-style reinforcement learning.**
 
-## Features
+Learn entirely through self-play with no initial training data. Watch your AI evolve from random moves to tactical mastery.
 
-- **Complete Game Engine**: Bitboard-based 10x10 International Draughts with full rules
-- **ResNet Neural Network**: 6 residual blocks, 128 filters (~2.7M parameters)
-- **Monte Carlo Tree Search**: PUCT algorithm with neural network guidance
-- **Self-Play Training**: AlphaZero-style learning from scratch
-- **Optimized for CPU**: Efficient implementation for 8-core CPUs
-- **Comprehensive Logging**: CSV metrics and matplotlib visualizations
+## Key Features
 
-## System Requirements
-
-- Python 3.8+
-- PyTorch 2.0+
-- 8-core CPU recommended (configurable for 4 or 12+ cores)
-- ~2GB RAM (for 500K replay buffer)
-- ~10GB disk space (for checkpoints and logs)
-
-## Installation
-
-```bash
-# Install dependencies
-pip install torch numpy gymnasium matplotlib pandas
-
-# Verify installation
-python -c "import torch; print(f'PyTorch {torch.__version__}')"
-```
+- **Fixed Action Space**: Each action index always represents the same move, enabling spatial pattern learning
+- **8x8 American Checkers**: Standard rules with forced captures and chain captures
+- **ResNet Neural Network**: 2.3M parameters, optimized for CPU/GPU training
+- **Monte Carlo Tree Search**: PUCT algorithm with 100 simulations per move
+- **Parallel Self-Play**: Multi-worker game generation
+- **Checkpointed Training**: Resume from any iteration with full replay buffer state
+- **Real-Time Visualization**: Watch training live with pygame
 
 ## Quick Start
 
-### 1. Run Tests
+### Installation
 
 ```bash
-# Test game engine
-python tests/test_engine.py
+# Clone repository
+git clone <repository-url>
+cd checkers
 
-# Test network
-python checkers/network/resnet.py
-
-# Test MCTS (quick test with 50 simulations)
-python -c "import sys; sys.path.insert(0, 'checkers'); from checkers.mcts.mcts import MCTS; from checkers.network.resnet import CheckersNetwork; from checkers.engine.game import CheckersGame; net = CheckersNetwork(); game = CheckersGame(); mcts = MCTS(net, num_simulations=50); policy = mcts.search(game); print(f'Policy shape: {policy.shape}, sum: {policy.sum():.4f}')"
+# Install dependencies (PyTorch, NumPy)
+pip install -r requirements.txt
 ```
 
-### 2. Start Training
+### Train Your First Model
 
 ```bash
-# Start training from scratch (100 iterations)
-python scripts/train.py --iterations 100
+# Train for 100 iterations (~3-4 hours on M1 Mac)
+python scripts8x8/train.py --iterations 100
 
 # Resume from checkpoint
-python scripts/train.py --resume checkpoints/checkpoint_iter_50.pt --iterations 50
+python scripts8x8/train.py --resume --iterations 150
 
-# Use specific device
-python scripts/train.py --device cpu --iterations 100
+# Train with live visualization
+python scripts8x8/train.py --iterations 50 --visualize
 ```
 
-### 3. Monitor Training
+### Monitor Progress
 
-```bash
-# View training metrics
-python checkers/utils/visualization.py logs/training_log.csv
+Training metrics are logged to `logs8x8/training_log.csv`:
+- Loss (policy and value)
+- Buffer size and utilization
+- Self-play and training time per iteration
 
-# Or directly:
-python -c "from checkers.utils.visualization import print_training_summary; print_training_summary()"
+Checkpoints saved to `checkpoints8x8/`:
+- `latest.pt` - most recent iteration
+- `best_model.pt` - highest win rate model
+- `checkpoint_iter_N.pt` - iteration-specific saves
+
+## How It Works
+
+### AlphaZero Training Loop
+
 ```
+┌─────────────────────────────────────────────────────────┐
+│  1. Self-Play: Generate games using MCTS + Neural Net  │
+│  2. Store: Save (state, policy, value) to replay buffer│
+│  3. Train: Sample batches and optimize neural network  │
+│  4. Evaluate: Play tournament, promote if improved     │
+│  5. Repeat: Virtuous cycle of self-improvement         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Fixed Action Space Innovation
+
+Unlike traditional dynamic action spaces, each of the 128 actions has a **fixed meaning**:
+
+```python
+Action 53 = Square 13, Direction NE  (always!)
+Action 81 = Square 20, Direction NE  (always!)
+```
+
+This allows the network to learn **spatial patterns** like:
+- "Moving from center toward NE is strong in middlegame"
+- "Backrow moves are weak unless forced"
+
+Instead of just relative preferences like:
+- "In this position, the 3rd legal move is usually good"
+
+## Architecture
+
+### Components
+
+- **Game Engine** (`checkers8x8/engine/`): Bitboard representation, move generation, American Checkers rules
+- **Neural Network** (`checkers8x8/network/`): ResNet with 6 residual blocks, 128 filters
+- **MCTS** (`checkers8x8/mcts/`): Monte Carlo Tree Search with PUCT selection
+- **Training** (`checkers8x8/training/`): Self-play, replay buffer, training loop, evaluation
+- **Visualization** (`checkers8x8/utils/`): Real-time pygame visualization
+
+### Neural Network
+
+**Input**: 8 planes × 8 × 8
+- Player pieces (men, kings)
+- Opponent pieces (men, kings)
+- Legal move indicators
+- Game state features
+
+**Output**:
+- Policy head: 128 logits (one per action)
+- Value head: scalar in [-1, 1] (win/loss prediction)
+
+**Architecture**: Conv → 6 ResNet blocks → Policy head + Value head
+
+### MCTS
+
+**Selection**: PUCT formula balances exploration vs exploitation
+**Expansion**: Add new nodes when visited
+**Evaluation**: Neural network predicts policy and value
+**Backup**: Propagate values up the tree
+**Action Selection**: Visit counts → training policy
 
 ## Configuration
 
-Edit `config.py` to customize hyperparameters:
+Edit `config8x8.py` to customize hyperparameters:
 
 ```python
-# Key settings
-MCTS_SIMS_SELFPLAY = 300      # MCTS simulations per move
-GAMES_PER_ITERATION = 100      # Self-play games per iteration
-NUM_WORKERS = 6                # Parallel game generation
-BATCH_SIZE = 256               # Training batch size
-LEARNING_RATE = 0.001          # Adam learning rate
+# Speed vs quality tradeoff
+MCTS_SIMS_SELFPLAY = 100      # Simulations per move (50-200)
+GAMES_PER_ITERATION = 20      # Games per iteration (10-50)
+
+# Resources
+NUM_WORKERS = 2               # Parallel self-play workers
+BUFFER_SIZE = 20_000          # Replay buffer capacity (10K-100K)
+BATCH_SIZE = 256              # Training batch size
+
+# Devices
+DEVICE = "mps"                # Training: "mps"/"cuda"/"cpu"
+SELFPLAY_DEVICE = "cpu"       # Self-play: "cpu" (faster for MCTS)
+
+# Learning
+LEARNING_RATE = 0.001
+MIN_SAMPLE_REUSE = 10         # Early training passes per state
+MAX_SAMPLE_REUSE = 30         # Mature training passes per state
 ```
 
-## Training Timeline
+## Performance
 
-**Hardware**: 8-core CPU (M1/M2 Mac or equivalent)
+### Training Speed (M1 Pro)
 
-| Iterations | Time (days) | Skill Level |
-|------------|-------------|-------------|
-| 50         | 2.2         | Learns basics |
-| 100        | 4.4         | Intermediate tactics |
-| 200        | 8.8         | Strong tactical play |
-| 500        | 22          | Advanced/expert level |
+- **Self-play** (20 games, CPU): ~90s
+- **Training** (dynamic steps, MPS): ~15s
+- **Total**: ~105s per iteration
 
-**Estimated times per iteration** (~63 minutes):
-- Self-play: 50 minutes (100 games)
-- Training: 10 minutes (100 gradient steps)
-- Evaluation: 2.5 minutes (every 10 iterations)
+### Expected Learning Curve
+
+| Iterations | Loss | Behavior |
+|------------|------|----------|
+| 1-20 | 4.0 → 1.5 | Learns legal moves, basic captures |
+| 20-50 | 1.5 → 1.0 | Develops tactics (forks, pins) |
+| 50-100 | 1.0 → 0.8 | Strategic patterns emerge |
+| 100+ | 0.8 → 0.6 | Strong tactical play, endgame skill |
+
+### Memory Usage
+
+- Network: 8.8 MB
+- Replay buffer (20K): ~80 MB
+- Total: ~100 MB (very efficient!)
+
+## Advanced Usage
+
+### Resume from Checkpoint
+
+```bash
+# Auto-detect latest checkpoint
+python scripts8x8/train.py --resume --iterations 150
+
+# Load specific checkpoint
+python scripts8x8/train.py --resume checkpoints8x8/checkpoint_iter_50.pt --iterations 150
+```
+
+### Change Buffer Size Mid-Training
+
+You can increase `BUFFER_SIZE` when resuming. Existing data is preserved:
+
+```python
+# In config8x8.py
+BUFFER_SIZE = 50_000  # Increased from 20_000
+```
+
+Then resume normally - a warning appears but training continues with larger capacity.
+
+### Run Tests
+
+```bash
+# Full integration test
+python checkers8x8/tests/test_integration.py
+
+# Test individual components
+python checkers8x8/network/resnet.py
+python checkers8x8/engine/game.py
+python checkers8x8/mcts/mcts.py
+```
+
+### Build C++ Extension (Optional)
+
+For ~10× faster MCTS:
+
+```bash
+python setup.py build_ext --inplace
+```
+
+## Troubleshooting
+
+**MPS/GPU errors**: Set `DEVICE = "cpu"` in `config8x8.py`
+
+**Out of memory**: Reduce `BUFFER_SIZE` or `BATCH_SIZE` in `config8x8.py`
+
+**Slow training**: Reduce `MCTS_SIMS_SELFPLAY` to 50 (2× speedup)
+
+**Loss diverging**: Lower learning rate to 0.0005 or increase `GRAD_CLIP`
+
+**Import errors**: Ensure you're using the correct Python environment with PyTorch installed
 
 ## Project Structure
 
 ```
 checkers/
-├── checkers/
-│   ├── engine/          # Game logic (bitboards, moves, rules)
-│   ├── env/             # Gymnasium environment
-│   ├── network/         # ResNet architecture & augmentation
-│   ├── mcts/            # Monte Carlo Tree Search
-│   ├── training/        # Training loop, self-play, evaluation
-│   └── utils/           # Checkpoints, visualization, logging
-├── scripts/
-│   └── train.py         # Main training script
-├── tests/               # Unit tests
-├── config.py            # Hyperparameters
-├── checkpoints/         # Saved models
-└── logs/                # Training metrics (CSV)
+├── config8x8.py              # All hyperparameters
+├── scripts8x8/
+│   └── train.py              # Training entry point
+├── checkers8x8/              # Main implementation
+│   ├── engine/               # Game rules and bitboards
+│   ├── network/              # Neural network (ResNet)
+│   ├── mcts/                 # Monte Carlo Tree Search
+│   ├── training/             # Self-play, replay buffer, trainer
+│   ├── utils/                # Visualization
+│   └── tests/                # Integration tests
+├── checkpoints8x8/           # Saved models
+└── logs8x8/                  # Training metrics
 ```
 
-## Architecture Details
+## Technical Details
 
-### Neural Network
-```
-Input: (8, 10, 10) - 8 feature planes
-  ├─ Plane 0-1: Current player pieces (men, kings)
-  ├─ Plane 2-3: Opponent pieces (men, kings)
-  ├─ Plane 4: Legal move destinations
-  ├─ Plane 5-6: Repetition indicators
-  └─ Plane 7: Constant bias
+### Perspective Switching
 
-ResNet Tower:
-  ├─ Initial Conv: 8 → 128 filters
-  ├─ 6 Residual Blocks (128 filters each)
-  ├─ Policy Head → 150 action logits
-  └─ Value Head → scalar value (-1 to +1)
+The current player is always at the bottom (rows 5-7). After each move:
+1. Apply move to bitboards
+2. Flip board vertically
+3. Swap player/opponent bitboards
 
-Parameters: 2,682,071
-```
+This ensures consistent neural network input representation.
 
-### MCTS Configuration
-- **Simulations**: 300 (self-play), 400 (evaluation)
-- **Exploration**: c_puct = 1.0
-- **Temperature**: 1.0 (first 15 moves), 0.0 (greedy after)
-- **Dirichlet noise**: α=0.3, ε=0.25 (root exploration)
+### Action Encoding
 
-### Training Pipeline
-1. **Self-Play**: 100 games with MCTS (6 workers)
-2. **Replay Buffer**: 500K capacity, recency-biased sampling
-3. **Training**: 100 gradient steps, 8x data augmentation
-4. **Evaluation**: Every 10 iterations (50 games)
-5. **Promotion**: If win rate > 55%, replace best model
-
-## Usage Examples
-
-### Play a Single Game
+Fixed action space with consistent meaning:
 
 ```python
-from checkers.engine.game import CheckersGame
+action_index = from_square * 4 + direction
 
-game = CheckersGame()
-print(game.render())
+Directions:
+  0 = NW (Northwest)
+  1 = NE (Northeast)
+  2 = SW (Southwest)
+  3 = SE (Southeast)
 
-while not game.is_terminal():
-    legal_moves = game.get_legal_moves()
-    print(f"\n{len(legal_moves)} legal moves")
-
-    # Random move
-    import random
-    move = random.choice(legal_moves)
-    game.make_move(move)
-    print(game.render())
-
-print(f"Winner: {game.get_winner()}")
+Total: 32 squares × 4 directions = 128 actions
 ```
 
-### Use MCTS for Move Selection
+### Legal Action Masking
+
+Policy logits are masked before softmax:
 
 ```python
-from checkers.engine.game import CheckersGame
-from checkers.network.resnet import CheckersNetwork
-from checkers.mcts.mcts import MCTS
-import torch
-
-# Setup
-network = CheckersNetwork()
-network.eval()
-
-game = CheckersGame()
-mcts = MCTS(network, num_simulations=300)
-
-# Get move
-policy = mcts.search(game)
-best_action = mcts.get_best_action()
-
-legal_moves = game.get_legal_moves()
-game.make_move(legal_moves[best_action])
+masked_logits = logits.clone()
+masked_logits[~legal_mask] = -inf  # Mask illegal actions
+policy = softmax(masked_logits)     # Only legal actions have probability
 ```
 
-### Load and Use Trained Model
+## Why This Works
 
-```python
-from checkers.network.resnet import CheckersNetwork
-from checkers.utils.checkpoint import load_model_for_inference
-
-network = CheckersNetwork()
-load_model_for_inference(network, "checkpoints/best_model.pt")
-network.eval()
-
-# Use for MCTS...
-```
-
-## Performance Optimization
-
-### CPU Optimization
-- **Threads**: Set `NUM_THREADS = 8` in config
-- **Workers**: 6 workers for 8-core, 3 for 4-core, 10 for 12+ core
-- **Batch size**: 256 (can reduce to 128 if memory limited)
-
-### Speed vs Quality Trade-offs
-- Reduce `MCTS_SIMS_SELFPLAY` to 200 → 2x faster
-- Reduce `GAMES_PER_ITERATION` to 50 → 2x faster
-- Disable augmentation → 8x less data, faster training
-
-### Memory Usage
-- Network: ~10 MB
-- Replay buffer: ~1.5 GB (500K samples)
-- Reduce `BUFFER_SIZE` to 250_000 if needed
-
-## Troubleshooting
-
-### Training is too slow
-- Reduce MCTS simulations: `MCTS_SIMS_SELFPLAY = 200`
-- Reduce games per iteration: `GAMES_PER_ITERATION = 50`
-- Reduce workers if CPU overhead is high
-
-### Out of memory
-- Reduce buffer size: `BUFFER_SIZE = 250_000`
-- Reduce batch size: `BATCH_SIZE = 128`
-- Disable augmentation temporarily
-
-### Loss not decreasing
-- Check buffer has enough samples (wait for 10K+)
-- Verify legal move masking is working
-- Check for NaN values in gradients
-
-### Win rate stuck at 50%
-- This is expected early in training
-- Models need 50-100 iterations to differentiate
-- Ensure evaluation uses different random seeds
-
-## Advanced Features
-
-### Custom Network Architecture
-Modify `config.py`:
-```python
-NUM_FILTERS = 256  # Increase from 128
-NUM_RES_BLOCKS = 10  # Increase from 6
-```
-
-### Resume Training
-```bash
-python scripts/train.py --resume checkpoints/checkpoint_iter_100.pt --iterations 100
-```
-
-### Distributed Training
-Modify `self_play.py` to use multiprocessing for parallel game generation across multiple machines.
-
-## Citation
-
-This implementation is based on the AlphaZero algorithm:
+### Traditional (Dynamic) Action Space
 
 ```
-Silver, D., Hubert, T., Schrittwieser, J. et al.
-A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play.
-Science 362, 1140-1144 (2018).
+Position A: legal_moves = [m1, m2, m3]
+action_0 → m1
+action_1 → m2
+
+Position B: legal_moves = [m4, m5]
+action_0 → m4  (different move!)
+action_1 → m5
 ```
+
+Network learns: "In positions like A, prefer action_1 over action_0"
+
+### Fixed Action Space
+
+```
+Position A: legal_actions = {53: m1, 81: m2, 92: m3}
+action_53 → m1 (Square 13, NE)
+action_81 → m2 (Square 20, NE)
+
+Position B: legal_actions = {53: m4, 67: m5}
+action_53 → m4 (SAME SQUARE, SAME DIRECTION!)
+action_67 → m5
+```
+
+Network learns: "Moving from square 13 toward NE (action 53) is strong in these types of positions"
+
+This enables **transfer learning** across similar positions and **spatial pattern recognition**.
+
+## Success Metrics
+
+After **100 iterations**, expect:
+- Loss: 0.8-1.5
+- Games lasting 30-60 moves (structured play)
+- Captures prioritized correctly
+- Basic tactical awareness
+
+After **500 iterations**, expect:
+- Loss: 0.6-0.8
+- Strong tactical play
+- Opening principles
+- Endgame technique
+- Beats random player 95%+ of games
+
+## References
+
+- [AlphaZero Paper (Silver et al., 2017)](https://arxiv.org/abs/1712.01815)
+- [AlphaGo Zero Paper (Silver et al., 2017)](https://www.nature.com/articles/nature24270)
+- [MCTS Survey](https://ieeexplore.ieee.org/document/6145622)
 
 ## License
 
 MIT License - See LICENSE file for details
 
-## Contributing
+---
 
-Contributions welcome! Areas for improvement:
-- Distributed training support
-- GUI for human vs AI play
-- Opening book generation
-- Stronger evaluation metrics (ELO tracking)
-- Multi-GPU support
+**Built with PyTorch, NumPy, and Python 3.13**
 
-## Acknowledgments
-
-- AlphaGo Zero / AlphaZero papers
-- PyTorch team
-- Gymnasium environment framework
+Train your AI from zero to hero through pure self-play! 🚀
