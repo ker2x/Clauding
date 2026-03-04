@@ -177,13 +177,14 @@ class XenobotsSim:
         pygame.display.flip()
 
     def run(self):
+        frame_count = 0
         while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: self.running = False
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_q: self.running = False
                     if event.key == pygame.K_SPACE: self.fast_mode = not self.fast_mode
-                    if event.key == pygame.K_r: 
+                    if event.key == pygame.K_r:
                         self.init_population()
                         self.epoch = 0
 
@@ -196,11 +197,15 @@ class XenobotsSim:
             for _ in range(iters):
                 self.physics_step(1/60)
 
-            if not self.fast_mode or (pygame.time.get_ticks() % 10 == 0):
+            # Render at different rates
+            should_render = not self.fast_mode or (frame_count % 30 == 0)
+            if should_render:
                 self.draw()
-                
+
             if not self.fast_mode:
                 self.clock.tick(FPS)
+
+            frame_count += 1
 
 if __name__ == "__main__":
     sim = XenobotsSim()
