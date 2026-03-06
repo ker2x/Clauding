@@ -584,7 +584,7 @@ CONFIG = {
     'num_heads': 2,
     'lr': 1e-2,             
     'weight_decay': 0.1,  
-    'steps': 300000,       
+    'steps': 1000000,       
     'batch_size': 1044,     
     'seed': random.randint(0, 2**32 - 1)
 }
