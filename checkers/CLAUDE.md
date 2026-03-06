@@ -125,7 +125,7 @@ cat logs8x8/training_log.csv
 
 **Training Loop** (`checkers8x8/training/trainer.py`)
 - Each iteration: Self-play → Training → Evaluation (every 5 iterations) → Checkpoint
-- Self-play generates positions using parallel workers
+- Self-play generates positions (parallel workers on CPU/CUDA, sequential on MPS due to multiprocessing limitations)
 - Training: Dynamic steps based on sample reuse ratio (scales 10-30× based on buffer fullness)
 - Loss = policy_cross_entropy + value_MSE
 - Evaluation: Current model vs best model, promote if wins > losses (ignores draws)
@@ -146,7 +146,10 @@ MAX_SAMPLE_REUSE = 30      # Training passes per state (mature training)
 
 **Device Selection**:
 - Training device: `Config.DEVICE = "mps"/"cuda"/"cpu"` (default: "mps" for Apple Silicon)
-- Self-play device: `Config.SELFPLAY_DEVICE = "cpu"/"mps"` (default: "cpu" - MCTS faster on CPU)
+- Self-play device: `Config.SELFPLAY_DEVICE = "mps"/"cuda"/"cpu"` (default: "mps" for Apple Silicon)
+  - MPS: Accelerates neural network evaluations during MCTS, uses sequential mode (no multiprocessing)
+  - CPU: Enables parallel workers but no GPU acceleration for network forward passes
+  - Performance is hardware-dependent; benchmark both options on your system
 
 ## Development Notes
 
@@ -199,11 +202,11 @@ Run integration test before long training runs to catch issues early.
 
 ### Performance Optimization
 
-**CPU-optimized**:
-- Bitboards for fast move generation (2-5× faster than arrays)
-- MCTS runs on CPU (faster than MPS for single-game tree search)
+**General optimizations**:
+- Bitboards for fast move generation
 - NumPy storage in replay buffer (memory efficient)
-- Parallel workers for self-play (default: 2 workers)
+- Parallel workers for self-play on CPU/CUDA (MPS uses sequential mode)
+- GPU acceleration (MPS/CUDA) speeds up neural network forward passes during MCTS
 
 **Optional C++ extension** (`checkers8x8/cpp/`):
 - Provides `checkers_cpp` module with optimized game and MCTS

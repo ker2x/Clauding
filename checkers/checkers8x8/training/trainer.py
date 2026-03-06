@@ -13,7 +13,7 @@ from typing import Dict
 try:
     from ..network.resnet import CheckersNetwork
     from .replay_buffer import ReplayBuffer
-    from .self_play import play_games_sequential, get_board_array_from_game
+    from .self_play import play_games_sequential, play_games_batched, get_board_array_from_game
     from .evaluation import evaluate_models
 except ImportError:
     import sys
@@ -21,7 +21,7 @@ except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
     from checkers8x8.network.resnet import CheckersNetwork
     from checkers8x8.training.replay_buffer import ReplayBuffer
-    from checkers8x8.training.self_play import play_games_sequential, get_board_array_from_game
+    from checkers8x8.training.self_play import play_games_sequential, play_games_batched, get_board_array_from_game
     from checkers8x8.training.evaluation import evaluate_models
 
 
@@ -151,20 +151,39 @@ class Trainer:
 
             # Move network to self-play device
             self.network.to(self.selfplay_device)
-            # IMPORTANT: Share memory for multiprocessing
-            self.network.share_memory()
+            # Share memory for multiprocessing (only works on CPU)
+            if self.selfplay_device.type != "mps":
+                self.network.share_memory()
             self.network.eval()
 
-            # Run parallel self-play
-            from .self_play import play_games_parallel
-            
-            states, policies, values = play_games_parallel(
-                self.network,
-                self.config,
-                self.selfplay_device,
-                num_games=self.config.GAMES_PER_ITERATION,
-                game_visualizer=self.game_visualizer
-            )
+            # Run self-play (sequential for MPS due to multiprocessing limitations)
+            if self.selfplay_device.type == "mps":
+                # MPS: use batched self-play for 4-8x speedup via GPU batching
+                on_move = None
+                if self.game_visualizer:
+                    def on_move(game, policy, move_count, current_player):
+                        if self.game_visualizer.should_render():
+                            board = get_board_array_from_game(game)
+                            self.game_visualizer.render(board, policy, move_count, current_player)
+
+                states, policies, values = play_games_batched(
+                    self.network,
+                    self.config,
+                    self.selfplay_device,
+                    num_games=self.config.GAMES_PER_ITERATION,
+                    on_move=on_move
+                )
+            else:
+                # Use parallel self-play for CPU/CUDA
+                from .self_play import play_games_parallel
+
+                states, policies, values = play_games_parallel(
+                    self.network,
+                    self.config,
+                    self.selfplay_device,
+                    num_games=self.config.GAMES_PER_ITERATION,
+                    game_visualizer=self.game_visualizer
+                )
 
             # Move network back to training device
             self.network.to(self.device)
@@ -175,8 +194,8 @@ class Trainer:
             # Add to replay buffer
             self.replay_buffer.add_batch(states, policies, values)
 
-            print(f"  Generated {len(states)} training examples")
-            print(f"  Time: {metrics['time_selfplay']:.1f}s")
+            # Self-play diagnostics
+            self._report_selfplay_stats(states, policies, values)
 
             # 2. Training
             num_new_samples = len(states)
@@ -220,16 +239,15 @@ class Trainer:
             # Increment buffer generation
             self.replay_buffer.increment_generation()
 
-            # Save checkpoint
-            if (iteration + 1) % self.config.SAVE_FREQUENCY == 0:
-                self.save_checkpoint(iteration + 1)
+            # Save latest.pt (Ctrl+C safe)
+            self.save_latest_checkpoint(iteration + 1)
 
             # Evaluate and update best model
             if (iteration + 1) % self.config.EVAL_FREQUENCY == 0:
                 self.evaluate_and_update_best(iteration + 1)
 
-        # Final save and evaluation regardless of frequency
-        self.save_checkpoint(num_iterations)
+        # Final save
+        self.save_latest_checkpoint(num_iterations)
         if num_iterations > self.start_iteration and num_iterations % self.config.EVAL_FREQUENCY != 0:
             self.evaluate_and_update_best(num_iterations)
 
@@ -237,11 +255,48 @@ class Trainer:
         print("🎉 TRAINING COMPLETE!")
         print("=" * 70)
 
+    def _report_selfplay_stats(self, states, policies, values):
+        """Report diagnostic stats from self-play."""
+        import numpy as np
+
+        num_positions = len(states)
+        num_games = self.config.GAMES_PER_ITERATION
+        avg_game_length = num_positions / num_games if num_games > 0 else 0
+
+        # Policy entropy stats
+        entropies = []
+        max_probs = []
+        num_actions_list = []
+        for p in policies:
+            p_nz = p[p > 0]
+            if len(p_nz) > 0:
+                entropy = -np.sum(p_nz * np.log(p_nz + 1e-10))
+                entropies.append(entropy)
+                max_probs.append(p.max())
+                num_actions_list.append(len(p_nz))
+
+        # Value distribution
+        value_counts = {-1: 0, 0: 0, 1: 0}
+        for v in values:
+            if v < -0.5:
+                value_counts[-1] += 1
+            elif v > 0.5:
+                value_counts[1] += 1
+            else:
+                value_counts[0] += 1
+
+        print(f"\n  [Self-Play Stats]")
+        print(f"  Games: {num_games}, Positions: {num_positions}, Avg length: {avg_game_length:.1f}")
+        print(f"  Policy entropy: min={min(entropies):.2f}, max={max(entropies):.2f}, mean={np.mean(entropies):.2f}")
+        print(f"  Policy max_prob: min={min(max_probs):.2f}, max={max(max_probs):.2f}, mean={np.mean(max_probs):.2f}")
+        print(f"  Avg legal actions: {np.mean(num_actions_list):.1f}")
+        print(f"  Values: wins={value_counts[1]}, losses={value_counts[-1]}, draws={value_counts[0]}")
+
     def _get_dynamic_steps(self, num_new_samples: int) -> int:
         """
         Calculate training steps based on a Sample Reuse Ratio.
-        
-        The ratio (how many times each new sample is seen) scales from 
+
+        The ratio (how many times each new sample is seen) scales from
         MIN_SAMPLE_REUSE to MAX_SAMPLE_REUSE based on buffer fullness.
         """
         current_size = len(self.replay_buffer)
@@ -341,8 +396,24 @@ class Trainer:
             'value_loss': np.mean(value_losses),
         }
 
+    def save_latest_checkpoint(self, iteration: int):
+        """Save latest.pt only (for Ctrl+C safety)."""
+        checkpoint_dir = Path(self.config.CHECKPOINT_DIR)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        checkpoint = {
+            'iteration': iteration,
+            'network_state_dict': self.network.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'replay_buffer_state_dict': self.replay_buffer.state_dict(),
+        }
+
+        latest_path = checkpoint_dir / "latest.pt"
+        torch.save(checkpoint, latest_path)
+        print(f"  Saved latest.pt (iter {iteration})")
+
     def save_checkpoint(self, iteration: int):
-        """Save training checkpoint."""
+        """Save numbered checkpoint and latest."""
         checkpoint_dir = Path(self.config.CHECKPOINT_DIR)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -356,12 +427,11 @@ class Trainer:
         # Save numbered checkpoint
         checkpoint_path = checkpoint_dir / f"checkpoint_iter_{iteration}.pt"
         torch.save(checkpoint, checkpoint_path)
-        print(f"  💾 Saved checkpoint: {checkpoint_path}")
+        print(f"  Saved checkpoint: {checkpoint_path}")
 
         # Save latest checkpoint (always overwrite)
         latest_path = checkpoint_dir / "latest.pt"
         torch.save(checkpoint, latest_path)
-        print(f"  💾 Updated latest checkpoint: {latest_path}")
 
     def evaluate_and_update_best(self, iteration: int):
         """

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <set>
 
 namespace checkers {
 
@@ -27,6 +28,8 @@ std::pair<int, std::vector<std::vector<float>>>
 MCTS::find_leaves(int batch_size) {
   std::vector<std::vector<float>> inputs;
   std::vector<Node *> nodes;
+  std::set<Node *> nodes_in_batch;  // Track nodes already in this batch
+  int consecutive_duplicates = 0;
 
   for (int i = 0;
        i < batch_size && simulations_completed + nodes.size() < num_simulations;
@@ -45,8 +48,23 @@ MCTS::find_leaves(int batch_size) {
       // Continue to fill batch?
       // Yes, try to find another leaf.
       i--;
+      consecutive_duplicates = 0;  // Reset counter
       continue;
     }
+
+    // Skip if this node is already in the current batch
+    if (nodes_in_batch.find(leaf) != nodes_in_batch.end()) {
+      consecutive_duplicates++;
+      // If we keep getting duplicates, it means we can't find new leaves
+      // (e.g., at start with only unexpanded root). Break to process what we have.
+      if (consecutive_duplicates >= 10) {
+        break;
+      }
+      i--;  // Don't count this iteration
+      continue;
+    }
+
+    consecutive_duplicates = 0;  // Reset counter
 
     // Apply Virtual Loss to path to discourage other threads/batches from
     // exploring same path simultaneously
@@ -57,6 +75,7 @@ MCTS::find_leaves(int batch_size) {
     }
 
     nodes.push_back(leaf);
+    nodes_in_batch.insert(leaf);
     inputs.push_back(leaf->game.to_neural_input());
   }
 

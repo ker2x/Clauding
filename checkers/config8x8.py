@@ -16,8 +16,8 @@ class Config:
     POLICY_SIZE = 128  # Fixed action space: 32 squares × 4 directions
 
     # MCTS configuration
-    MCTS_SIMS_SELFPLAY = 100  # Simulations per move during self-play
-    MCTS_SIMS_EVAL = 100  # Simulations per move during evaluation
+    MCTS_SIMS_SELFPLAY = 200  # Simulations per move during self-play
+    MCTS_SIMS_EVAL = 200  # Simulations per move during evaluation
 
     # Exploration in Tree Search (PUCT algorithm)
     C_PUCT = 1.0  # Exploration constant
@@ -33,7 +33,7 @@ class Config:
     # Training configuration
     GAMES_PER_ITERATION = 20  # Games to play per iteration
     NUM_WORKERS = 2  # Optimal for 8-core CPU (4 Perf cores)
-    BUFFER_SIZE = 20_000  # Max positions in replay buffer
+    BUFFER_SIZE = 40_000  # Max positions in replay buffer
 
     # Data Sampling
     RECENCY_TAU = 50  # Exponential weighting constant for recent data
@@ -52,8 +52,9 @@ class Config:
 
     # System configuration
     DEVICE = "mps"  # Training device (batch operations)
-    SELFPLAY_DEVICE = "cpu"  # Self-play device (MCTS is faster on CPU)
-    NUM_THREADS = 8 # 1 thread * 4 workers = 4 threads (leaves room for system)
+    SELFPLAY_DEVICE = "mps"  # Self-play device (GPU accelerates NN evals during MCTS; sequential mode)
+    NUM_WORKERS = 2  # Parallel workers (only used for CPU/CUDA; MPS uses sequential mode)
+    NUM_THREADS = 8  # PyTorch CPU threads (used when DEVICE or SELFPLAY_DEVICE is CPU)
     SEED = 42  # Default seed (only used if --seed is specified; otherwise random)
 
     # Logging and checkpointing

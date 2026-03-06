@@ -102,20 +102,64 @@ class MinimaxPlayer(BasePlayer):
     """
     Minimax player with alpha-beta pruning.
 
-    Uses simple material evaluation:
-    - Regular piece (man) = 1 point
-    - King = 3 points
+    Evaluation includes:
+    - Material: man = 100, king = 300
+    - Advancement: bonus for pieces closer to promotion
+    - Center control: bonus for controlling center squares
+    - Back row: small bonus for protecting back row (prevents enemy kings)
+    - Mobility: bonus for having more legal moves
+    - King activity: kings in center are more valuable
     """
 
-    def __init__(self, depth: int = 4, seed: Optional[int] = None):
+    # Square tables for 32 playable squares (indexed 0-31)
+    # Board layout (from white's perspective, squares 0-31):
+    #     0   1   2   3       (row 0, black's back row)
+    #   4   5   6   7         (row 1)
+    #     8   9  10  11       (row 2)
+    #  12  13  14  15         (row 3)
+    #    16  17  18  19       (row 4)
+    #  20  21  22  23         (row 5)
+    #    24  25  26  27       (row 6)
+    #  28  29  30  31         (row 7, white's back row)
+
+    # Advancement bonus for men (higher = closer to promotion)
+    MAN_ADVANCEMENT = [
+        0,  0,  0,  0,   # row 0 - opponent back row (shouldn't have our men here normally)
+        1,  1,  1,  1,   # row 1
+        2,  2,  2,  2,   # row 2
+        3,  4,  4,  3,   # row 3 - approaching center
+        4,  5,  5,  4,   # row 4 - center
+        5,  6,  6,  5,   # row 5 - good advancement
+        6,  7,  7,  6,   # row 6 - close to promotion
+        8,  8,  8,  8,   # row 7 - our back row (shouldn't have opponent men)
+    ]
+
+    # Center control bonus (for both men and kings)
+    CENTER_CONTROL = [
+        0,  0,  0,  0,   # row 0
+        0,  1,  1,  0,   # row 1
+        1,  2,  2,  1,   # row 2
+        2,  4,  4,  2,   # row 3
+        2,  4,  4,  2,   # row 4
+        1,  2,  2,  1,   # row 5
+        0,  1,  1,  0,   # row 6
+        0,  0,  0,  0,   # row 7
+    ]
+
+    # Back row bonus (protecting promotion squares)
+    BACK_ROW_BONUS = 2
+
+    def __init__(self, depth: int = 4, seed: Optional[int] = None, simple_eval: bool = False):
         """
         Initialize minimax player.
 
         Args:
             depth: Search depth (plies)
             seed: Random seed for tie-breaking
+            simple_eval: If True, use simple material-only evaluation (for comparison)
         """
         self.depth = depth
+        self.simple_eval = simple_eval
         if seed is not None:
             random.seed(seed)
         self._nodes_searched = 0
@@ -196,6 +240,9 @@ class MinimaxPlayer(BasePlayer):
             # No moves = loss
             return -1000
 
+        # Move ordering: captures first (longer chains better), then center moves
+        moves = self._order_moves(game, moves)
+
         best_score = float('-inf')
 
         for move in moves:
@@ -214,11 +261,37 @@ class MinimaxPlayer(BasePlayer):
 
         return best_score
 
+    def _order_moves(self, game: CheckersGame, moves: list) -> list:
+        """
+        Order moves to improve alpha-beta pruning.
+
+        Priority:
+        1. Captures (longer chains first)
+        2. Moves toward center
+        3. Advancement moves
+        """
+        def move_priority(move):
+            score = 0
+            # Captures are very important
+            if move.captured_squares:
+                score += 1000 + len(move.captured_squares) * 100
+
+            # Final square preference
+            final_sq = move.to_square
+            score += self.CENTER_CONTROL[final_sq] * 10
+
+            # Advancement (lower final square = more advanced for current player)
+            row = final_sq // 4
+            score += (7 - row) * 5
+
+            return -score  # Negate for descending sort
+
+        return sorted(moves, key=move_priority)
+
     def _evaluate(self, game: CheckersGame) -> float:
         """
         Static evaluation function.
 
-        Material count: man = 1, king = 3
         Evaluated from current player's perspective.
 
         Args:
@@ -227,7 +300,84 @@ class MinimaxPlayer(BasePlayer):
         Returns:
             Evaluation score (positive = good for current player)
         """
-        # Count material
+        if self.simple_eval:
+            return self._evaluate_simple(game)
+
+        # Material values
+        MAN_VALUE = 100
+        KING_VALUE = 300
+
+        player_score = 0
+        opponent_score = 0
+
+        # Evaluate player pieces
+        # Note: In the game, current player's pieces are at rows 5-7 (squares 20-31)
+        # and opponent is at rows 0-2 (squares 0-11) in the starting position.
+        # But after perspective swapping, we always evaluate from current player's view.
+
+        # Player men
+        men = game.player_men
+        while men:
+            sq = (men & -men).bit_length() - 1
+            men &= men - 1
+
+            player_score += MAN_VALUE
+            # Advancement: lower square number = more advanced for player
+            # (player pieces move toward row 0 for promotion)
+            row = sq // 4
+            advancement_bonus = (7 - row) * 2  # 0-14 points
+            player_score += advancement_bonus
+            player_score += self.CENTER_CONTROL[sq]
+
+            # Back row protection
+            if sq >= 28:  # Row 7 - player's back row
+                player_score += self.BACK_ROW_BONUS
+
+        # Player kings
+        kings = game.player_kings
+        while kings:
+            sq = (kings & -kings).bit_length() - 1
+            kings &= kings - 1
+
+            player_score += KING_VALUE
+            player_score += self.CENTER_CONTROL[sq] * 2  # Kings benefit more from center
+
+        # Opponent men
+        men = game.opponent_men
+        while men:
+            sq = (men & -men).bit_length() - 1
+            men &= men - 1
+
+            opponent_score += MAN_VALUE
+            # Opponent pieces move toward row 7 for promotion
+            row = sq // 4
+            advancement_bonus = row * 2  # 0-14 points
+            opponent_score += advancement_bonus
+            opponent_score += self.CENTER_CONTROL[sq]
+
+            # Back row protection for opponent
+            if sq <= 3:  # Row 0 - opponent's back row
+                opponent_score += self.BACK_ROW_BONUS
+
+        # Opponent kings
+        kings = game.opponent_kings
+        while kings:
+            sq = (kings & -kings).bit_length() - 1
+            kings &= kings - 1
+
+            opponent_score += KING_VALUE
+            opponent_score += self.CENTER_CONTROL[sq] * 2
+
+        # Mobility bonus (expensive to compute, so scaled down)
+        # Only compute at leaf nodes and not too often
+        mobility_bonus = 0
+        moves = game.get_legal_moves()
+        mobility_bonus = len(moves) * 2
+
+        return (player_score - opponent_score) + mobility_bonus
+
+    def _evaluate_simple(self, game: CheckersGame) -> float:
+        """Simple material-only evaluation for comparison."""
         player_men = count_bits(game.player_men)
         player_kings = count_bits(game.player_kings)
         opponent_men = count_bits(game.opponent_men)

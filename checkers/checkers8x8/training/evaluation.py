@@ -83,9 +83,19 @@ def play_evaluation_game(
         if on_move:
             on_move(game, policy, move_count, game.current_player)
         
-        # Greedy action selection (best action)
-        action = mcts.get_best_action()
-        action = mcts.get_best_action()
+        # Action selection: temperature for first 4 moves (opening variety), then greedy
+        if move_count < 4:
+            # Sample from policy for opening variety
+            legal_mask = policy > 0
+            if legal_mask.any():
+                probs = policy[legal_mask]
+                probs = probs / probs.sum()
+                legal_actions = np.where(legal_mask)[0]
+                action = int(np.random.choice(legal_actions, p=probs))
+            else:
+                action = mcts.get_best_action()
+        else:
+            action = mcts.get_best_action()
         
         if action == -1:
              break
@@ -120,11 +130,11 @@ def play_evaluation_game(
     
     # Convert to evaluation format: 1.0 (win), 0.0 (loss), 0.5 (draw)
     if result > 0:
-        return 1.0  # model1 wins
+        return 1.0, move_count  # model1 wins
     elif result < 0:
-        return 0.0  # model1 loses
+        return 0.0, move_count  # model1 loses
     else:
-        return 0.5  # draw
+        return 0.5, move_count  # draw
 
 
 def evaluate_models(
@@ -161,20 +171,23 @@ def evaluate_models(
     wins = 0
     losses = 0
     draws = 0
-    
+    game_lengths = []
+
     print(f"  Playing {num_games} evaluation games...")
-    
+
     # Play games with alternating sides
     for game_idx in range(num_games):
         # Alternate which model goes first
         if game_idx % 2 == 0:
             # Current model plays as player 1
-            result = play_evaluation_game(current_model, best_model, config, device, on_move=on_move)
+            result, length = play_evaluation_game(current_model, best_model, config, device, on_move=on_move)
         else:
             # Best model plays as player 1, flip result
-            result = play_evaluation_game(best_model, current_model, config, device, on_move=on_move)
+            result, length = play_evaluation_game(best_model, current_model, config, device, on_move=on_move)
             result = 1.0 - result  # Flip: 1->0, 0->1, 0.5->0.5
-        
+
+        game_lengths.append(length)
+
         # Count results
         if result == 1.0:
             wins += 1
@@ -182,11 +195,16 @@ def evaluate_models(
             losses += 1
         else:
             draws += 1
-        
+
         # Print progress
         if (game_idx + 1) % 5 == 0 or (game_idx + 1) == num_games:
             print(f"    Games {game_idx + 1}/{num_games}: "
                   f"W{wins} L{losses} D{draws}")
+
+    # Report game length stats
+    if game_lengths:
+        print(f"  Game lengths: min={min(game_lengths)}, max={max(game_lengths)}, "
+              f"avg={np.mean(game_lengths):.1f}")
     
     # Calculate win rate (draws count as 0.5)
     win_rate = (wins + 0.5 * draws) / num_games

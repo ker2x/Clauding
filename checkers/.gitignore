@@ -1,18 +1,16 @@
-# Python build artifacts
-*.egg-info/
+# Training artifacts
+checkpoints8x8/
+logs8x8/
+
+# C++ build artifacts
+checkers8x8/cpp/*.so
+checkers8x8/cpp/*.dylib
+checkers8x8/cpp/*.o
+
+# Python
 __pycache__/
-build/
-dist/
 *.pyc
 *.pyo
 
-# Compiled binaries
-*.o
-*.so
-*.dylib
-*.dll
-*.a
-
-# Checkpoints and logs
-checkpoints8x8/
-logs8x8/
+# OS
+.DS_Store

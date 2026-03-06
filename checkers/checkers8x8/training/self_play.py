@@ -278,6 +278,272 @@ class SelfPlayGame:
         return values
 
 
+try:
+    import checkers_cpp
+    HAS_CPP = True
+except ImportError:
+    HAS_CPP = False
+
+
+class BatchedSelfPlay:
+    """
+    Run multiple games simultaneously with batched neural network evaluation.
+
+    Key insight: Single MCTS can only batch ~5-10 leaves (tree frontier).
+    But 16 parallel games can batch 80-160 leaves → MPS becomes 10x faster.
+    """
+
+    def __init__(
+        self,
+        network: CheckersNetwork,
+        config,
+        device: torch.device
+    ):
+        self.network = network
+        self.config = config
+        self.device = device
+
+    def play_games(self, num_games: int, on_move=None) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+        """
+        Play multiple games with batched MCTS.
+
+        Args:
+            num_games: Number of games to play simultaneously
+            on_move: Optional callback (only for first game)
+
+        Returns:
+            (states, policies, values): Training examples from all games
+        """
+        if not HAS_CPP:
+            # Fall back to sequential for pure Python
+            return play_games_sequential(self.network, self.config, self.device, num_games, on_move)
+
+        # Initialize games and MCTS instances
+        games = []
+        mcts_instances = []
+        game_data = []  # (states, policies, players) per game
+        move_counts = []
+        finished = []
+
+        epsilon = self.config.DIRICHLET_EPSILON
+
+        for _ in range(num_games):
+            game = checkers_cpp.Game()
+            games.append(game)
+
+            mcts = checkers_cpp.MCTS(
+                self.config.C_PUCT,
+                self.config.MCTS_SIMS_SELFPLAY,
+                self.config.DIRICHLET_ALPHA,
+                epsilon
+            )
+            mcts_instances.append(mcts)
+            game_data.append(([], [], []))  # states, policies, players
+            move_counts.append(0)
+            finished.append(False)
+
+        # Progress tracking
+        bar_width = 40
+        print("  ", end="", flush=True)
+
+        # Play all games simultaneously
+        while not all(finished):
+            # Process one move for each active game
+            active_games = [(i, g, m) for i, (g, m) in enumerate(zip(games, mcts_instances)) if not finished[i]]
+
+            if not active_games:
+                break
+
+            # Start MCTS search for each active game
+            for game_idx, game, mcts in active_games:
+                if game.is_terminal() or move_counts[game_idx] >= self.config.MAX_GAME_LENGTH:
+                    finished[game_idx] = True
+                    continue
+
+                # Store state before MCTS
+                raw_state = game.to_neural_input()
+                state = np.array(raw_state, dtype=np.float32).reshape(8, 8, 8)
+                game_data[game_idx][0].append(state)
+                game_data[game_idx][2].append(game.current_player)
+
+                # Start MCTS for this game
+                mcts.start_search(game)
+
+            # Batched MCTS loop - collect leaves from ALL active games
+            active_mcts = [(i, m) for i, m in enumerate(mcts_instances) if not finished[i] and not m.is_finished()]
+
+            with torch.no_grad():
+                while active_mcts:
+                    all_inputs = []
+                    batch_map = []  # (game_idx, batch_id)
+
+                    for game_idx, mcts in active_mcts:
+                        batch_id, inputs = mcts.find_leaves(16)
+                        if batch_id == -1:
+                            continue
+
+                        for inp in inputs:
+                            all_inputs.append(inp)
+                            batch_map.append((game_idx, batch_id))
+
+                    if not all_inputs:
+                        break
+
+                    # Single batched NN evaluation
+                    input_tensor = torch.tensor(all_inputs, dtype=torch.float32, device=self.device)
+                    input_tensor = input_tensor.view(-1, 8, 8, 8)
+
+                    policy_logits, values = self.network(input_tensor)
+                    policy_probs = torch.softmax(policy_logits, dim=1).cpu().numpy()
+                    values_np = values.cpu().numpy().flatten()
+
+                    # Group results by batch
+                    results_by_batch = {}
+                    for i, (game_idx, batch_id) in enumerate(batch_map):
+                        key = (game_idx, batch_id)
+                        if key not in results_by_batch:
+                            results_by_batch[key] = ([], [])
+                        results_by_batch[key][0].append(policy_probs[i].tolist())
+                        results_by_batch[key][1].append(values_np[i])
+
+                    # Process results
+                    for (game_idx, batch_id), (policies, vals) in results_by_batch.items():
+                        mcts_instances[game_idx].process_results(batch_id, policies, vals)
+
+                    # Update active list
+                    active_mcts = [(i, m) for i, m in enumerate(mcts_instances) if not finished[i] and not m.is_finished()]
+
+            # Get policies and make moves
+            for game_idx, game, mcts in active_games:
+                if finished[game_idx]:
+                    continue
+
+                # Get policy from MCTS
+                policy = np.array(mcts.get_policy(1.0))
+                game_data[game_idx][1].append(policy)
+
+                # Visualization callback (first game only)
+                if on_move and game_idx == 0:
+                    board = get_board_array_from_game(game)
+                    on_move(game, policy, move_counts[game_idx], game.current_player)
+
+                # Select action
+                move_count = move_counts[game_idx]
+                if move_count < self.config.TEMPERATURE_THRESHOLD:
+                    temperature = self.config.TEMPERATURE
+                else:
+                    temperature = 0.0
+
+                action = self._sample_action(policy, temperature, game)
+
+                if action != -1 and game.make_action(action):
+                    move_counts[game_idx] += 1
+                else:
+                    finished[game_idx] = True
+
+            # Progress update
+            num_finished = sum(finished)
+            progress = num_finished / num_games
+            filled = int(bar_width * progress)
+            bar = '█' * filled + '░' * (bar_width - filled)
+            total_examples = sum(len(gd[0]) for gd in game_data)
+            print(f"\r  [{bar}] {num_finished}/{num_games} games | "
+                  f"{total_examples} examples", end="", flush=True)
+
+        print()  # Newline
+
+        # Collect all training data and track outcomes
+        all_states = []
+        all_policies = []
+        all_values = []
+        game_lengths = []
+        outcomes = {1: 0, -1: 0, 0: 0}  # wins, losses, draws
+
+        for game_idx, (states, policies, players) in enumerate(game_data):
+            if not states:
+                continue
+
+            game_lengths.append(len(states))
+            outcome = games[game_idx].get_result()
+            final_player = games[game_idx].current_player
+
+            # Track outcome (from player 1's perspective at start)
+            if outcome > 0:
+                outcomes[1] += 1
+            elif outcome < 0:
+                outcomes[-1] += 1
+            else:
+                outcomes[0] += 1
+
+            # Compute values
+            values = []
+            for player in players:
+                if outcome == 0.0:
+                    value = 0.0
+                elif player == final_player:
+                    value = outcome
+                else:
+                    value = -outcome
+                values.append(value)
+
+            all_states.extend(states)
+            all_policies.extend(policies)
+            all_values.extend(values)
+
+        # Report game stats
+        if game_lengths:
+            print(f"  Game lengths: min={min(game_lengths)}, max={max(game_lengths)}, "
+                  f"avg={np.mean(game_lengths):.1f}, std={np.std(game_lengths):.1f}")
+            print(f"  Outcomes: P1 wins={outcomes[1]}, P2 wins={outcomes[-1]}, draws={outcomes[0]}")
+
+        return all_states, all_policies, all_values
+
+    def _sample_action(self, policy: np.ndarray, temperature: float, game) -> int:
+        """Sample action from policy distribution."""
+        actual_legal = set(game.get_legal_actions())
+        policy_actions = np.where(policy > 0)[0]
+        legal_actions = np.array([a for a in policy_actions if a in actual_legal])
+
+        if len(legal_actions) == 0:
+            if len(actual_legal) > 0:
+                return int(np.random.choice(list(actual_legal)))
+            return -1
+
+        if temperature == 0:
+            return int(legal_actions[np.argmax(policy[legal_actions])])
+        else:
+            legal_probs = policy[legal_actions] ** (1.0 / temperature)
+            legal_probs = legal_probs / legal_probs.sum()
+            return int(np.random.choice(legal_actions, p=legal_probs))
+
+
+def play_games_batched(
+    network: CheckersNetwork,
+    config,
+    device: torch.device,
+    num_games: int,
+    on_move=None
+) -> Tuple[List[np.ndarray], List[np.ndarray], List[float]]:
+    """
+    Play games using batched MCTS (optimal for GPU/MPS).
+
+    Runs multiple games simultaneously, batching neural network evaluations
+    across all active MCTS searches for maximum GPU utilization.
+
+    Args:
+        network: Neural network
+        config: Configuration
+        device: Device (MPS or CUDA recommended)
+        num_games: Number of games to play
+        on_move: Optional callback for visualization
+
+    Returns:
+        (states, policies, values): All training examples
+    """
+    batched = BatchedSelfPlay(network, config, device)
+    return batched.play_games(num_games, on_move)
+
+
 def play_games_sequential(
     network: CheckersNetwork,
     config,

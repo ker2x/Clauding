@@ -194,10 +194,6 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
                      std::vector<int> &current_captured,
                      std::vector<Move> &moves) const {
 
-  if (square == 21) {
-    printf("DEBUG: get_jumps for square 21. is_king=%d\n", is_king);
-  }
-
   std::vector<int> dirs;
   if (is_king)
     dirs = {0, 1, 2, 3};
@@ -209,16 +205,11 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
   for (int dir : dirs) {
     int mid = get_neighbor(square, dir);
     if (mid == -1) {
-      if (square == 21)
-        printf("DEBUG: dir %d neighbor -1\n", dir);
       continue;
     }
 
     // Mid must have opponent piece
     if (!((opp_men | opp_kings) >> mid & 1)) {
-      if (square == 21)
-        printf("DEBUG: dir %d mid %d empty/friend. Mask bit: %d\n", dir, mid,
-               ((opp_men | opp_kings) >> mid & 1));
       continue;
     }
 
@@ -232,8 +223,6 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
 
     int dest = get_neighbor(mid, dir);
     if (dest == -1) {
-      if (square == 21)
-        printf("DEBUG: dir %d mid %d dest %d invalid\n", dir, mid, dest);
       continue;
     }
 
@@ -268,13 +257,8 @@ void Game::get_jumps(int square, uint32_t current_men, uint32_t current_kings,
         dest_busy = false;
 
     if (dest_busy) {
-      if (square == 21)
-        printf("DEBUG: dir %d mid %d dest %d BUSY\n", dir, mid, dest);
       continue;
     }
-
-    if (square == 21)
-      printf("DEBUG: Found jump! dir %d mid %d dest %d\n", dir, mid, dest);
 
     // Valid jump step!
     found_jump = true;
