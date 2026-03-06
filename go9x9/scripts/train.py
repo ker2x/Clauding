@@ -62,7 +62,8 @@ def main():
         num_filters=Config.NUM_FILTERS,
         num_res_blocks=Config.NUM_RES_BLOCKS,
         policy_size=Config.POLICY_SIZE,
-        input_planes=Config.INPUT_PLANES
+        input_planes=Config.INPUT_PLANES,
+        global_pool_freq=Config.GLOBAL_POOL_FREQ,
     )
     print(f"\nNetwork parameters: {count_parameters(network):,}")
 

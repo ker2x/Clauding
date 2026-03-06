@@ -1,0 +1,15 @@
+# Training artifacts
+checkpoints/
+logs/
+*.sgf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store

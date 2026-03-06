@@ -79,6 +79,53 @@ def compute_territory(board: np.ndarray) -> tuple:
     return black_territory, white_territory
 
 
+def compute_ownership_map(board: np.ndarray) -> np.ndarray:
+    """
+    Compute per-intersection ownership from Black's perspective.
+
+    Returns:
+        ownership: float32 array of shape (81,) where
+            1.0 = black owns the intersection (stone or territory)
+            0.0 = white owns the intersection
+            0.5 = neutral / contested
+    """
+    ownership = np.full(81, 0.5, dtype=np.float32)
+    ownership[board == BLACK] = 1.0
+    ownership[board == WHITE] = 0.0
+
+    visited = np.zeros(81, dtype=bool)
+    visited[board != EMPTY] = True
+
+    for start in range(81):
+        if visited[start]:
+            continue
+
+        region = []
+        border_colors = set()
+        queue = deque([start])
+        visited[start] = True
+
+        while queue:
+            pos = queue.popleft()
+            region.append(pos)
+            for nb in get_neighbors(pos):
+                if not visited[nb]:
+                    if board[nb] == EMPTY:
+                        visited[nb] = True
+                        queue.append(nb)
+                    else:
+                        border_colors.add(board[nb])
+
+        if border_colors == {BLACK}:
+            for pos in region:
+                ownership[pos] = 1.0
+        elif border_colors == {WHITE}:
+            for pos in region:
+                ownership[pos] = 0.0
+
+    return ownership
+
+
 def score_game(board: np.ndarray, komi: float = 7.5) -> tuple:
     """
     Score a finished game using Chinese area scoring.

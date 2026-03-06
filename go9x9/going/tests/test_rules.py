@@ -340,26 +340,27 @@ def test_neural_input():
     game = GoGame()
     state = game.to_neural_input()
 
-    assert state.shape == (17, 9, 9)
+    from going.engine.game import NUM_HISTORY, NUM_PLANES
+    assert state.shape == (NUM_PLANES, 9, 9)
     assert state.dtype == np.float32
 
     # Color plane: should be 1.0 for black to play
-    assert state[16, 0, 0] == 1.0  # Black to play
+    assert state[NUM_PLANES - 1, 0, 0] == 1.0  # Black to play
 
     # Empty board: all stone planes should be 0
-    assert np.sum(state[:16]) == 0.0
+    assert np.sum(state[:NUM_PLANES - 1]) == 0.0
 
     # Play a move and check
     game.make_action(pos_to_action(4, 4))  # Black at center
     state2 = game.to_neural_input()
 
     # Now white to play, so color plane should be 0
-    assert state2[16, 0, 0] == 0.0
+    assert state2[NUM_PLANES - 1, 0, 0] == 0.0
 
-    # Current player is white, so "my stones" (planes 0-7) should show white
-    # and "opponent stones" (planes 8-15) should show black
-    # Most recent history (plane 8) should have black stone at (4,4)
-    assert state2[8, 4, 4] == 1.0  # Opponent's stone (black) in history
+    # Current player is white, so "my stones" (planes 0..NUM_HISTORY-1) show white
+    # and "opponent stones" (planes NUM_HISTORY..2*NUM_HISTORY-1) show black
+    # Most recent history (plane NUM_HISTORY) should have black stone at (4,4)
+    assert state2[NUM_HISTORY, 4, 4] == 1.0  # Opponent's stone (black) in history
 
     print("OK")
 

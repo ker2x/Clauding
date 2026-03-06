@@ -1,8 +1,8 @@
 """
 ResNet architecture for 9x9 Go.
 
-Input: (batch, 17, 9, 9) - 17 feature planes
-Output: (batch, 82) policy logits, (batch, 1) value
+Input: (batch, INPUT_PLANES, 9, 9)
+Output: (batch, 82) policy logits, (batch, 1) value, (batch, 81) ownership
 """
 
 import torch
@@ -32,20 +32,43 @@ class ResidualBlock(nn.Module):
         return out
 
 
+class GlobalPoolBias(nn.Module):
+    """
+    Injects board-wide context into the residual stream.
+
+    Global average pools the feature map to a vector, projects it,
+    then broadcasts back as a per-channel additive bias.
+    This lets the network see territory imbalance, group count, etc.
+    """
+
+    def __init__(self, num_filters: int):
+        super().__init__()
+        self.fc = nn.Linear(num_filters, num_filters)
+
+    def forward(self, x):
+        pooled = x.mean(dim=[2, 3])              # (B, C)
+        bias = self.fc(F.relu(pooled))           # (B, C)
+        return x + bias.unsqueeze(-1).unsqueeze(-1)
+
+
 class GoNetwork(nn.Module):
     """
-    ResNet for 9x9 Go.
+    ResNet for 9x9 Go with:
+        - Global-pool-bias layers every global_pool_freq residual blocks
+        - Ownership auxiliary head (training only)
 
     Architecture:
-        Input (17, 9, 9)
-        -> Initial Conv (128 filters)
-        -> 10 Residual Blocks
+        Input (INPUT_PLANES, 9, 9)
+        -> Initial Conv (num_filters)
+        -> Residual tower (num_res_blocks blocks + GlobalPoolBias layers)
         -> Policy Head (82 actions)
-        -> Value Head (1 value)
+        -> Value Head (1 value in [-1, 1])
+        -> Ownership Head (81 intersections, sigmoid)
     """
 
-    def __init__(self, num_filters: int = 128, num_res_blocks: int = 10,
-                 policy_size: int = 82, input_planes: int = 17):
+    def __init__(self, num_filters: int = 128, num_res_blocks: int = 6,
+                 policy_size: int = 82, input_planes: int = 5,
+                 global_pool_freq: int = 3):
         super().__init__()
 
         self.num_filters = num_filters
@@ -56,10 +79,12 @@ class GoNetwork(nn.Module):
         self.initial_conv = nn.Conv2d(input_planes, num_filters, kernel_size=3, padding=1)
         self.initial_bn = nn.BatchNorm2d(num_filters)
 
-        # Residual tower
-        self.residual_blocks = nn.ModuleList([
-            ResidualBlock(num_filters) for _ in range(num_res_blocks)
-        ])
+        # Residual tower with interleaved global-pool-bias layers
+        self.tower = nn.ModuleList()
+        for i in range(num_res_blocks):
+            self.tower.append(ResidualBlock(num_filters))
+            if (i + 1) % global_pool_freq == 0:
+                self.tower.append(GlobalPoolBias(num_filters))
 
         # Policy head
         self.policy_conv = nn.Conv2d(num_filters, 32, kernel_size=1)
@@ -72,22 +97,30 @@ class GoNetwork(nn.Module):
         self.value_fc1 = nn.Linear(32 * 9 * 9, 128)
         self.value_fc2 = nn.Linear(128, 1)
 
+        # Ownership auxiliary head
+        self.ownership_conv = nn.Conv2d(num_filters, 32, kernel_size=1)
+        self.ownership_bn = nn.BatchNorm2d(32)
+        self.ownership_fc = nn.Linear(32 * 9 * 9, 81)
+
     def forward(self, x):
         """
         Forward pass.
 
         Args:
-            x: Input tensor of shape (batch, 17, 9, 9)
+            x: Input tensor of shape (batch, INPUT_PLANES, 9, 9)
 
         Returns:
-            (policy_logits, value): Policy logits (batch, 82), value (batch, 1)
+            (policy_logits, value, ownership):
+                policy_logits: (batch, 82)
+                value:         (batch, 1)
+                ownership:     (batch, 81) sigmoid probabilities (current player's perspective)
         """
         out = self.initial_conv(x)
         out = self.initial_bn(out)
         out = F.relu(out)
 
-        for block in self.residual_blocks:
-            out = block(out)
+        for module in self.tower:
+            out = module(out)
 
         # Policy head
         policy = self.policy_conv(out)
@@ -104,14 +137,21 @@ class GoNetwork(nn.Module):
         value = F.relu(self.value_fc1(value))
         value = torch.tanh(self.value_fc2(value))
 
-        return policy, value
+        # Ownership head
+        ownership = self.ownership_conv(out)
+        ownership = self.ownership_bn(ownership)
+        ownership = F.relu(ownership)
+        ownership = ownership.view(ownership.size(0), -1)
+        ownership = torch.sigmoid(self.ownership_fc(ownership))
+
+        return policy, value, ownership
 
     def predict(self, state, legal_actions, device):
         """
         Predict policy and value for a state with legal action masking.
 
         Args:
-            state: Game state tensor (17, 9, 9) or (batch, 17, 9, 9)
+            state: Game state tensor (INPUT_PLANES, 9, 9) or (batch, INPUT_PLANES, 9, 9)
             legal_actions: List of legal action indices
             device: PyTorch device
 
@@ -124,7 +164,7 @@ class GoNetwork(nn.Module):
         state = state.to(device)
 
         with torch.no_grad():
-            policy_logits, value = self.forward(state)
+            policy_logits, value, _ = self.forward(state)
 
             mask = torch.full((1, self.policy_size), float('-inf'), device=device)
             for action in legal_actions:

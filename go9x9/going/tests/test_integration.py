@@ -10,13 +10,15 @@ import torch
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
-from going.engine.game import GoGame
+from going.engine.game import GoGame, NUM_PLANES, NUM_HISTORY
 from going.engine.action_encoder import NUM_ACTIONS, PASS_ACTION
 from going.network.resnet import GoNetwork, count_parameters
 from going.mcts.mcts import MCTS
 from going.training.replay_buffer import ReplayBuffer
 from going.training.self_play import SelfPlayGame
 from config import Config
+
+INPUT_PLANES = Config.INPUT_PLANES
 
 
 def test_game_engine():
@@ -50,17 +52,17 @@ def test_neural_input():
 
     game = GoGame()
     state = game.to_neural_input()
-    assert state.shape == (17, 9, 9)
+    assert state.shape == (NUM_PLANES, 9, 9)
     assert state.dtype == np.float32
 
     # Play some moves and check
     game.make_action(40)
     game.make_action(41)
     state2 = game.to_neural_input()
-    assert state2.shape == (17, 9, 9)
+    assert state2.shape == (NUM_PLANES, 9, 9)
 
     # Should have non-zero values now
-    assert np.sum(state2[:16]) > 0
+    assert np.sum(state2[:NUM_PLANES - 1]) > 0
 
     print("OK")
 
@@ -69,19 +71,20 @@ def test_network():
     """Test neural network forward pass."""
     print("  Network...", end=" ", flush=True)
 
-    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=17)
+    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=INPUT_PLANES)
     params = count_parameters(net)
     assert params > 0
     print(f"({params:,} params) ", end="", flush=True)
 
     # Forward pass
-    batch = torch.randn(4, 17, 9, 9)
-    policy, value = net(batch)
+    batch = torch.randn(4, INPUT_PLANES, 9, 9)
+    policy, value, ownership = net(batch)
     assert policy.shape == (4, 82)
     assert value.shape == (4, 1)
+    assert ownership.shape == (4, 81)
 
     # Prediction with masking
-    state = torch.randn(17, 9, 9)
+    state = torch.randn(INPUT_PLANES, 9, 9)
     legal = [0, 1, 40, 81]
     probs, val = net.predict(state, legal, torch.device("cpu"))
     assert probs.shape == (82,)
@@ -96,7 +99,7 @@ def test_mcts():
     """Test MCTS search."""
     print("  MCTS...", end=" ", flush=True)
 
-    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=17)
+    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=INPUT_PLANES)
     net.eval()
 
     game = GoGame()
@@ -123,28 +126,31 @@ def test_replay_buffer():
     """Test replay buffer."""
     print("  Replay buffer...", end=" ", flush=True)
 
-    buf = ReplayBuffer(capacity=100, recency_tau=50.0)
+    buf = ReplayBuffer(capacity=100, recency_tau=50.0, input_planes=INPUT_PLANES)
     assert len(buf) == 0
 
     # Add examples
     for i in range(50):
-        state = np.random.randn(17, 9, 9).astype(np.float32)
+        state = np.random.randn(INPUT_PLANES, 9, 9).astype(np.float32)
         policy = np.random.rand(82).astype(np.float32)
         policy /= policy.sum()
         value = np.random.uniform(-1, 1)
-        buf.add(state, policy, value)
+        ownership = np.random.rand(81).astype(np.float32)
+        surprise = np.random.rand()
+        buf.add(state, policy, value, ownership, surprise)
 
     assert len(buf) == 50
 
     # Sample
-    states, policies, values = buf.sample(16)
-    assert states.shape == (16, 17, 9, 9)
+    states, policies, values, ownerships = buf.sample(16)
+    assert states.shape == (16, INPUT_PLANES, 9, 9)
     assert policies.shape == (16, 82)
     assert values.shape == (16,)
+    assert ownerships.shape == (16, 81)
 
     # Test checkpoint
     sd = buf.state_dict()
-    buf2 = ReplayBuffer(capacity=100)
+    buf2 = ReplayBuffer(capacity=100, input_planes=INPUT_PLANES)
     buf2.load_state_dict(sd)
     assert len(buf2) == 50
 
@@ -155,7 +161,7 @@ def test_self_play():
     """Test self-play game generation."""
     print("  Self-play (1 game, 5 sims)...", end=" ", flush=True)
 
-    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=17)
+    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=INPUT_PLANES)
     net.eval()
 
     # Use minimal config for speed
@@ -171,12 +177,13 @@ def test_self_play():
         KOMI = 7.5
 
     sp = SelfPlayGame(net, TestConfig, torch.device("cpu"))
-    states, policies, values = sp.play_game()
+    states, policies, values, ownerships, surprises = sp.play_game()
 
     assert len(states) > 0
-    assert len(states) == len(policies) == len(values)
-    assert states[0].shape == (17, 9, 9)
+    assert len(states) == len(policies) == len(values) == len(ownerships) == len(surprises)
+    assert states[0].shape == (INPUT_PLANES, 9, 9)
     assert policies[0].shape == (82,)
+    assert ownerships[0].shape == (81,)
 
     print(f"({len(states)} moves) OK")
 
@@ -185,24 +192,26 @@ def test_training_step():
     """Test a single training step."""
     print("  Training step...", end=" ", flush=True)
 
-    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=17)
+    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=INPUT_PLANES)
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
     # Create fake batch
-    states = torch.randn(8, 17, 9, 9)
+    states = torch.randn(8, INPUT_PLANES, 9, 9)
     policies = torch.rand(8, 82)
     policies = policies / policies.sum(dim=1, keepdim=True)
     values = torch.randn(8, 1)
+    ownerships = torch.rand(8, 81)
 
     # Forward
     net.train()
-    pred_policy, pred_value = net(states)
+    pred_policy, pred_value, pred_ownership = net(states)
 
     # Loss
     import torch.nn.functional as F
     policy_loss = -torch.sum(policies * F.log_softmax(pred_policy, dim=1)) / 8
     value_loss = F.mse_loss(pred_value, values)
-    total_loss = policy_loss + value_loss
+    ownership_loss = F.binary_cross_entropy(pred_ownership, ownerships)
+    total_loss = policy_loss + value_loss + 1.5 * ownership_loss
 
     # Backward
     optimizer.zero_grad()
@@ -219,7 +228,7 @@ def test_gtp_engine():
 
     from going.gtp.engine import GTPEngine
 
-    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=17)
+    net = GoNetwork(num_filters=32, num_res_blocks=2, policy_size=82, input_planes=INPUT_PLANES)
     net.eval()
 
     class TestConfig:

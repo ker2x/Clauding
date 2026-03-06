@@ -62,6 +62,9 @@ class MCTS:
         # Evaluate root
         policy_probs, _ = self._evaluate_state(game, legal_actions)
 
+        # Store clean prior (before noise) for surprise-weight computation
+        self.root_prior = policy_probs.copy()
+
         # Add Dirichlet noise for exploration
         if add_noise and len(legal_actions) > 0:
             noise = np.random.dirichlet([self.dirichlet_alpha] * len(legal_actions))
@@ -158,7 +161,7 @@ class MCTS:
         state_tensor = torch.from_numpy(states).to(self.device)
 
         with torch.no_grad():
-            policy_logits, values = self.network(state_tensor)
+            policy_logits, values, _ = self.network(state_tensor)
 
             # Build mask for all leaves at once
             mask = torch.full_like(policy_logits, float('-inf'))
@@ -187,7 +190,7 @@ class MCTS:
         state_tensor = torch.from_numpy(state).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            policy_logits, value = self.network(state_tensor)
+            policy_logits, value, _ = self.network(state_tensor)
 
             mask = torch.full_like(policy_logits, float('-inf'))
             for action in legal_actions:

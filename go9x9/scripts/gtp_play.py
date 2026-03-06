@@ -14,6 +14,8 @@ Usage with gogui-twogtp:
 import argparse
 import sys
 import os
+import queue
+import threading
 from pathlib import Path
 
 # Add project root to path
@@ -29,6 +31,18 @@ from config import Config
 
 
 def main():
+    # Start buffering stdin immediately before slow imports/model loading,
+    # so Sabaki's handshake commands don't time out while we're initializing.
+    cmd_queue = queue.Queue()
+    def _stdin_reader():
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                cmd_queue.put(None)  # EOF
+                break
+            cmd_queue.put(line)
+    threading.Thread(target=_stdin_reader, daemon=True).start()
+
     parser = argparse.ArgumentParser(description="9x9 Go GTP Engine")
     parser.add_argument("--model", type=str, default=None,
                         help="Path to model checkpoint")
@@ -51,7 +65,8 @@ def main():
         num_filters=Config.NUM_FILTERS,
         num_res_blocks=Config.NUM_RES_BLOCKS,
         policy_size=Config.POLICY_SIZE,
-        input_planes=Config.INPUT_PLANES
+        input_planes=Config.INPUT_PLANES,
+        global_pool_freq=Config.GLOBAL_POOL_FREQ,
     )
 
     # Load model weights
@@ -71,7 +86,7 @@ def main():
 
     # Create GTP engine and controller
     engine = GTPEngine(network, Config, device)
-    controller = GTPController(engine)
+    controller = GTPController(engine, cmd_queue=cmd_queue)
 
     sys.stderr.write("GTP engine ready\n")
     controller.run()

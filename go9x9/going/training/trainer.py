@@ -47,9 +47,12 @@ class Trainer:
             weight_decay=self.config.WEIGHT_DECAY
         )
 
+        self.scheduler = None  # initialized in train() when we know total iterations
+
         self.replay_buffer = ReplayBuffer(
             capacity=self.config.BUFFER_SIZE,
-            recency_tau=self.config.RECENCY_TAU
+            recency_tau=self.config.RECENCY_TAU,
+            input_planes=self.config.INPUT_PLANES,
         )
 
         self.start_iteration = 0
@@ -67,8 +70,8 @@ class Trainer:
                 writer = csv.writer(f)
                 writer.writerow([
                     'iteration', 'total_loss', 'policy_loss', 'value_loss',
-                    'buffer_size', 'games_played',
-                    'time_selfplay', 'time_training'
+                    'ownership_loss', 'buffer_size', 'games_played',
+                    'time_selfplay', 'time_training', 'learning_rate'
                 ])
 
     def log_metrics(self, metrics: Dict):
@@ -79,10 +82,12 @@ class Trainer:
                 metrics.get('total_loss', 0),
                 metrics.get('policy_loss', 0),
                 metrics.get('value_loss', 0),
+                metrics.get('ownership_loss', 0),
                 metrics.get('buffer_size', 0),
                 metrics.get('games_played', 0),
                 metrics.get('time_selfplay', 0),
                 metrics.get('time_training', 0),
+                metrics.get('learning_rate', 0),
             ])
 
     def train(self, num_iterations: int):
@@ -99,6 +104,14 @@ class Trainer:
         print(f"Training device: {self.device}")
         print(f"Self-play device: {self.selfplay_device}")
         print(f"MCTS simulations: {self.config.MCTS_SIMS_SELFPLAY}")
+
+        # Cosine annealing LR schedule
+        remaining = num_iterations - self.start_iteration
+        lr_min = getattr(self.config, 'LR_MIN', 1e-5)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=remaining, eta_min=lr_min
+        )
+        print(f"LR schedule: cosine {self.config.LEARNING_RATE} → {lr_min} over {remaining} iters")
         print("=" * 70)
 
         for iteration in range(self.start_iteration, num_iterations):
@@ -110,10 +123,11 @@ class Trainer:
             t_start = time.time()
 
             self.network.to(self.selfplay_device)
-            self.network.share_memory()
+            if self.selfplay_device.type == "cpu":
+                self.network.share_memory()
             self.network.eval()
 
-            states, policies, values = play_games_parallel(
+            states, policies, values, ownerships, surprises = play_games_parallel(
                 self.network, self.config, self.selfplay_device,
                 num_games=self.config.GAMES_PER_ITERATION
             )
@@ -123,7 +137,7 @@ class Trainer:
             metrics['time_selfplay'] = time.time() - t_start
             metrics['games_played'] = self.config.GAMES_PER_ITERATION
 
-            self.replay_buffer.add_batch(states, policies, values)
+            self.replay_buffer.add_batch(states, policies, values, ownerships, surprises)
 
             print(f"  Generated {len(states)} training examples")
             print(f"  Time: {metrics['time_selfplay']:.1f}s")
@@ -142,13 +156,16 @@ class Trainer:
                 metrics['total_loss'] = 0.0
                 metrics['policy_loss'] = 0.0
                 metrics['value_loss'] = 0.0
+                metrics['ownership_loss'] = 0.0
 
             metrics['time_training'] = time.time() - t_start
             metrics['buffer_size'] = len(self.replay_buffer)
+            metrics['learning_rate'] = self.optimizer.param_groups[0]['lr']
 
             print(f"  Loss: {metrics.get('total_loss', 0):.4f} "
                   f"(policy: {metrics.get('policy_loss', 0):.4f}, "
-                  f"value: {metrics.get('value_loss', 0):.4f})")
+                  f"value: {metrics.get('value_loss', 0):.4f}, "
+                  f"ownership: {metrics.get('ownership_loss', 0):.4f})")
             print(f"  Time: {metrics['time_training']:.1f}s")
 
             buffer_pct = len(self.replay_buffer) / self.config.BUFFER_SIZE
@@ -157,6 +174,12 @@ class Trainer:
             bar = '=' * filled + '-' * (bar_width - filled)
             print(f"  Buffer: [{bar}] {buffer_pct*100:.1f}% "
                   f"({len(self.replay_buffer):,}/{self.config.BUFFER_SIZE:,})")
+
+            # Step LR scheduler
+            if self.scheduler is not None:
+                self.scheduler.step()
+                current_lr = self.optimizer.param_groups[0]['lr']
+                print(f"  LR: {current_lr:.6f}")
 
             self.log_metrics(metrics)
             self.replay_buffer.increment_generation()
@@ -196,22 +219,26 @@ class Trainer:
         total_losses = []
         policy_losses = []
         value_losses = []
+        ownership_losses = []
 
+        ownership_weight = getattr(self.config, 'OWNERSHIP_LOSS_WEIGHT', 1.5)
         bar_width = 40
         print("  ", end="", flush=True)
 
         for step in range(num_steps):
-            states, policies, values = self.replay_buffer.sample(self.config.BATCH_SIZE)
+            states, policies, values, ownerships = self.replay_buffer.sample(self.config.BATCH_SIZE)
 
             states_t = torch.from_numpy(states).to(self.device)
             policies_t = torch.from_numpy(policies).to(self.device)
             values_t = torch.from_numpy(values).unsqueeze(1).to(self.device)
+            ownerships_t = torch.from_numpy(ownerships).to(self.device)
 
-            pred_policies, pred_values = self.network(states_t)
+            pred_policies, pred_values, pred_ownership = self.network(states_t)
 
             policy_loss = -torch.sum(policies_t * F.log_softmax(pred_policies, dim=1)) / len(states_t)
             value_loss = F.mse_loss(pred_values, values_t)
-            total_loss = policy_loss + value_loss
+            ownership_loss = F.binary_cross_entropy(pred_ownership, ownerships_t)
+            total_loss = policy_loss + value_loss + ownership_weight * ownership_loss
 
             self.optimizer.zero_grad()
             total_loss.backward()
@@ -221,6 +248,7 @@ class Trainer:
             total_losses.append(total_loss.item())
             policy_losses.append(policy_loss.item())
             value_losses.append(value_loss.item())
+            ownership_losses.append(ownership_loss.item())
 
             if (step + 1) % 10 == 0 or (step + 1) == num_steps:
                 progress = (step + 1) / num_steps
@@ -237,6 +265,7 @@ class Trainer:
             'total_loss': np.mean(total_losses),
             'policy_loss': np.mean(policy_losses),
             'value_loss': np.mean(value_losses),
+            'ownership_loss': np.mean(ownership_losses),
         }
 
     def save_checkpoint(self, iteration: int):
@@ -249,6 +278,8 @@ class Trainer:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'replay_buffer_state_dict': self.replay_buffer.state_dict(),
         }
+        if self.scheduler is not None:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
         checkpoint_path = checkpoint_dir / f"checkpoint_iter_{iteration}.pt"
         torch.save(checkpoint, checkpoint_path)
@@ -270,7 +301,8 @@ class Trainer:
                 num_filters=self.config.NUM_FILTERS,
                 num_res_blocks=self.config.NUM_RES_BLOCKS,
                 policy_size=self.config.POLICY_SIZE,
-                input_planes=self.config.INPUT_PLANES
+                input_planes=self.config.INPUT_PLANES,
+                global_pool_freq=getattr(self.config, 'GLOBAL_POOL_FREQ', 3),
             )
             checkpoint = torch.load(
                 self.best_model_path, map_location=self.device, weights_only=False
@@ -335,6 +367,10 @@ class Trainer:
         if 'replay_buffer_state_dict' in checkpoint:
             self.replay_buffer.load_state_dict(checkpoint['replay_buffer_state_dict'])
             print(f"  Replay buffer restored (size: {len(self.replay_buffer)})")
+
+        if 'scheduler_state_dict' in checkpoint and self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            print("  Scheduler state restored")
 
         self.start_iteration = checkpoint['iteration']
         print(f"  Resuming from iteration {self.start_iteration}")
