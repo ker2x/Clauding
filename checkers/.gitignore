@@ -6,6 +6,8 @@ logs8x8/
 checkers8x8/cpp/*.so
 checkers8x8/cpp/*.dylib
 checkers8x8/cpp/*.o
+build/
+*.egg-info/
 
 # Python
 __pycache__/

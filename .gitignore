@@ -1,15 +1,5 @@
-/.venv/
-.idea/
+# External projects
+OpenRA/
+
+# OS
 .DS_Store
-/checkers/checkpoints/
-/checkers/checkpoints8x8/
-/checkers/logs/
-/checkers/logs8x8/
-*.o
-*.so
-*.egg-info/
-__pycache__/
-/grokking/*.png
-/grokking/*.mp4
-/grokking/*.pt
-/grokking/59 grokked/
