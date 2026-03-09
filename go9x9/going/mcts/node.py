@@ -45,7 +45,7 @@ class MCTSNode:
         sqrt_parent_visits = math.sqrt(self.visit_count + self.virtual_loss)
 
         for action, child in self.children.items():
-            q_value = child.get_value()
+            q_value = -child.get_value()
             u_value = c_puct * child.prior * sqrt_parent_visits / (1 + child.visit_count + child.virtual_loss)
             score = q_value + u_value
 

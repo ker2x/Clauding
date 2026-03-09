@@ -14,7 +14,7 @@ class Config:
     INPUT_PLANES = 17  # 8 history × 2 colors + 1 color-to-play
     POLICY_SIZE = 82   # 81 intersections + pass
     GLOBAL_POOL_FREQ = 3      # Insert global-pool-bias layer every N residual blocks
-    OWNERSHIP_LOSS_WEIGHT = 1.5  # Weight on ownership auxiliary head BCE loss
+    OWNERSHIP_LOSS_WEIGHT = 0.5  # Weight on ownership auxiliary head BCE loss
 
     # MCTS configuration
     MCTS_SIMS_SELFPLAY = 400
@@ -40,13 +40,13 @@ class Config:
     BUFFER_SIZE = 50_000
 
     # Data Sampling
-    RECENCY_TAU = 50
+    RECENCY_TAU = 30
 
     BATCH_SIZE = 256
     MIN_SAMPLE_REUSE = 10
     MAX_SAMPLE_REUSE = 15
     LEARNING_RATE = 0.002
-    LR_MIN = 1e-5
+    LR_MIN = 1e-4
     WEIGHT_DECAY = 1e-4
     GRAD_CLIP = 5.0
 
