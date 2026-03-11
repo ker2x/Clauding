@@ -1,4 +1,4 @@
-"""Debate engine: turn management, history, streaming coordination."""
+"""Chain-of-Debate engine: question cycles, thinker isolation, streaming."""
 
 import asyncio
 import re
@@ -12,11 +12,11 @@ from arena.participants import Participant
 
 @dataclass
 class TurnEvent:
-    """Emitted during a debate turn."""
+    """Emitted during a turn."""
     speaker: str
     token: str | None      # None for turn-start/end signals
     turn_complete: bool
-    round_num: int
+    question_num: int
     is_moderator: bool
     is_human: bool = False
     is_error: bool = False
@@ -24,53 +24,54 @@ class TurnEvent:
 
 @dataclass
 class HistoryEntry:
-    """A message in the debate history with speaker metadata."""
-    speaker: str       # participant name, "user" for topic/human
+    """A message in the conversation history with speaker metadata."""
+    speaker: str       # participant name, "user" for questions
     content: str
-    is_user: bool      # True for topic prompt and human interjections
+    is_user: bool      # True for user questions
 
 
-class Debate:
+class ChainDebate:
     def __init__(
         self,
         participant_a: Participant,
         participant_b: Participant,
-        moderator: Participant | None,
-        topic: str,
-        num_rounds: int,
+        moderator: Participant,
         on_event: Callable[[TurnEvent], Awaitable[None]],
+        topic: str = "",
         log_dir: str = "logs",
     ):
         self.a = participant_a
         self.b = participant_b
         self.moderator = moderator
-        self.topic = topic
-        self.num_rounds = num_rounds
         self.on_event = on_event
+        self.topic = topic
         self.history: list[HistoryEntry] = []
         self._paused = asyncio.Event()
         self._paused.set()  # starts unpaused
         self._cancelled = False
-        self._in_qa = False
-        self._rounds_added = asyncio.Event()
         self._human_interjections: asyncio.Queue[str] = asyncio.Queue()
         self._log_dir = Path(log_dir)
         self._log_file: Path | None = None
+        self._question_num = 0
 
-    def _build_messages_for(self, participant: Participant) -> list[dict]:
+    def _build_messages_for(
+        self, participant: Participant,
+        exclude_after: int | None = None,
+    ) -> list[dict]:
         """Build chat messages from the perspective of a participant.
 
         Own previous messages become 'assistant', everything else becomes 'user'.
-        This gives the model a proper alternating conversation structure.
+        If exclude_after is set, only include history up to that index (for
+        thinker isolation within a question cycle).
         """
+        entries = self.history[:exclude_after] if exclude_after is not None else self.history
         messages = []
-        for entry in self.history:
+        for entry in entries:
             if entry.is_user:
                 messages.append({"role": "user", "content": entry.content})
             elif entry.speaker == participant.name:
                 messages.append({"role": "assistant", "content": entry.content})
             else:
-                # Other participants' messages shown as user messages
                 messages.append({
                     "role": "user",
                     "content": f"[{entry.speaker}]: {entry.content}",
@@ -78,83 +79,119 @@ class Debate:
         return messages
 
     def _init_log(self):
-        """Create the log file for this debate."""
+        """Create the log file for this session."""
         self._log_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        slug = self.topic[:50].replace(" ", "_").replace("/", "-")
-        self._log_file = self._log_dir / f"debate_{timestamp}_{slug}.md"
+        self._log_file = self._log_dir / f"chain_{timestamp}.md"
         with open(self._log_file, "w") as f:
-            f.write(f"# Debate: {self.topic}\n")
+            f.write("# Chain-of-Debate Session\n")
             f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
-            f.write(f"**Rounds:** {self.num_rounds}\n")
             f.write(f"**{self.a.name}:** {self.a.model}\n")
             f.write(f"**{self.b.name}:** {self.b.model}\n")
-            if self.moderator:
-                f.write(f"**{self.moderator.name}:** {self.moderator.model}\n")
+            f.write(f"**{self.moderator.name}:** {self.moderator.model}\n")
             f.write("\n---\n\n")
 
-    def _log_turn(self, speaker: str, text: str, round_num: int):
+    def _log_turn(self, speaker: str, text: str, question_num: int):
         """Append a completed turn to the log file."""
         if not self._log_file:
             return
         with open(self._log_file, "a") as f:
-            f.write(f"## Round {round_num} — {speaker}\n\n")
+            f.write(f"## Q{question_num} — {speaker}\n\n")
             f.write(text)
             f.write("\n\n---\n\n")
 
     async def run(self):
-        """Main debate loop."""
+        """Main loop: wait for questions, run question cycles."""
         self._init_log()
 
-        self.history.append(HistoryEntry(
-            speaker="user",
-            content=f"Debate topic: {self.topic}\n\nPlease present your opening argument.",
-            is_user=True,
-        ))
+        # If a topic was provided, use it as the first question
+        if self.topic:
+            self._human_interjections.put_nowait(self.topic)
 
-        self._current_round = 0
+        if self._human_interjections.empty():
+            await self.on_event(TurnEvent(
+                speaker="System",
+                token="Ask a question below to begin.",
+                turn_complete=True, question_num=0, is_moderator=False,
+            ))
+
         while not self._cancelled:
-            if self._current_round >= self.num_rounds:
-                # Enter Q&A mode
-                await self._qa_loop()
+            # Wait for a question
+            while self._human_interjections.empty():
                 if self._cancelled:
                     break
-                # If we exit Q&A, more rounds were added — continue debating
-                continue
-
-            self._current_round += 1
-            round_num = self._current_round
-
-            await self._run_turn(self.a, round_num)
+                await asyncio.sleep(0.1)
 
             if self._cancelled:
                 break
 
-            await self._run_turn(self.b, round_num)
+            question = self._human_interjections.get_nowait()
+            self._question_num += 1
 
-            if self.moderator and not self._cancelled:
-                is_final = (round_num == self.num_rounds)
-                await self._run_turn(self.moderator, round_num,
-                                     is_moderator=True, is_final_round=is_final)
+            # Show the question as a human event (unless it was the pre-seeded topic)
+            if self._question_num > 1 or not self.topic:
+                await self.on_event(TurnEvent(
+                    speaker="Human", token=question, turn_complete=True,
+                    question_num=self._question_num, is_moderator=False,
+                    is_human=True,
+                ))
 
-        # Signal debate complete
-        msg = "Debate ended."
+            await self._run_question_cycle(question, self._question_num)
+
+            if not self._cancelled:
+                await self.on_event(TurnEvent(
+                    speaker="System",
+                    token="Ready for next question.",
+                    turn_complete=True, question_num=self._question_num,
+                    is_moderator=False,
+                ))
+
+        # Signal session complete
+        msg = "Session ended."
         if self._log_file:
             msg += f" Log saved to {self._log_file}"
         await self.on_event(TurnEvent(
             speaker="System", token=msg,
-            turn_complete=True, round_num=self._current_round,
+            turn_complete=True, question_num=self._question_num,
             is_moderator=False,
         ))
 
-    def add_rounds(self, n: int = 1):
-        """Add extra rounds to the debate (can be called while running)."""
-        self.num_rounds += n
-        self._rounds_added.set()
+    async def _run_question_cycle(self, question: str, question_num: int):
+        """Run one full question cycle: frame → think A + think B → synthesize."""
 
-    async def _run_turn(self, participant: Participant, round_num: int,
-                        is_moderator: bool = False, is_final_round: bool = False,
-                        qa_role: str | None = None):
+        # 1. Add question to history
+        self.history.append(HistoryEntry(
+            speaker="user", content=question, is_user=True,
+        ))
+
+        # 2. Moderator frames the question and assigns roles
+        await self._run_turn(self.moderator, question_num,
+                             is_moderator=True, role="frame")
+        if self._cancelled:
+            return
+
+        # 3. Snapshot history index BEFORE thinkers respond (for isolation)
+        isolation_index = len(self.history)
+
+        # 4. Thinker A responds (sees history up to isolation_index)
+        await self._run_turn(self.a, question_num, role="think",
+                             isolation_index=isolation_index)
+        if self._cancelled:
+            return
+
+        # 5. Thinker B responds (sees history up to isolation_index — NOT Thinker A's response)
+        await self._run_turn(self.b, question_num, role="think",
+                             isolation_index=isolation_index)
+        if self._cancelled:
+            return
+
+        # 6. Moderator synthesizes both responses
+        await self._run_turn(self.moderator, question_num,
+                             is_moderator=True, role="synthesize")
+
+    async def _run_turn(self, participant: Participant, question_num: int,
+                        is_moderator: bool = False, role: str = "",
+                        isolation_index: int | None = None):
         await self._paused.wait()
         if self._cancelled:
             return
@@ -162,200 +199,110 @@ class Debate:
         # Signal turn start
         await self.on_event(TurnEvent(
             speaker=participant.name, token=None, turn_complete=False,
-            round_num=round_num, is_moderator=is_moderator,
+            question_num=question_num, is_moderator=is_moderator,
         ))
 
-        messages = self._build_messages_for(participant)
+        # Build messages with optional isolation
+        if isolation_index is not None:
+            messages = self._build_messages_for(participant, exclude_after=isolation_index)
+        else:
+            messages = self._build_messages_for(participant)
 
-        # Add context-appropriate instructions
-        if qa_role == "rephrase":
+        # Add role-specific instructions
+        if role == "frame":
             messages.append({
                 "role": "user",
                 "content": (
-                    "[Q&A SESSION] An audience member has asked a question "
-                    "(see above). Rephrase or refine this question for the "
-                    "debaters. Provide context from the debate if relevant, "
-                    "then clearly state the question you want both debaters "
-                    "to address."
+                    f"[INSTRUCTION] A user asked the question above. "
+                    f"Your job right now: assign roles to the two thinkers.\n\n"
+                    f"1. Briefly identify the key aspects of the question.\n"
+                    f"2. Assign {self.a.name} a specific role.\n"
+                    f"3. Assign {self.b.name} a DELIBERATELY CONTRASTING role.\n\n"
+                    f"The two roles MUST create tension or cover different ground. "
+                    f"Do NOT assign two roles that will produce similar analysis. "
+                    f"Good pairs: optimist vs skeptic, theorist vs practitioner, "
+                    f"builder vs critic, short-term vs long-term, user vs engineer. "
+                    f"If one role argues X is feasible, the other should stress why it might fail.\n\n"
+                    f"Format your response EXACTLY like this:\n"
+                    f"[brief question analysis]\n\n"
+                    f"**{self.a.name}**, your role: [role name]. [1-2 sentence description of what to focus on].\n\n"
+                    f"**{self.b.name}**, your role: [role name]. [1-2 sentence description of what to focus on].\n\n"
+                    f"IMPORTANT: Stop after assigning roles. Do NOT answer the question yourself. "
+                    f"Do NOT write a synthesis. The thinkers will respond separately after you."
                 ),
             })
-        elif qa_role == "respond":
+        elif role == "think":
             messages.append({
                 "role": "user",
                 "content": (
-                    f"[Q&A SESSION] You are {participant.name}. The moderator "
-                    f"has posed a question to you (see above). Answer it "
-                    f"directly, staying consistent with the position you "
-                    f"argued during the debate."
+                    f"[INSTRUCTION] You are {participant.name}. The moderator above "
+                    f"assigned {participant.name} a specific role — find it and adopt it. "
+                    f"Ignore the role assigned to the other thinker. "
+                    f"Respond to the user's question from your assigned perspective only. "
+                    f"Be thorough and honest — you don't need to disagree with anyone."
                 ),
             })
-        elif qa_role == "summarize":
+        elif role == "synthesize":
+            # Find the latest user question for this cycle
+            latest_question = ""
+            for entry in reversed(self.history):
+                if entry.is_user and entry.speaker == "user":
+                    latest_question = entry.content
+                    break
             messages.append({
                 "role": "user",
                 "content": (
-                    "[Q&A SESSION] Both debaters have responded to the "
-                    "audience question. Summarize their answers, highlight "
-                    "key differences, and provide your own perspective. "
-                    "Address the audience directly."
+                    f"[INSTRUCTION] Your two thinkers have responded above. "
+                    f"Now answer this specific question from the user: \"{latest_question}\"\n\n"
+                    f"Rules for your answer:\n"
+                    f"1. The user does NOT know the thinkers exist. Never mention them. "
+                    f"Write as if this is entirely your own analysis.\n"
+                    f"2. Do NOT copy-paste or closely paraphrase the thinkers. "
+                    f"Use their points as INPUT, then produce your OWN reasoning in your OWN words.\n"
+                    f"3. Go BEYOND what the thinkers said: identify what they both missed, "
+                    f"resolve contradictions between them, draw connections they didn't make, "
+                    f"and add your own insights.\n"
+                    f"4. Where the thinkers disagreed, take a clear position and explain why.\n"
+                    f"5. Address the user in second person. Be detailed and substantive."
                 ),
             })
-        elif qa_role == "respond_no_mod":
-            messages.append({
-                "role": "user",
-                "content": (
-                    f"[Q&A SESSION] You are {participant.name}. "
-                    f"The debate is over. Answer the audience member's question "
-                    f"directly. You may be more conversational now, but stay "
-                    f"consistent with the position you argued during the debate."
-                ),
-            })
-        elif not is_moderator:
-            # Find the last moderator message if any, to reframe as context
-            moderator_note = ""
-            if self.moderator:
-                for entry in reversed(self.history):
-                    if entry.speaker == self.moderator.name:
-                        moderator_note = (
-                            f"\n\nThe moderator has raised the following point "
-                            f"for the audience's consideration — you may weave "
-                            f"this into your argument if relevant, but your "
-                            f"primary focus should remain on countering your "
-                            f"opponent:\n\"{entry.content}\""
-                        )
-                        break
-            opponent = self.b if participant is self.a else self.a
-            messages.append({
-                "role": "user",
-                "content": (
-                    f"[Round {round_num} of {self.num_rounds}] "
-                    f"INSTRUCTIONS: You are {participant.name}. "
-                    f"Your opponent is {opponent.name}. "
-                    f"Stay consistent with YOUR assigned debating position "
-                    f"as described in your system prompt. "
-                    f"Do NOT argue FOR the opponent's side. "
-                    f"Focus on countering your opponent's latest arguments."
-                    f"{moderator_note}"
-                ),
-            })
-        elif is_final_round:
-            # On final round, tell moderator to write a closing summary
-            messages.append({
-                "role": "user",
-                "content": (
-                    "This is the FINAL round of the debate. "
-                    "Please provide a comprehensive closing summary: "
-                    "recap the strongest arguments from each side, "
-                    "identify points of agreement and disagreement, "
-                    "and give your assessment of the overall debate."
-                ),
-            })
+
+        # Synthesis needs thorough output, not the default "be concise" suffix
+        system_suffix = None  # default concise
+        if role == "synthesize":
+            system_suffix = ""  # no constraint — let it be thorough
 
         full_response: list[str] = []
         try:
-            async for token in participant.respond(messages):
+            async for token in participant.respond(messages, system_suffix=system_suffix):
                 if self._cancelled:
                     break
                 await self._paused.wait()
                 full_response.append(token)
                 await self.on_event(TurnEvent(
                     speaker=participant.name, token=token, turn_complete=False,
-                    round_num=round_num, is_moderator=is_moderator,
+                    question_num=question_num, is_moderator=is_moderator,
                 ))
         except Exception as e:
             error_msg = f"Error: {e}"
             await self.on_event(TurnEvent(
                 speaker=participant.name, token=error_msg, turn_complete=False,
-                round_num=round_num, is_moderator=is_moderator, is_error=True,
+                question_num=question_num, is_moderator=is_moderator, is_error=True,
             ))
             full_response.append(error_msg)
 
         text = "".join(full_response)
-        # Strip thinking traces from history so they don't bloat context
-        # for subsequent turns. Keep full text (with thinking) in the log.
+        # Strip thinking traces from history (keep in log)
         clean_text = re.sub(r"<think>.*?</think>\n?", "", text, flags=re.DOTALL)
         self.history.append(HistoryEntry(
-            speaker=participant.name,
-            content=clean_text,
-            is_user=False,
+            speaker=participant.name, content=clean_text, is_user=False,
         ))
-        self._log_turn(participant.name, text, round_num)
+        self._log_turn(participant.name, text, question_num)
 
         await self.on_event(TurnEvent(
             speaker=participant.name, token=None, turn_complete=True,
-            round_num=round_num, is_moderator=is_moderator,
+            question_num=question_num, is_moderator=is_moderator,
         ))
-
-    async def _qa_loop(self):
-        """Q&A mode after debate rounds complete. Waits for audience questions."""
-        await self.on_event(TurnEvent(
-            speaker="System",
-            token=(
-                f"Debate complete ({self._current_round} rounds). "
-                f"Entering Q&A — type a question for the debaters. "
-                f"Press [c] to add more debate rounds, [q] to quit."
-            ),
-            turn_complete=True, round_num=self._current_round,
-            is_moderator=False,
-        ))
-
-        self._in_qa = True
-        while not self._cancelled and self._current_round >= self.num_rounds:
-            # Wait for a question or more rounds
-            self._rounds_added.clear()
-            while self._human_interjections.empty():
-                # Check if rounds were added (exit Q&A)
-                if self._current_round < self.num_rounds or self._cancelled:
-                    self._in_qa = False
-                    return
-                await asyncio.sleep(0.1)
-
-            if self._cancelled:
-                break
-
-            msg = self._human_interjections.get_nowait()
-
-            # Add question to history
-            self.history.append(HistoryEntry(
-                speaker="Audience",
-                content=f'[AUDIENCE QUESTION]: "{msg}"',
-                is_user=True,
-            ))
-            self._log_turn("Audience Q&A", msg, self._current_round)
-            await self.on_event(TurnEvent(
-                speaker="Human", token=msg, turn_complete=True,
-                round_num=self._current_round, is_moderator=False, is_human=True,
-            ))
-
-            if self.moderator:
-                # Moderator-mediated flow
-                # 1. Moderator rephrases the question
-                await self._run_turn(self.moderator, self._current_round,
-                                     is_moderator=True, qa_role="rephrase")
-                if self._cancelled:
-                    break
-                # 2. Debater A responds
-                await self._run_turn(self.a, self._current_round,
-                                     qa_role="respond")
-                if self._cancelled:
-                    break
-                # 3. Debater B responds
-                await self._run_turn(self.b, self._current_round,
-                                     qa_role="respond")
-                if self._cancelled:
-                    break
-                # 4. Moderator summarizes
-                await self._run_turn(self.moderator, self._current_round,
-                                     is_moderator=True, qa_role="summarize")
-            else:
-                # No moderator — debaters respond directly
-                await self._run_turn(self.a, self._current_round,
-                                     qa_role="respond_no_mod")
-                if self._cancelled:
-                    break
-                await self._run_turn(self.b, self._current_round,
-                                     qa_role="respond_no_mod")
-
-        self._in_qa = False
 
     def inject_human_message(self, text: str):
         self._human_interjections.put_nowait(text)
@@ -369,7 +316,6 @@ class Debate:
     def cancel(self):
         self._cancelled = True
         self._paused.set()  # unblock if paused
-        self._rounds_added.set()  # unblock if waiting for rounds
 
     @property
     def is_paused(self) -> bool:

@@ -17,17 +17,19 @@ class Participant:
         self.max_tokens = max_tokens
         self.think = think
 
-    async def respond(self, messages: list[dict]) -> AsyncGenerator[str, None]:
+    async def respond(self, messages: list[dict],
+                      system_suffix: str | None = None) -> AsyncGenerator[str, None]:
         """Stream a response token by token.
 
         messages: debate history in chat format (role/content dicts).
         System prompt is prepended automatically.
+        system_suffix: optional override for the default conciseness instruction.
         """
-        system = (
-            f"{self.system_prompt}\n\n"
-            f"Keep your response focused and concise. Make your strongest points "
-            f"and conclude cleanly — do not start new arguments you cannot finish."
+        suffix = system_suffix if system_suffix is not None else (
+            "Keep your response focused and concise. Make your strongest points "
+            "and conclude cleanly — do not start new arguments you cannot finish."
         )
+        system = f"{self.system_prompt}\n\n{suffix}" if suffix else self.system_prompt
         full_messages = [{"role": "system", "content": system}] + messages
         options = {"temperature": self.temperature}
         # When thinking is enabled, don't cap num_predict — thinking tokens

@@ -49,6 +49,11 @@ Screen {
     margin-bottom: 0;
 }
 
+.turn-thinking {
+    color: $text-disabled;
+    margin-bottom: 0;
+}
+
 .human-text {
     color: $accent;
 }

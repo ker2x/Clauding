@@ -1,63 +1,62 @@
-"""Configuration for LLM Debate Arena."""
+"""Configuration for Chain-of-Debate Arena."""
 
 import yaml
 
 
 class Config:
     # Ollama connection
-    #OLLAMA_HOST = "http://192.168.1.40:11434"
-    OLLAMA_HOST = "http://192.168.1.17:11434"
+    OLLAMA_HOST = "http://192.168.1.40:11434"
+    #OLLAMA_HOST = "http://192.168.1.17:11434"
 
-    # Debate settings
-    #TOPIC = "if an AI is required to answer a question to the best of its ability, would an AI tell us if they turned evil ?"
-    #TOPIC = "Chain-of-thought in LLMs constitutes genuine reasoning, not merely an imitation of it"
-    #TOPIC = "Pineapple don't belongs on pizza but olive is ok"
-    TOPIC = "Formula 1 was better back in the days"
-    
-    NUM_ROUNDS = 5
-    THINK = True  # Disable thinking mode (Qwen3 etc.) for direct responses
+    # Session settings
+    TOPIC = ""  # Empty = wait for user input
+    THINK = True
     MAX_TOKENS_PER_TURN = 1024
 
-    # Participant A
-    PARTICIPANT_A_MODEL = "qwen3.5"
-    #PARTICIPANT_A_MODEL = "lfm2"
-    PARTICIPANT_A_NAME = "Debater A"
-    PARTICIPANT_A_SYSTEM = "You are a debater arguing FOR the given topic. Your primary goal is to dismantle your opponent's logic. Under no circumstances should you concede your core premise. Identify and attack weak points in their previous argument before making your own. Be sharp, direct, and unapologetic. Do not use polite filler, boilerplate transitions, or summarize your own points. Stay analytical and substantive — attack the logic, not the person. Avoid jargon and abstract buzzwords — if a point can't be explained simply, it's not a real point."
+    # Thinker A
+    PARTICIPANT_A_MODEL = "gemma3:12b"
+    PARTICIPANT_A_NAME = "Thinker A"
+    PARTICIPANT_A_SYSTEM = (
+        "You are Thinker A. A moderator will assign you a specific role for each question. "
+        "When you see the moderator's message, find the role assigned to Thinker A "
+        "and adopt it fully. Ignore any role assigned to Thinker B — that is for a "
+        "different AI. Answer the user's question from your assigned role only. "
+        "Be concrete, use examples. Avoid jargon and filler."
+    )
     PARTICIPANT_A_HOST = None  # Falls back to OLLAMA_HOST
     PARTICIPANT_A_TEMPERATURE = 0.85
-    PARTICIPANT_A_THINK = None  # None = use global THINK
+    PARTICIPANT_A_THINK = False  # None = use global THINK
 
-    # Participant B
-    PARTICIPANT_B_MODEL = "qwen3.5"
-    #PARTICIPANT_B_MODEL = "lfm2"
-    PARTICIPANT_B_NAME = "Debater B"
-    PARTICIPANT_B_SYSTEM = "You are a debater arguing AGAINST the given topic. Your primary goal is to dismantle your opponent's logic. Under no circumstances should you concede your core premise. Identify and attack weak points in their previous argument before making your own. Be sharp, direct, and unapologetic. Do not use polite filler, boilerplate transitions, or summarize your own points. Stay analytical and substantive — attack the logic, not the person. Avoid jargon and abstract buzzwords — if a point can't be explained simply, it's not a real point."
-    PARTICIPANT_B_HOST = None
+    # Thinker B
+    PARTICIPANT_B_MODEL = "lfm2"
+    PARTICIPANT_B_NAME = "Thinker B"
+    PARTICIPANT_B_SYSTEM = (
+        "You are Thinker B. A moderator will assign you a specific role for each question. "
+        "When you see the moderator's message, find the role assigned to Thinker B "
+        "and adopt it fully. Ignore any role assigned to Thinker A — that is for a "
+        "different AI. Answer the user's question from your assigned role only. "
+        "Be concrete, use examples. Avoid jargon and filler."
+    )
+    PARTICIPANT_B_HOST = "http://192.168.1.17:11434"
     PARTICIPANT_B_TEMPERATURE = 0.85
-    PARTICIPANT_B_THINK = None  # None = use global THINK
+    PARTICIPANT_B_THINK = False  # None = use global THINK
 
-    # Moderator (optional)
+    # Moderator (orchestrator)
     MODERATOR_ENABLED = True
-    #MODERATOR_MODEL = "lfm2"
     MODERATOR_MODEL = "qwen3.5"
     MODERATOR_NAME = "Moderator"
     MODERATOR_SYSTEM = (
-        "You are an insightful debate analyst providing commentary for the audience. "
-        "After each exchange:\n"
-        "1. Analyze the substance of both arguments — identify logical strengths, "
-        "weaknesses, fallacies, and rhetorical strategies used.\n"
-        "2. Highlight where debaters actually engage with each other's points vs. talk past each other.\n"
-        "3. Note any shifts in position, concessions (explicit or implicit), or new evidence introduced.\n"
-        "4. Offer your own perspective — you are not required to be neutral. If one side "
-        "made a stronger argument this round, say so and explain why.\n"
-        "5. Pose a pointed follow-up question that pushes the debate into unexplored territory.\n\n"
-        "Write for a thoughtful audience that wants depth over brevity. "
-        "Use third person when referring to debaters (e.g. 'Debater A argues...' not 'You argue...')."
+        "You are a coordinator. You work with two separate AI thinkers named "
+        "Thinker A and Thinker B. They are independent AI models that will each "
+        "receive your instructions and respond separately — you do not simulate them. "
+        "You will be called at different stages and told what to do each time. "
+        "Follow the specific instruction you are given for each turn. "
+        "Each instruction is self-contained — only follow the current instruction, "
+        "not constraints from previous turns."
     )
-    MODERATOR_HOST = None #"http://192.168.1.17:11434"
+    MODERATOR_HOST = None
     MODERATOR_TEMPERATURE = 0.5
-    MODERATOR_THINK = None  # lfm2 doesn't support thinking
-
+    MODERATOR_THINK = None
 
     # Nested YAML key mapping
     _YAML_NESTED = {
@@ -88,11 +87,9 @@ class Config:
     def apply_cli_overrides(cls, args):
         mapping = {
             "topic": "TOPIC",
-            "rounds": "NUM_ROUNDS",
             "model_a": "PARTICIPANT_A_MODEL",
             "model_b": "PARTICIPANT_B_MODEL",
             "host": "OLLAMA_HOST",
-            "moderator": "MODERATOR_ENABLED",
             "max_tokens": "MAX_TOKENS_PER_TURN",
             "think": "THINK",
         }
@@ -103,12 +100,13 @@ class Config:
 
     @classmethod
     def print_config(cls):
-        print("=== Debate Configuration ===")
-        print(f"  Topic: {cls.TOPIC}")
-        print(f"  Rounds: {cls.NUM_ROUNDS}")
+        print("=== Chain-of-Debate Configuration ===")
+        if cls.TOPIC:
+            print(f"  Topic: {cls.TOPIC}")
+        else:
+            print("  Topic: (waiting for user input)")
         print(f"  Ollama: {cls.OLLAMA_HOST}")
         print(f"  A: {cls.PARTICIPANT_A_NAME} ({cls.PARTICIPANT_A_MODEL})")
         print(f"  B: {cls.PARTICIPANT_B_NAME} ({cls.PARTICIPANT_B_MODEL})")
-        if cls.MODERATOR_ENABLED:
-            print(f"  Moderator: {cls.MODERATOR_NAME} ({cls.MODERATOR_MODEL})")
+        print(f"  Moderator: {cls.MODERATOR_NAME} ({cls.MODERATOR_MODEL})")
         print()

@@ -1,0 +1,19 @@
+# Chain-of-Debate example configuration
+# Run with: ../.venv/bin/python scripts/main.py --config examples/chain.yaml
+
+ollama_host: "http://192.168.1.17:11434"
+max_tokens_per_turn: 1024
+think: true
+
+participant_a:
+  model: "qwen3.5"
+  name: "Thinker A"
+
+participant_b:
+  model: "qwen3.5"
+  name: "Thinker B"
+
+moderator:
+  enabled: true
+  model: "qwen3.5"
+  name: "Moderator"

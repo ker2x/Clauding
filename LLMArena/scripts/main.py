@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""LLM Debate Arena — entry point.
+"""Chain-of-Debate Arena — entry point.
 
 Usage:
     ../.venv/bin/python scripts/main.py
-    ../.venv/bin/python scripts/main.py --config examples/debate.yaml
-    ../.venv/bin/python scripts/main.py --topic "Tabs vs spaces" --rounds 3
-    ../.venv/bin/python scripts/main.py --model-a mistral --model-b llama3.2 --moderator
+    ../.venv/bin/python scripts/main.py --config examples/chain.yaml
+    ../.venv/bin/python scripts/main.py --topic "How should I structure a microservices architecture?"
+    ../.venv/bin/python scripts/main.py --model-a mistral --model-b llama3.2
 """
 
 import argparse
@@ -22,14 +22,11 @@ from arena.tui.app import DebateApp
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM Debate Arena")
+    parser = argparse.ArgumentParser(description="Chain-of-Debate Arena")
     parser.add_argument("--config", type=str, help="YAML config file path")
-    parser.add_argument("--topic", type=str, help="Debate topic")
-    parser.add_argument("--rounds", type=int, help="Number of rounds")
-    parser.add_argument("--model-a", type=str, dest="model_a", help="Model for debater A")
-    parser.add_argument("--model-b", type=str, dest="model_b", help="Model for debater B")
-    parser.add_argument("--moderator", action="store_true", default=None,
-                        help="Enable moderator")
+    parser.add_argument("--topic", type=str, help="Initial question (optional)")
+    parser.add_argument("--model-a", type=str, dest="model_a", help="Model for thinker A")
+    parser.add_argument("--model-b", type=str, dest="model_b", help="Model for thinker B")
     parser.add_argument("--host", type=str, help="Ollama host URL")
     parser.add_argument("--max-tokens", type=int, dest="max_tokens",
                         help="Max tokens per turn")
@@ -45,6 +42,11 @@ def main():
     a = make_participant("A", Config)
     b = make_participant("B", Config)
     mod = make_moderator(Config)
+
+    if mod is None:
+        print("Error: Moderator is required for chain-of-debate mode.")
+        print("Set moderator.enabled: true in your config.")
+        sys.exit(1)
 
     app = DebateApp(
         participant_a=a,
