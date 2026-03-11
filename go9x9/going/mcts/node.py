@@ -42,7 +42,7 @@ class MCTSNode:
         best_action = -1
         best_child = None
 
-        sqrt_parent_visits = math.sqrt(self.visit_count + self.virtual_loss)
+        sqrt_parent_visits = math.sqrt(1 + self.visit_count + self.virtual_loss)
 
         for action, child in self.children.items():
             q_value = -child.get_value()

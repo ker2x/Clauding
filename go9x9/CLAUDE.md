@@ -41,7 +41,7 @@ AlphaZero-style 9x9 Go engine in Python/PyTorch. Trains a ResNet via self-play w
 **`going/network/resnet.py`** — `GoNetwork`: ResNet with triple heads (policy + value + ownership). Input `(batch, 17, 9, 9)` → policy logits `(batch, 82)` + value `(batch, 1)` in `[-1, 1]` + ownership `(batch, 81)` in `[0, 1]`. 128 filters, 10 residual blocks, ~800K params. GlobalPoolBias layers every 3 blocks inject board-wide context. `predict()` applies legal-action masking and softmax.
 
 **`going/mcts/`** — MCTS with neural network evaluation and batched leaf expansion.
-- `node.py`: MCTSNode with PUCT selection (negamax Q-value convention), virtual loss for parallel traversal, Dirichlet noise at root.
+- `node.py`: MCTSNode with PUCT selection (negamax Q-value convention, `sqrt(1+N)` parent term), virtual loss for parallel traversal, Dirichlet noise at root.
 - `mcts.py`: `search()` returns visit-count policy over 82 actions. Batched NN evaluation of leaves.
 
 **`going/training/`** — AlphaZero training loop.
