@@ -1,0 +1,66 @@
+Screen {
+    layout: vertical;
+}
+
+#topic-bar {
+    height: 1;
+    background: $primary-background;
+    color: $text;
+    text-align: center;
+    padding: 0 1;
+}
+
+#debate-area {
+    height: 1fr;
+    max-height: 30%;
+    layout: horizontal;
+}
+
+#panel-a {
+    width: 1fr;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+#panel-b {
+    width: 1fr;
+    border: solid $secondary;
+    padding: 0 1;
+}
+
+#moderator-panel {
+    height: 1fr;
+    border: solid $warning;
+    padding: 0 1;
+}
+
+#input-area {
+    dock: bottom;
+    height: 3;
+    padding: 0 1;
+}
+
+.turn-header {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+.turn-text {
+    margin-bottom: 0;
+}
+
+.human-text {
+    color: $accent;
+}
+
+.separator {
+    height: 0;
+}
+
+#status-label {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+}

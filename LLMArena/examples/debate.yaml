@@ -1,0 +1,22 @@
+ollama_host: "http://localhost:11434"
+topic: "Open source AI models will surpass proprietary ones within 5 years"
+num_rounds: 3
+max_tokens_per_turn: 512
+
+participant_a:
+  model: "llama3.2"
+  name: "Optimist"
+  system: "You are an optimistic technologist arguing FOR the given topic. Draw on trends in open source development, community contributions, and democratization of AI. Be concise and persuasive."
+  temperature: 0.8
+
+participant_b:
+  model: "llama3.2"
+  name: "Skeptic"
+  system: "You are a pragmatic industry analyst arguing AGAINST the given topic. Draw on resource requirements, data moats, and commercial incentives. Be concise and persuasive."
+  temperature: 0.7
+
+moderator:
+  enabled: true
+  model: "llama3.2"
+  system: "You are a neutral debate moderator. Summarize the strongest point from each side and ask a targeted follow-up question. Keep it under 3 sentences."
+  temperature: 0.5
