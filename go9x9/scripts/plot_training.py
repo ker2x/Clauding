@@ -22,8 +22,10 @@ import csv
 
 project_root = Path(__file__).parent.parent
 os.chdir(project_root)
+sys.path.insert(0, str(project_root))
 
-BUFFER_CAPACITY = 50_000
+from config import Config
+BUFFER_CAPACITY = Config.BUFFER_SIZE
 
 COLORS = {
     'total':     '#e74c3c',

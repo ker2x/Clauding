@@ -17,7 +17,7 @@ class Config:
     OWNERSHIP_LOSS_WEIGHT = 0.5  # Weight on ownership auxiliary head BCE loss
 
     # MCTS configuration
-    MCTS_SIMS_SELFPLAY = 400
+    MCTS_SIMS_SELFPLAY = 200   # halved from 400 to get more games through
     MCTS_SIMS_FAST = 50        # sims for non-training (fast) moves
     MCTS_SIMS_EVAL = 200
     MCTS_BATCH_SIZE = 16
@@ -27,17 +27,17 @@ class Config:
 
     # Exploration
     C_PUCT = 1.0
-    DIRICHLET_ALPHA = 0.15  # ~10/avg_legal_moves for 9x9 Go (~50-60 legal moves)
+    DIRICHLET_ALPHA = 0.3  # Higher noise to prevent degenerate pattern lock-in
     DIRICHLET_EPSILON = 0.25
 
     # Temperature
-    TEMPERATURE_THRESHOLD = 30  # Longer games than checkers
+    TEMPERATURE_THRESHOLD = 100  # Keep exploring most of the game
     TEMPERATURE = 1.0
 
     # Training configuration
-    GAMES_PER_ITERATION = 20
+    GAMES_PER_ITERATION = 50
     NUM_WORKERS = 6
-    BUFFER_SIZE = 50_000
+    BUFFER_SIZE = 100_000
 
     # Data Sampling
     RECENCY_TAU = 30
@@ -51,7 +51,7 @@ class Config:
     GRAD_CLIP = 5.0
 
     # Evaluation
-    EVAL_FREQUENCY = 25
+    EVAL_FREQUENCY = 50
     EVAL_GAMES = 11
     PROMOTION_THRESHOLD = 0.55
 
@@ -126,7 +126,7 @@ class Config:
         print(f"  Buffer size: {cls.BUFFER_SIZE:,}")
         print(f"  Batch size: {cls.BATCH_SIZE}")
         print(f"  Sample Reuse: {cls.MIN_SAMPLE_REUSE} to {cls.MAX_SAMPLE_REUSE}x")
-        print(f"  Learning rate: {cls.LEARNING_RATE} → {cls.LR_MIN} (cosine)")
+        print(f"  Learning rate: {cls.LEARNING_RATE} → {cls.LR_MIN} (plateau)")
 
         print("\n[Evaluation]")
         print(f"  Frequency: every {cls.EVAL_FREQUENCY} iterations")

@@ -47,7 +47,10 @@ class Trainer:
             weight_decay=self.config.WEIGHT_DECAY
         )
 
-        self.scheduler = None  # initialized in train() when we know total iterations
+        lr_min = getattr(self.config, 'LR_MIN', 1e-4)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='min', factor=0.5, patience=30, min_lr=lr_min
+        )
 
         self.replay_buffer = ReplayBuffer(
             capacity=self.config.BUFFER_SIZE,
@@ -105,13 +108,7 @@ class Trainer:
         print(f"Self-play device: {self.selfplay_device}")
         print(f"MCTS simulations: {self.config.MCTS_SIMS_SELFPLAY}")
 
-        # Cosine annealing LR schedule
-        remaining = num_iterations - self.start_iteration
-        lr_min = getattr(self.config, 'LR_MIN', 1e-5)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=remaining, eta_min=lr_min
-        )
-        print(f"LR schedule: cosine {self.config.LEARNING_RATE} → {lr_min} over {remaining} iters")
+        print(f"LR schedule: ReduceLROnPlateau (factor=0.5, patience=30, min={getattr(self.config, 'LR_MIN', 1e-4)})")
         print("=" * 70)
 
         for iteration in range(self.start_iteration, num_iterations):
@@ -177,7 +174,7 @@ class Trainer:
 
             # Step LR scheduler
             if self.scheduler is not None:
-                self.scheduler.step()
+                self.scheduler.step(metrics.get('total_loss', 0))
                 current_lr = self.optimizer.param_groups[0]['lr']
                 print(f"  LR: {current_lr:.6f}")
 
@@ -361,16 +358,26 @@ class Trainer:
         self.network.load_state_dict(checkpoint['network_state_dict'])
         print("  Network state restored")
 
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print("  Optimizer state restored")
+        if 'optimizer_state_dict' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            print("  Optimizer state restored")
+        else:
+            print("  No optimizer state in checkpoint, starting fresh")
 
         if 'replay_buffer_state_dict' in checkpoint:
             self.replay_buffer.load_state_dict(checkpoint['replay_buffer_state_dict'])
             print(f"  Replay buffer restored (size: {len(self.replay_buffer)})")
 
         if 'scheduler_state_dict' in checkpoint and self.scheduler is not None:
-            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-            print("  Scheduler state restored")
+            saved = checkpoint['scheduler_state_dict']
+            # Only restore if same scheduler type (avoid cosine→plateau mismatch)
+            if 'best' in saved and isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.scheduler.load_state_dict(saved)
+                print("  Scheduler state restored")
+            else:
+                print("  Scheduler type changed, resetting LR to configured value")
+                for pg in self.optimizer.param_groups:
+                    pg['lr'] = self.config.LEARNING_RATE
 
-        self.start_iteration = checkpoint['iteration']
+        self.start_iteration = checkpoint.get('iteration', 0)
         print(f"  Resuming from iteration {self.start_iteration}")

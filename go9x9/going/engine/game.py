@@ -250,7 +250,7 @@ class GoGame:
         Plane 16:     Color to play (1 if black, 0 if white)
 
         Returns:
-            numpy array of shape (5, 9, 9)
+            numpy array of shape (17, 9, 9)
         """
         planes = np.zeros((NUM_PLANES, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
 
