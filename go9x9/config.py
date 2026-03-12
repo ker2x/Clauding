@@ -10,8 +10,8 @@ class Config:
 
     # Network architecture
     NUM_FILTERS = 128
-    NUM_RES_BLOCKS = 10
-    INPUT_PLANES = 17  # 8 history × 2 colors + 1 color-to-play
+    NUM_RES_BLOCKS = 6
+    INPUT_PLANES = 5   # 2 history × 2 colors + 1 color-to-play
     POLICY_SIZE = 82   # 81 intersections + pass
     GLOBAL_POOL_FREQ = 3      # Insert global-pool-bias layer every N residual blocks
     OWNERSHIP_LOSS_WEIGHT = 0.5  # Weight on ownership auxiliary head BCE loss
@@ -23,7 +23,7 @@ class Config:
     MCTS_BATCH_SIZE = 16
 
     # Playout cap randomization (KataGo-style)
-    P_FAST_MOVE = 0.75         # fraction of moves that are fast (not stored in buffer)
+    P_FAST_MOVE = 0.85         # fraction of moves that are fast (not stored in buffer)
 
     # Exploration
     C_PUCT = 1.0
@@ -31,7 +31,7 @@ class Config:
     DIRICHLET_EPSILON = 0.25
 
     # Temperature
-    TEMPERATURE_THRESHOLD = 100  # Keep exploring most of the game
+    TEMPERATURE_THRESHOLD = 20   # Exploit after opening phase
     TEMPERATURE = 1.0
 
     # Training configuration

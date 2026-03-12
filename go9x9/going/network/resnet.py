@@ -67,7 +67,7 @@ class GoNetwork(nn.Module):
     """
 
     def __init__(self, num_filters: int = 128, num_res_blocks: int = 6,
-                 policy_size: int = 82, input_planes: int = 5,
+                 policy_size: int = 82, input_planes: int = 5,  # 2 history × 2 + 1 color
                  global_pool_freq: int = 3):
         super().__init__()
 
