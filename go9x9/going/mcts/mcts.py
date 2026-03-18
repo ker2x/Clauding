@@ -31,7 +31,8 @@ class MCTS:
         dirichlet_alpha: float = 0.03,
         dirichlet_epsilon: float = 0.25,
         device: torch.device = torch.device("cpu"),
-        batch_size: int = 1
+        batch_size: int = 1,
+        early_term_threshold: float = 0.5
     ):
         self.network = network
         self.c_puct = c_puct
@@ -40,6 +41,7 @@ class MCTS:
         self.dirichlet_epsilon = dirichlet_epsilon
         self.device = device
         self.batch_size = batch_size
+        self.early_term_threshold = early_term_threshold
         self.root: Optional[MCTSNode] = None
 
     def search(self, game: GoGame, add_noise: bool = True) -> np.ndarray:
@@ -78,7 +80,8 @@ class MCTS:
         priors = [policy_probs[action] for action in legal_actions]
         self.root.expand(legal_actions, priors)
 
-        # Run batched simulations
+        # Run batched simulations with early termination
+        min_sims = int(self.num_simulations * self.early_term_threshold)
         sims_completed = 0
         while sims_completed < self.num_simulations:
             batch = min(self.batch_size, self.num_simulations - sims_completed)
@@ -103,6 +106,16 @@ class MCTS:
                 self._batch_evaluate_and_backup(nn_leaves)
 
             sims_completed += len(leaves)
+
+            # Early termination: stop if leader can't be overtaken
+            if sims_completed >= min_sims and len(self.root.children) > 1:
+                remaining = self.num_simulations - sims_completed
+                visits = sorted(
+                    (child.visit_count for child in self.root.children.values()),
+                    reverse=True,
+                )
+                if visits[0] - visits[1] > remaining:
+                    break
 
         return self._get_action_probs(temperature=1.0)
 

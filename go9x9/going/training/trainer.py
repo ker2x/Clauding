@@ -5,6 +5,7 @@ Main training loop for 9x9 Go.
 import torch
 import torch.nn.functional as F
 import numpy as np
+import socket
 import time
 import csv
 from pathlib import Path
@@ -15,6 +16,7 @@ try:
     from .replay_buffer import ReplayBuffer
     from .self_play import play_games_sequential, play_games_parallel
     from .evaluation import evaluate_models
+    from .distributed import send_msg, recv_msg, config_to_dict, DEFAULT_PORT
 except ImportError:
     import sys, os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
@@ -22,6 +24,7 @@ except ImportError:
     from going.training.replay_buffer import ReplayBuffer
     from going.training.self_play import play_games_sequential, play_games_parallel
     from going.training.evaluation import evaluate_models
+    from going.training.distributed import send_msg, recv_msg, config_to_dict, DEFAULT_PORT
 
 
 class Trainer:
@@ -47,10 +50,16 @@ class Trainer:
             weight_decay=self.config.WEIGHT_DECAY
         )
 
-        lr_min = getattr(self.config, 'LR_MIN', 1e-4)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.5, patience=30, min_lr=lr_min
-        )
+        lr_schedule = getattr(self.config, 'LR_SCHEDULE', 'cosine')
+        if lr_schedule == "flat":
+            self.scheduler = None
+        else:
+            lr_min = getattr(self.config, 'LR_MIN', 1e-4)
+            cosine_t0 = getattr(self.config, 'COSINE_T0', 50)
+            cosine_t_mult = getattr(self.config, 'COSINE_T_MULT', 1)
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                self.optimizer, T_0=cosine_t0, T_mult=cosine_t_mult, eta_min=lr_min
+            )
 
         self.replay_buffer = ReplayBuffer(
             capacity=self.config.BUFFER_SIZE,
@@ -74,7 +83,8 @@ class Trainer:
                 writer.writerow([
                     'iteration', 'total_loss', 'policy_loss', 'value_loss',
                     'ownership_loss', 'buffer_size', 'games_played',
-                    'time_selfplay', 'time_training', 'learning_rate'
+                    'time_selfplay', 'time_training', 'learning_rate',
+                    'avg_game_length'
                 ])
 
     def log_metrics(self, metrics: Dict):
@@ -91,6 +101,7 @@ class Trainer:
                 metrics.get('time_selfplay', 0),
                 metrics.get('time_training', 0),
                 metrics.get('learning_rate', 0),
+                metrics.get('avg_game_length', 0),
             ])
 
     def train(self, num_iterations: int):
@@ -108,7 +119,11 @@ class Trainer:
         print(f"Self-play device: {self.selfplay_device}")
         print(f"MCTS simulations: {self.config.MCTS_SIMS_SELFPLAY}")
 
-        print(f"LR schedule: ReduceLROnPlateau (factor=0.5, patience=30, min={getattr(self.config, 'LR_MIN', 1e-4)})")
+        if self.scheduler is None:
+            print(f"LR schedule: flat ({self.config.LEARNING_RATE})")
+        else:
+            cosine_t0 = getattr(self.config, 'COSINE_T0', 50)
+            print(f"LR schedule: CosineAnnealingWarmRestarts (T0={cosine_t0}, min={getattr(self.config, 'LR_MIN', 1e-4)})")
         print("=" * 70)
 
         for iteration in range(self.start_iteration, num_iterations):
@@ -116,23 +131,32 @@ class Trainer:
 
             # 1. Self-play
             print(f"\n[Iteration {iteration + 1}/{num_iterations}]")
-            print(f"[1/2] Self-play ({self.config.GAMES_PER_ITERATION} games)...")
+            remote_host = getattr(self.config, 'REMOTE_SELFPLAY_HOST', None)
+            if remote_host:
+                print(f"[1/2] Remote self-play ({self.config.GAMES_PER_ITERATION} games → {remote_host})...")
+            else:
+                print(f"[1/2] Self-play ({self.config.GAMES_PER_ITERATION} games)...")
             t_start = time.time()
 
-            self.network.to(self.selfplay_device)
-            if self.selfplay_device.type == "cpu":
-                self.network.share_memory()
-            self.network.eval()
+            if remote_host:
+                states, policies, values, ownerships, surprises, game_lengths = \
+                    self._remote_selfplay()
+            else:
+                self.network.to(self.selfplay_device)
+                if self.selfplay_device.type == "cpu":
+                    self.network.share_memory()
+                self.network.eval()
 
-            states, policies, values, ownerships, surprises = play_games_parallel(
-                self.network, self.config, self.selfplay_device,
-                num_games=self.config.GAMES_PER_ITERATION
-            )
+                states, policies, values, ownerships, surprises, game_lengths = play_games_parallel(
+                    self.network, self.config, self.selfplay_device,
+                    num_games=self.config.GAMES_PER_ITERATION
+                )
 
-            self.network.to(self.device)
+                self.network.to(self.device)
 
             metrics['time_selfplay'] = time.time() - t_start
             metrics['games_played'] = self.config.GAMES_PER_ITERATION
+            metrics['avg_game_length'] = np.mean(game_lengths) if game_lengths else 0
 
             self.replay_buffer.add_batch(states, policies, values, ownerships, surprises)
 
@@ -174,7 +198,7 @@ class Trainer:
 
             # Step LR scheduler
             if self.scheduler is not None:
-                self.scheduler.step(metrics.get('total_loss', 0))
+                self.scheduler.step()
                 current_lr = self.optimizer.param_groups[0]['lr']
                 print(f"  LR: {current_lr:.6f}")
 
@@ -209,6 +233,39 @@ class Trainer:
         )
         steps = (num_new_samples * current_reuse) / self.config.BATCH_SIZE
         return max(10, int(steps))
+
+    def _remote_selfplay(self):
+        """Send weights to remote server, receive training data."""
+        host = self.config.REMOTE_SELFPLAY_HOST
+        port = getattr(self.config, 'REMOTE_SELFPLAY_PORT', DEFAULT_PORT)
+
+        # Move weights to CPU for serialization
+        cpu_state_dict = {k: v.cpu() for k, v in self.network.state_dict().items()}
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((host, port))
+            send_msg(sock, {
+                'type': 'selfplay',
+                'state_dict': cpu_state_dict,
+                'config': config_to_dict(self.config),
+            })
+            print(f"  Weights sent, waiting for games...")
+
+            result = recv_msg(sock)
+            if result is None:
+                raise ConnectionError("Remote server closed connection")
+        finally:
+            sock.close()
+
+        return (
+            result['states'],
+            result['policies'],
+            result['values'],
+            result['ownerships'],
+            result['surprises'],
+            result['game_lengths'],
+        )
 
     def train_network(self, num_steps: int) -> Dict[str, float]:
         self.network.train()
@@ -368,10 +425,17 @@ class Trainer:
             self.replay_buffer.load_state_dict(checkpoint['replay_buffer_state_dict'])
             print(f"  Replay buffer restored (size: {len(self.replay_buffer)})")
 
-        if 'scheduler_state_dict' in checkpoint and self.scheduler is not None:
+        if self.scheduler is None:
+            # Flat LR: override whatever the optimizer loaded
+            for pg in self.optimizer.param_groups:
+                pg['lr'] = self.config.LEARNING_RATE
+            print(f"  Flat LR set to {self.config.LEARNING_RATE}")
+        elif 'scheduler_state_dict' in checkpoint:
             saved = checkpoint['scheduler_state_dict']
-            # Only restore if same scheduler type (avoid cosine→plateau mismatch)
-            if 'best' in saved and isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            is_saved_plateau = 'best' in saved
+            is_current_plateau = isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
+            # Only restore if scheduler types match
+            if is_saved_plateau == is_current_plateau:
                 self.scheduler.load_state_dict(saved)
                 print("  Scheduler state restored")
             else:

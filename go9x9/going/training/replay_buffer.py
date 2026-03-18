@@ -6,6 +6,13 @@ and policy-surprise weighting.
 import numpy as np
 from typing import Tuple
 
+try:
+    from ..engine.dihedral import augment_sample
+except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+    from going.engine.dihedral import augment_sample
+
 
 class ReplayBuffer:
     """
@@ -48,7 +55,8 @@ class ReplayBuffer:
                   ownerships: list, surprises: list):
         for state, policy, value, ownership, surprise in zip(
                 states, policies, values, ownerships, surprises):
-            self.add(state, policy, value, ownership, surprise)
+            for aug in augment_sample(state, policy, value, ownership, surprise):
+                self.add(*aug)
 
     def sample(self, batch_size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         if self.size == 0:

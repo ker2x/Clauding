@@ -34,7 +34,7 @@ except ImportError:
 
 # Neural network input planes
 NUM_HISTORY = 2  # 2 timesteps sufficient for ko context on 9x9
-NUM_PLANES = NUM_HISTORY * 2 + 1  # 5 planes total
+NUM_PLANES = NUM_HISTORY * 2  # 4 planes: my stones + opp stones × 2 history
 
 
 class GoGame:
@@ -243,14 +243,13 @@ class GoGame:
 
     def to_neural_input(self) -> np.ndarray:
         """
-        Convert game state to neural network input (5 planes × 9 × 9).
+        Convert game state to neural network input (4 planes × 9 × 9).
 
         Planes 0-1:   Current player's stones over last 2 timesteps
         Planes 2-3:   Opponent's stones over last 2 timesteps
-        Plane 4:      Color to play (1 if black, 0 if white)
 
         Returns:
-            numpy array of shape (5, 9, 9)
+            numpy array of shape (4, 9, 9)
         """
         planes = np.zeros((NUM_PLANES, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
 
@@ -271,10 +270,6 @@ class GoGame:
 
             planes[t] = my_plane
             planes[NUM_HISTORY + t] = opp_plane
-
-        # Color plane
-        if my_color == BLACK:
-            planes[NUM_PLANES - 1] = 1.0
 
         return planes
 

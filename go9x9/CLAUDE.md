@@ -33,27 +33,28 @@ AlphaZero-style 9x9 Go engine in Python/PyTorch. Trains a ResNet via self-play w
 
 **`going/engine/`** — Go rules and game state (pure numpy, no torch dependency)
 - `board.py`: Flat 81-int board array (`0`=empty, `1`=black, `2`=white). Precomputed `NEIGHBORS` table. Core functions: `apply_move`, `get_legal_moves`, `is_suicide`, `find_group`.
-- `game.py`: `GoGame` class wrapping board + zobrist superko + 8-frame board history. `to_neural_input()` produces `(17, 9, 9)` planes (8 history × 2 colors + color-to-play). Result from current player's perspective.
+- `game.py`: `GoGame` class wrapping board + zobrist superko + board history. `to_neural_input()` produces `(INPUT_PLANES, 9, 9)` planes (history × 2 colors, no color-to-play — network is color-agnostic). Result from current player's perspective.
+- `dihedral.py`: Dihedral group (8 symmetries of the square) for data augmentation.
 - `action_encoder.py`: Action space is 82 (81 intersections + pass=81). GTP coordinate conversion (I column skipped per Go convention).
 - `zobrist.py`: Zobrist hashing for positional superko detection.
 - `scoring.py`: Chinese-style area scoring with territory flood-fill.
 
-**`going/network/resnet.py`** — `GoNetwork`: ResNet with triple heads (policy + value + ownership). Input `(batch, 17, 9, 9)` → policy logits `(batch, 82)` + value `(batch, 1)` in `[-1, 1]` + ownership `(batch, 81)` in `[0, 1]`. 128 filters, 10 residual blocks, ~800K params. GlobalPoolBias layers every 3 blocks inject board-wide context. `predict()` applies legal-action masking and softmax.
+**`going/network/resnet.py`** — `GoNetwork`: ResNet with triple heads (policy + value + ownership). Input `(batch, INPUT_PLANES, 9, 9)` → policy logits `(batch, 82)` + value `(batch, 1)` in `[-1, 1]` + ownership `(batch, 81)` in `[0, 1]`. 128 filters, 6 residual blocks. GlobalPoolBias layers every 3 blocks inject board-wide context. `predict()` applies legal-action masking and softmax.
 
 **`going/mcts/`** — MCTS with neural network evaluation and batched leaf expansion.
 - `node.py`: MCTSNode with PUCT selection (negamax Q-value convention, `sqrt(1+N)` parent term), virtual loss for parallel traversal, Dirichlet noise at root.
-- `mcts.py`: `search()` returns visit-count policy over 82 actions. Batched NN evaluation of leaves.
+- `mcts.py`: `search()` returns visit-count policy over 82 actions. Batched NN evaluation of leaves. Early termination stops search when the leading move's visit gap exceeds remaining sims (controlled by `MCTS_EARLY_TERM` threshold).
 
 **`going/training/`** — AlphaZero training loop.
 - `trainer.py`: Orchestrates self-play → replay buffer → SGD → evaluation → checkpoint cycle. Dynamic sample reuse scaling based on buffer saturation. Loss = policy CE + value MSE + ownership BCE (weighted).
-- `self_play.py`: `SelfPlayGame` + parallel worker pool. KataGo-style playout cap randomization (75% fast/25% full moves).
+- `self_play.py`: `SelfPlayGame` + parallel worker pool. KataGo-style playout cap randomization (`P_FAST_MOVE` fraction use fewer sims and aren't stored as training data).
 - `inference_server.py`: When self-play device is GPU/MPS, spawns a dedicated inference server process. Workers use `RemoteNetwork` proxy for batched cross-process inference.
 - `replay_buffer.py`: Circular buffer with recency-weighted sampling (tau controls staleness decay).
 - `evaluation.py`: Pits current model vs best model; promotes on win-loss differential > 0.
 
 **`going/gtp/`** — GTP v2 protocol. `engine.py` handles commands, `controller.py` manages I/O. Stdin pre-buffered in a thread to avoid Sabaki handshake timeouts.
 
-**`config.py`** — All hyperparameters in one `Config` class. Key values: `MCTS_SIMS_SELFPLAY=200`, `MCTS_SIMS_FAST=50`, `GAMES_PER_ITERATION=50`, `BUFFER_SIZE=100_000`, LR via ReduceLROnPlateau (starts at `0.002`, halves on plateau, min `1e-4`). Both training and self-play on MPS (Apple Silicon).
+**`config.py`** — All hyperparameters in one `Config` class. Currently in curriculum phase 1: `MCTS_SIMS_SELFPLAY=200`, `GAMES_PER_ITERATION=30`, flat LR at `1e-3`. `BUFFER_SIZE=100_000`. Both training and self-play on MPS (Apple Silicon).
 
 ## Key Conventions
 
