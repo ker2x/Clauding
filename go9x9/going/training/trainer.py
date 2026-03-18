@@ -8,8 +8,9 @@ import numpy as np
 import socket
 import time
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Tuple
 
 try:
     from ..network.resnet import GoNetwork
@@ -24,7 +25,7 @@ except ImportError:
     from going.training.replay_buffer import ReplayBuffer
     from going.training.self_play import play_games_sequential, play_games_parallel
     from going.training.evaluation import evaluate_models
-    from going.training.distributed import send_msg, recv_msg, config_to_dict, DEFAULT_PORT
+    from going.training.distributed import send_msg, recv_msg, config_to_dict
 
 
 class Trainer:
@@ -131,16 +132,16 @@ class Trainer:
 
             # 1. Self-play
             print(f"\n[Iteration {iteration + 1}/{num_iterations}]")
-            remote_host = getattr(self.config, 'REMOTE_SELFPLAY_HOST', None)
-            if remote_host:
-                print(f"[1/2] Remote self-play ({self.config.GAMES_PER_ITERATION} games → {remote_host})...")
+            servers = getattr(self.config, 'SELFPLAY_SERVERS', None) or []
+            if servers:
+                print(f"[1/2] Distributed self-play ({self.config.GAMES_PER_ITERATION} games × {len(servers)} servers)...")
             else:
                 print(f"[1/2] Self-play ({self.config.GAMES_PER_ITERATION} games)...")
             t_start = time.time()
 
-            if remote_host:
+            if servers:
                 states, policies, values, ownerships, surprises, game_lengths = \
-                    self._remote_selfplay()
+                    self._distributed_selfplay(servers)
             else:
                 self.network.to(self.selfplay_device)
                 if self.selfplay_device.type == "cpu":
@@ -155,7 +156,7 @@ class Trainer:
                 self.network.to(self.device)
 
             metrics['time_selfplay'] = time.time() - t_start
-            metrics['games_played'] = self.config.GAMES_PER_ITERATION
+            metrics['games_played'] = len(game_lengths) if game_lengths else 0
             metrics['avg_game_length'] = np.mean(game_lengths) if game_lengths else 0
 
             self.replay_buffer.add_batch(states, policies, values, ownerships, surprises)
@@ -234,38 +235,52 @@ class Trainer:
         steps = (num_new_samples * current_reuse) / self.config.BATCH_SIZE
         return max(10, int(steps))
 
-    def _remote_selfplay(self):
-        """Send weights to remote server, receive training data."""
-        host = self.config.REMOTE_SELFPLAY_HOST
-        port = getattr(self.config, 'REMOTE_SELFPLAY_PORT', DEFAULT_PORT)
-
-        # Move weights to CPU for serialization
+    def _distributed_selfplay(self, servers: List[str]):
+        """Fan out self-play to multiple servers in parallel, combine results."""
         cpu_state_dict = {k: v.cpu() for k, v in self.network.state_dict().items()}
+        cfg_dict = config_to_dict(self.config)
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.connect((host, port))
-            send_msg(sock, {
-                'type': 'selfplay',
-                'state_dict': cpu_state_dict,
-                'config': config_to_dict(self.config),
-            })
-            print(f"  Weights sent, waiting for games...")
+        def query_server(server_addr: str):
+            host, _, port_str = server_addr.partition(':')
+            port = int(port_str) if port_str else DEFAULT_PORT
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.connect((host, port))
+                send_msg(sock, {
+                    'type': 'selfplay',
+                    'state_dict': cpu_state_dict,
+                    'config': cfg_dict,
+                })
+                result = recv_msg(sock)
+                if result is None:
+                    raise ConnectionError(f"Server {server_addr} closed connection")
+                return server_addr, result
+            finally:
+                sock.close()
 
-            result = recv_msg(sock)
-            if result is None:
-                raise ConnectionError("Remote server closed connection")
-        finally:
-            sock.close()
+        all_states, all_policies, all_values = [], [], []
+        all_ownerships, all_surprises, all_game_lengths = [], [], []
 
-        return (
-            result['states'],
-            result['policies'],
-            result['values'],
-            result['ownerships'],
-            result['surprises'],
-            result['game_lengths'],
-        )
+        print(f"  Sending weights to {len(servers)} server(s)...")
+        with ThreadPoolExecutor(max_workers=len(servers)) as pool:
+            futures = {pool.submit(query_server, s): s for s in servers}
+            for future in as_completed(futures):
+                server_addr = futures[future]
+                try:
+                    _, result = future.result()
+                    n = len(result['states'])
+                    print(f"  ← {server_addr}: {n} examples, "
+                          f"{len(result['game_lengths'])} games")
+                    all_states.extend(result['states'])
+                    all_policies.extend(result['policies'])
+                    all_values.extend(result['values'])
+                    all_ownerships.extend(result['ownerships'])
+                    all_surprises.extend(result['surprises'])
+                    all_game_lengths.extend(result['game_lengths'])
+                except Exception as e:
+                    print(f"  ✗ {server_addr} failed: {e}")
+
+        return all_states, all_policies, all_values, all_ownerships, all_surprises, all_game_lengths
 
     def train_network(self, num_steps: int) -> Dict[str, float]:
         self.network.train()

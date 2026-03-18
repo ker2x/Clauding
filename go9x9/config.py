@@ -59,9 +59,11 @@ class Config:
     EVAL_GAMES = 11
     PROMOTION_THRESHOLD = 0.55
 
-    # Distributed self-play
-    REMOTE_SELFPLAY_HOST = None   # e.g. "192.168.1.50" to offload self-play
-    REMOTE_SELFPLAY_PORT = 9377
+    # Distributed self-play — list of "host:port" servers (empty = local only)
+    # Each server runs scripts/selfplay_server.py and plays its share of games.
+    SELFPLAY_SERVERS = [
+        "192.168.1.17:9377",
+    ]
 
     # System
     DEVICE = "mps"
