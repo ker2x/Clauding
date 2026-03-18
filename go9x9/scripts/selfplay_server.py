@@ -91,6 +91,8 @@ def run_server(args):
     elif args.device == "rocm" and torch.cuda.is_available():
         # ROCm uses CUDA API in PyTorch
         device = torch.device("cuda")
+    elif args.device == "mps" and torch.backends.mps.is_available():
+        device = torch.device("mps")
     elif args.device == "cpu":
         if args.threads:
             torch.set_num_threads(args.threads)
@@ -176,7 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=DEFAULT_PORT,
                         help=f'TCP port (default: {DEFAULT_PORT})')
     parser.add_argument('--device', type=str, default='cpu',
-                        choices=['cpu', 'cuda', 'rocm'],
+                        choices=['cpu', 'cuda', 'rocm', 'mps'],
                         help='Compute device (default: cpu)')
     parser.add_argument('--workers', type=int, default=None,
                         help='Override NUM_WORKERS from trainer config')
