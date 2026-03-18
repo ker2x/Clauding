@@ -16,6 +16,7 @@ import socket
 import sys
 import os
 import time
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -29,7 +30,13 @@ from going.training.distributed import (
 )
 
 
-def handle_selfplay_request(msg, network, device, args):
+def log(msg):
+    """Print with timestamp and flush."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
+def handle_selfplay_request(msg, network, device, args, request_num):
     """Process a self-play request: load weights, play games, return data."""
     config_dict = msg['config']
     config = dict_to_config(config_dict)
@@ -48,8 +55,8 @@ def handle_selfplay_request(msg, network, device, args):
 
     num_games = config.GAMES_PER_ITERATION
 
-    print(f"  Playing {num_games} games "
-          f"({config.NUM_WORKERS} workers, {config.MCTS_SIMS_SELFPLAY} sims)...")
+    log(f"Request #{request_num}: {num_games} games, "
+        f"{config.NUM_WORKERS} workers, {config.MCTS_SIMS_SELFPLAY} sims")
     t0 = time.time()
 
     if device.type == "cpu" and config.NUM_WORKERS <= 1:
@@ -62,7 +69,9 @@ def handle_selfplay_request(msg, network, device, args):
     states, policies, values, ownerships, surprises, game_lengths = results
     elapsed = time.time() - t0
 
-    print(f"  Done: {len(states)} examples from {num_games} games in {elapsed:.1f}s")
+    avg_len = np.mean(game_lengths) if game_lengths else 0
+    log(f"Request #{request_num} done: {len(states)} examples, "
+        f"{num_games} games, avg length {avg_len:.0f}, {elapsed:.1f}s")
 
     # Convert to numpy arrays for efficient pickling
     return {
@@ -87,41 +96,44 @@ def run_server(args):
             torch.set_num_threads(args.threads)
         device = torch.device("cpu")
     else:
-        print(f"Warning: {args.device} not available, falling back to CPU")
+        log(f"Warning: {args.device} not available, falling back to CPU")
         device = torch.device("cpu")
 
-    print(f"Self-play server starting on port {args.port}, device={device}")
+    log(f"Self-play server starting on port {args.port}, device={device}")
 
     # Pre-allocate network (will load weights on first request)
     network = None
+    request_num = 0
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('0.0.0.0', args.port))
     server.listen(1)
-    print(f"Listening on 0.0.0.0:{args.port}...")
+    log(f"Listening on 0.0.0.0:{args.port}")
 
     try:
         while True:
-            print("\nWaiting for connection...")
+            log("Waiting for connection...")
             conn, addr = server.accept()
-            print(f"Connected: {addr}")
+            log(f"Connected: {addr[0]}:{addr[1]}")
 
             try:
                 while True:
                     msg = recv_msg(conn)
                     if msg is None:
-                        print("Connection closed by trainer.")
+                        log("Connection closed by trainer.")
                         break
 
                     msg_type = msg.get('type', '')
 
                     if msg_type == 'shutdown':
-                        print("Shutdown requested.")
+                        log("Shutdown requested.")
                         conn.close()
                         return
 
                     if msg_type == 'selfplay':
+                        request_num += 1
+
                         # Lazily create/recreate network if architecture changed
                         cfg = dict_to_config(msg['config'])
                         if network is None or _arch_changed(network, cfg):
@@ -132,21 +144,23 @@ def run_server(args):
                                 input_planes=cfg.INPUT_PLANES,
                                 global_pool_freq=cfg.GLOBAL_POOL_FREQ,
                             )
-                            print(f"  Network created: {cfg.NUM_FILTERS}f, "
-                                  f"{cfg.NUM_RES_BLOCKS}b, {cfg.INPUT_PLANES}ip")
+                            log(f"Network created: {cfg.NUM_FILTERS}f, "
+                                f"{cfg.NUM_RES_BLOCKS}b, {cfg.INPUT_PLANES}ip")
 
-                        result = handle_selfplay_request(msg, network, device, args)
+                        result = handle_selfplay_request(
+                            msg, network, device, args, request_num)
                         send_msg(conn, result)
+                        log(f"Results sent to trainer.")
                     else:
-                        print(f"  Unknown message type: {msg_type}")
+                        log(f"Unknown message type: {msg_type}")
 
             except (ConnectionResetError, BrokenPipeError) as e:
-                print(f"Connection error: {e}")
+                log(f"Connection error: {e}")
             finally:
                 conn.close()
 
     except KeyboardInterrupt:
-        print("\nServer shutting down.")
+        log("Server shutting down.")
     finally:
         server.close()
 
