@@ -61,10 +61,13 @@ def config_to_dict(config) -> dict:
     return {k: getattr(config, k) for k in _CONFIG_KEYS}
 
 
+class RemoteConfig:
+    """Picklable config object for cross-process transport."""
+    pass
+
+
 def dict_to_config(d: dict):
     """Create a simple namespace object from a config dict."""
-    class RemoteConfig:
-        pass
     cfg = RemoteConfig()
     for k, v in d.items():
         setattr(cfg, k, v)
