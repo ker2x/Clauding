@@ -14,9 +14,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--append", action="store_true", help="Append to existing expressions file")
     parser.add_argument("--seed", type=int, default=None, help="Override seed (useful for generating different data)")
+    parser.add_argument("--count", type=int, default=None, help="Expressions per tier (overrides config)")
     args = parser.parse_args()
 
     config = Config()
+    if args.count is not None:
+        for tier in config.TIERS:
+            tier.count = args.count
 
     # When appending, load existing expressions to avoid duplicates
     existing = set()
