@@ -62,7 +62,7 @@ class Config:
     # Distributed self-play — list of "host:port" servers (empty = local only)
     # Each server runs scripts/selfplay_server.py and plays its share of games.
     SELFPLAY_SERVERS = [
-        "192.168.1.17:9377",
+        "127.0.0.1:9377",
     ]
 
     # System

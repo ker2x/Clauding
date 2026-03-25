@@ -15,6 +15,11 @@ AlphaZero-style 9x9 Go engine in Python/PyTorch. Trains a ResNet via self-play w
 ../.venv/bin/python scripts/train.py --iterations 100
 ../.venv/bin/python scripts/train.py --resume --iterations 150        # auto-resume from latest checkpoint
 ../.venv/bin/python scripts/train.py --resume checkpoints/checkpoint_iter_50.pt --iterations 150
+../.venv/bin/python scripts/train.py --resume --iterations 200 --clear-buffer  # wipe buffer after config change
+
+# Distributed self-play server (run on remote machines or localhost)
+../.venv/bin/python scripts/selfplay_server.py --device mps --port 9377
+../.venv/bin/python scripts/selfplay_server.py --device cpu --workers 8 --games 50 --port 9377
 
 # GTP play (use in Sabaki or gogui-twogtp)
 ../.venv/bin/python scripts/gtp_play.py --model checkpoints/best_model.pt
@@ -49,12 +54,13 @@ AlphaZero-style 9x9 Go engine in Python/PyTorch. Trains a ResNet via self-play w
 - `trainer.py`: Orchestrates self-play → replay buffer → SGD → evaluation → checkpoint cycle. Dynamic sample reuse scaling based on buffer saturation. Loss = policy CE + value MSE + ownership BCE (weighted).
 - `self_play.py`: `SelfPlayGame` + parallel worker pool. KataGo-style playout cap randomization (`P_FAST_MOVE` fraction use fewer sims and aren't stored as training data).
 - `inference_server.py`: When self-play device is GPU/MPS, spawns a dedicated inference server process. Workers use `RemoteNetwork` proxy for batched cross-process inference.
+- `distributed.py`: TCP protocol for multi-machine self-play. Length-prefixed pickle messages (stdlib only, no ZMQ). Trainer fans out to all `SELFPLAY_SERVERS` in parallel via threads, each server plays `GAMES_PER_ITERATION` games independently.
 - `replay_buffer.py`: Circular buffer with recency-weighted sampling (tau controls staleness decay).
 - `evaluation.py`: Pits current model vs best model; promotes on win-loss differential > 0.
 
 **`going/gtp/`** — GTP v2 protocol. `engine.py` handles commands, `controller.py` manages I/O. Stdin pre-buffered in a thread to avoid Sabaki handshake timeouts.
 
-**`config.py`** — All hyperparameters in one `Config` class. Currently in curriculum phase 1: `MCTS_SIMS_SELFPLAY=200`, `GAMES_PER_ITERATION=30`, flat LR at `1e-3`. `BUFFER_SIZE=100_000`. Both training and self-play on MPS (Apple Silicon).
+**`config.py`** — All hyperparameters in one `Config` class. `BUFFER_SIZE=100_000`. `SELFPLAY_SERVERS` lists `"host:port"` strings for distributed self-play (empty = local only). Three-phase curriculum plan: phase 1 (LR 1e-3, 200 sims, 30 games), phase 2 (LR 3e-4, 200 sims, 50 games), phase 3 (LR 1e-4, 400 sims, 50 games).
 
 ## Key Conventions
 
