@@ -63,14 +63,14 @@ def _format_operand(n: int) -> str:
     return str(n)
 
 
-def generate_expressions(config: Config) -> list[dict]:
+def generate_expressions(config: Config, seed: int | None = None, existing: set[str] | None = None) -> list[dict]:
     """Generate expressions for all tiers."""
-    rng = random.Random(config.SEED)
+    rng = random.Random(seed if seed is not None else config.SEED)
     results = []
 
     for tier_idx, tier in enumerate(config.TIERS, start=1):
         count = 0
-        seen = set()
+        seen = set(existing) if existing else set()
         attempts = 0
         max_attempts = tier.count * 20
 
@@ -96,9 +96,11 @@ def generate_expressions(config: Config) -> list[dict]:
     return results
 
 
-def save_expressions(expressions: list[dict], path: Path) -> None:
+def save_expressions(expressions: list[dict], path: Path, append: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    mode = "a" if append else "w"
+    with open(path, mode) as f:
         for expr in expressions:
             f.write(json.dumps(expr) + "\n")
-    print(f"Saved {len(expressions)} expressions to {path}")
+    action = "Appended" if append else "Saved"
+    print(f"{action} {len(expressions)} expressions to {path}")
