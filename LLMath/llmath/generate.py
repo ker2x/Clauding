@@ -8,6 +8,19 @@ from config import Config, TierConfig
 
 OPERATORS = ["+", "-", "*", "/"]
 
+PROMPT_TEMPLATES = [
+    "What is {expr}?",
+    "Calculate {expr}",
+    "Solve: {expr}",
+    "{expr} = ?",
+    "What's the result of {expr}?",
+    "Evaluate {expr}",
+    "Compute {expr}",
+    "What does {expr} equal?",
+    "Find the value of {expr}",
+    "{expr}",
+]
+
 
 def random_expression(rng: random.Random, tier: TierConfig) -> tuple[str, int | None]:
     """Generate a random arithmetic expression and evaluate it.
@@ -16,45 +29,52 @@ def random_expression(rng: random.Random, tier: TierConfig) -> tuple[str, int | 
     (non-integer result or division by zero).
     """
     num_ops = rng.randint(*tier.num_ops)
-    operands = [rng.randint(*tier.operand_range) for _ in range(num_ops + 1)]
-    ops = [rng.choice(OPERATORS) for _ in range(num_ops)]
-
-    # Build expression tree as nested pairs, then render to infix
-    # Simple approach: linear chain with optional parenthesized sub-expressions
-    tokens = []
-    i = 0
-    while i < len(operands):
-        if i > 0:
-            tokens.append(ops[i - 1])
-
-        # Decide whether to parenthesize a sub-expression (current + next operand)
-        if (
-            tier.paren_probability > 0
-            and i + 1 < len(operands)
-            and i < len(ops)
-            and rng.random() < tier.paren_probability
-        ):
-            a, b = operands[i], operands[i + 1]
-            op = ops[i]
-            sub = f"({_format_operand(a)} {op} {_format_operand(b)})"
-            tokens.append(sub)
-            i += 2
-        else:
-            tokens.append(_format_operand(operands[i]))
-            i += 1
-
-    expr = " ".join(tokens)
-
-    # Evaluate
-    try:
-        result = eval(expr)  # noqa: S307
-    except ZeroDivisionError:
+    expr, value = _random_tree(rng, tier, budget=num_ops)
+    if value is None:
         return expr, None
+    return expr, value
 
-    if not isinstance(result, int) and not (isinstance(result, float) and result == int(result)):
-        return expr, None
 
-    return expr, int(result)
+def _random_tree(rng: random.Random, tier: TierConfig, budget: int) -> tuple[str, int | None]:
+    """Recursively build a random expression tree.
+
+    budget: number of operators remaining to place.
+    Returns (expression_string, value) where value is None if invalid.
+    """
+    if budget == 0:
+        n = rng.randint(*tier.operand_range)
+        return _format_operand(n), n
+
+    # Split budget between left and right subtrees
+    left_budget = rng.randint(0, budget - 1)
+    right_budget = budget - 1 - left_budget
+
+    left_expr, left_val = _random_tree(rng, tier, left_budget)
+    right_expr, right_val = _random_tree(rng, tier, right_budget)
+
+    if left_val is None or right_val is None:
+        return "", None
+
+    op = rng.choice(OPERATORS)
+
+    if op == "+":
+        value = left_val + right_val
+    elif op == "-":
+        value = left_val - right_val
+    elif op == "*":
+        value = left_val * right_val
+    elif op == "/":
+        if right_val == 0 or left_val % right_val != 0:
+            return "", None
+        value = left_val // right_val
+    else:
+        return "", None
+
+    # Parenthesize non-leaf subexpressions to make precedence explicit
+    left_str = f"({left_expr})" if left_budget > 0 else left_expr
+    right_str = f"({right_expr})" if right_budget > 0 else right_expr
+
+    return f"{left_str} {op} {right_str}", value
 
 
 def _format_operand(n: int) -> str:
@@ -84,8 +104,10 @@ def generate_expressions(config: Config, seed: int | None = None, existing: set[
                 continue
 
             seen.add(expr)
+            prompt = rng.choice(PROMPT_TEMPLATES).format(expr=expr)
             results.append({
                 "expression": expr,
+                "prompt": prompt,
                 "answer": answer,
                 "tier": tier_idx,
             })

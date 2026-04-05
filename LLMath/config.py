@@ -6,7 +6,6 @@ from pathlib import Path
 class TierConfig:
     num_ops: tuple[int, int]  # (min, max) number of operators
     operand_range: tuple[int, int]  # (min, max) operand value
-    paren_probability: float  # probability of adding parentheses
     count: int  # number of expressions to generate
 
 
@@ -19,32 +18,42 @@ class Config:
     EXPRESSIONS_PATH: Path = Path("data/expressions.jsonl")
     TRACES_PATH: Path = Path("data/traces.jsonl")
     ERRORS_PATH: Path = Path("data/errors.jsonl")
-    DATASET_PATH: Path = Path("data/dataset.jsonl")
-    CHECKPOINT_DIR: Path = Path("checkpoints")
+    TRAIN_PATH: Path = Path("data/train.jsonl")
+    VALID_PATH: Path = Path("data/valid.jsonl")
 
     # Expression generation tiers
     TIERS: list[TierConfig] = field(default_factory=lambda: [
-        TierConfig(num_ops=(1, 1), operand_range=(-20, 20), paren_probability=0.0, count=500),
-        TierConfig(num_ops=(2, 2), operand_range=(-50, 50), paren_probability=0.3, count=500),
-        TierConfig(num_ops=(3, 4), operand_range=(-100, 100), paren_probability=0.4, count=500),
+        # Small numbers — build foundation
+        TierConfig(num_ops=(1, 1), operand_range=(-20, 20),    count=500),  # Tier 1
+        TierConfig(num_ops=(2, 2), operand_range=(-50, 50),    count=500),  # Tier 2
+        TierConfig(num_ops=(3, 4), operand_range=(-100, 100),  count=500),  # Tier 3
+        # Larger numbers — same structure, harder arithmetic
+        TierConfig(num_ops=(1, 1), operand_range=(-999, 999),  count=500),  # Tier 4
+        TierConfig(num_ops=(2, 3), operand_range=(-999, 999),  count=500),  # Tier 5
+        TierConfig(num_ops=(3, 5), operand_range=(-9999, 9999), count=500), # Tier 6
     ])
 
     # Oracle / Teacher
-    #TEACHER_URL: str = "http://192.168.1.17:11434"
-    TEACHER_URL: str = "http://127.0.0.1:11434"
+    # Format: {url: concurrency} — number of parallel worker threads per endpoint
+    TEACHER_URLS: dict[str, int] = field(default_factory=lambda: {
+    #    "http://127.0.0.1:11434":       2,  # Mac Mini (local)
+    #    "http://192.168.1.40:8000":    64,  # NVIDIA box
+        "http://192.168.1.110:8000":    128,  # shitbox
+    #    "http://192.168.1.43:11434":    2,  # Mac M1
+    #    "http://192.168.1.17:11434":    2,  # AMD Box
+    #    "http://142.171.48.138:28804":  64, # Vast.ai RTX 5070 (vLLM)
+    #   "https://openrouter.ai/api":    1,
+    })
     TEACHER_MODEL: str = "lfm2.5-thinking"
     TEACHER_TEMPERATURE: float = 0.6
     TEACHER_TIMEOUT: int = 120
     TEACHER_MAX_RETRIES: int = 3
 
-    # Training
-    STUDENT_MODEL: str = "models/Qwen2.5-0.5B"
-    LEARNING_RATE: float = 1e-4
-    BATCH_SIZE: int = 2
-    GRAD_ACCUM_STEPS: int = 16
-    NUM_EPOCHS: int = 3
-    MAX_SEQ_LEN: int = 384
-    EVAL_SPLIT: float = 0.1
-    WARMUP_STEPS: int = 50
-    CHECKPOINT_EVERY: int = 200
-    WEIGHT_DECAY: float = 0.01
+    # MLX Training
+    MLX_MODEL: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    MLX_ADAPTER_PATH: Path = Path("adapters")
+    MLX_TRAIN_ITERS: int = 1000
+    MLX_BATCH_SIZE: int = 2
+    MLX_LEARNING_RATE: float = 1e-4
+    MLX_MAX_SEQ_LEN: int = 1024
+    VALID_SPLIT: float = 0.1

@@ -1,4 +1,6 @@
 models/
 checkpoints/
+adapters/
 data/
 __pycache__/
+.env

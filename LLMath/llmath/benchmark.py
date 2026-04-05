@@ -2,18 +2,18 @@
 
 import json
 import re
-import torch
 from pathlib import Path
-from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from mlx_lm import load, generate
 
 from config import Config
 
 
 def extract_numeric_answer(text: str) -> str | None:
     """Extract numeric answer from model output."""
-    # After </think> tag
+    # Look before first </think> tag (model may repeat after)
     if "</think>" in text:
-        text = text.split("</think>")[-1].strip()
+        text = text.split("</think>")[0].strip()
 
     # "The answer is X"
     match = re.search(r"[Tt]he answer is\s*[:\s]*(-?\d+)", text)
@@ -43,23 +43,17 @@ def benchmark(config: Config, model_path: str | None = None, max_per_tier: int =
 
     Args:
         config: Pipeline config.
-        model_path: Path to fine-tuned checkpoint, or None for base model.
+        model_path: Path to fine-tuned model or adapter, or None for base model.
         max_per_tier: Max expressions per tier (0 = all).
     """
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    model_name = model_path or config.STUDENT_MODEL
+    base = model_path or config.MLX_MODEL
+    adapter_path = str(config.MLX_ADAPTER_PATH) if config.MLX_ADAPTER_PATH.exists() else None
 
-    print(f"Loading model: {model_name}")
-    print(f"Device: {device}")
+    print(f"Loading model: {base}")
+    if adapter_path:
+        print(f"Adapter: {adapter_path}")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, dtype=torch.float16
-    ).to(device)
-    model.eval()
-
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+    model, tokenizer = load(base, adapter_path=adapter_path)
 
     # Load expressions
     expressions = []
@@ -84,46 +78,56 @@ def benchmark(config: Config, model_path: str | None = None, max_per_tier: int =
 
     tier_stats: dict[int, dict[str, int]] = {}
     total_correct = 0
+    errors = []
 
-    with torch.no_grad():
-        for i, expr_data in enumerate(expressions):
-            expr = expr_data["expression"]
-            answer = str(expr_data["answer"])
-            tier = expr_data["tier"]
+    for i, expr_data in enumerate(expressions):
+        expr = expr_data["expression"]
+        answer = str(expr_data["answer"])
+        tier = expr_data["tier"]
 
-            if tier not in tier_stats:
-                tier_stats[tier] = {"correct": 0, "total": 0}
-            tier_stats[tier]["total"] += 1
+        if tier not in tier_stats:
+            tier_stats[tier] = {"correct": 0, "total": 0}
+        tier_stats[tier]["total"] += 1
 
-            prompt_str = f"<|im_start|>user\nWhat is {expr}?<|im_end|>\n<|im_start|>assistant\n<think>\n"
-            input_ids = tokenizer.encode(prompt_str, return_tensors="pt").to(device)
-            attention_mask = torch.ones_like(input_ids)
-            eos_token_id = tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": expr}],
+            tokenize=False,
+            add_generation_prompt=True,
+        ) + "<think>\n"
 
-            output = model.generate(
-                input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=256,
-                do_sample=False,
-                pad_token_id=tokenizer.pad_token_id or 0,
-                eos_token_id=eos_token_id,
-            )
+        response = generate(model, tokenizer, prompt=prompt, max_tokens=512, verbose=False)
+        model_answer = extract_numeric_answer(response)
 
-            generated = tokenizer.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
-            model_answer = extract_numeric_answer(generated)
+        correct = model_answer == answer
+        if correct:
+            total_correct += 1
+            tier_stats[tier]["correct"] += 1
+        else:
+            errors.append({
+                "expression": expr,
+                "expected": answer,
+                "got": model_answer,
+                "tier": tier,
+                "generated": response,
+            })
 
-            correct = model_answer == answer
-            if correct:
-                total_correct += 1
-                tier_stats[tier]["correct"] += 1
+        status = "OK" if correct else f"WRONG (got {model_answer}, expected {answer})"
+        if (i + 1) % 50 == 0 or not correct:
+            print(f"[{i + 1}/{len(expressions)}] {expr} = {answer} → {status}")
+        if model_answer is None:
+            print(f"  → raw output: {response[:200]}")
 
-            status = "OK" if correct else f"WRONG (got {model_answer}, expected {answer})"
-            if (i + 1) % 50 == 0 or not correct:
-                print(f"[{i + 1}/{len(expressions)}] {expr} = {answer} → {status}")
+    # Save errors
+    errors_path = config.MLX_ADAPTER_PATH / "benchmark_errors.jsonl"
+    errors_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(errors_path, "w") as f:
+        for err in errors:
+            f.write(json.dumps(err) + "\n")
+    print(f"\nLogged {len(errors)} errors to {errors_path}")
 
     # Summary
     print(f"\n{'=' * 50}")
-    print(f"Model: {model_name}")
+    print(f"Model: {base}" + (f" + {adapter_path}" if adapter_path else ""))
     print(f"Total: {total_correct}/{len(expressions)} ({total_correct / len(expressions) * 100:.1f}%)")
     print()
     for tier in sorted(tier_stats):
