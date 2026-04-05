@@ -177,7 +177,7 @@ def test_self_play():
         KOMI = 7.5
 
     sp = SelfPlayGame(net, TestConfig, torch.device("cpu"))
-    states, policies, values, ownerships, surprises = sp.play_game()
+    states, policies, values, ownerships, surprises, game_length = sp.play_game()
 
     assert len(states) > 0
     assert len(states) == len(policies) == len(values) == len(ownerships) == len(surprises)

@@ -25,14 +25,13 @@ os.chdir(project_root)
 sys.path.insert(0, str(project_root))
 
 from config import Config
-BUFFER_CAPACITY = Config.BUFFER_SIZE
 
 COLORS = {
     'total':     '#e74c3c',
     'policy':    '#3498db',
     'value':     '#2ecc71',
     'ownership': '#f39c12',
-    'buffer':    '#9b59b6',
+    'game_len':  '#9b59b6',
     'time_sp':   '#1abc9c',
     'time_tr':   '#e67e22',
 }
@@ -68,18 +67,20 @@ def plot(data: dict, save_path: str = None):
     iters = data['iteration']
     n = len(iters)
 
-    fig = plt.figure(figsize=(11, 7))
+    fig = plt.figure(figsize=(14, 7))
     fig.patch.set_facecolor('#1a1a2e')
-    gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.35)
+    gs = gridspec.GridSpec(2, 4, figure=fig, hspace=0.45, wspace=0.4)
 
-    ax_total     = fig.add_subplot(gs[0, :2])
-    ax_losses    = fig.add_subplot(gs[1, :2])
-    ax_ownership = fig.add_subplot(gs[2, :2])
-    ax_buffer    = fig.add_subplot(gs[0, 2])
-    ax_time      = fig.add_subplot(gs[1, 2])
-    ax_stats     = fig.add_subplot(gs[2, 2])
+    ax_policy    = fig.add_subplot(gs[0, 0])
+    ax_value     = fig.add_subplot(gs[0, 1])
+    ax_ownership = fig.add_subplot(gs[0, 2])
+    ax_total     = fig.add_subplot(gs[0, 3])
+    ax_gamelen   = fig.add_subplot(gs[1, 0])
+    ax_time      = fig.add_subplot(gs[1, 1])
+    ax_lr        = fig.add_subplot(gs[1, 2])
+    ax_stats     = fig.add_subplot(gs[1, 3])
 
-    axes = [ax_total, ax_losses, ax_ownership, ax_buffer, ax_time, ax_stats]
+    axes = [ax_policy, ax_value, ax_ownership, ax_total, ax_gamelen, ax_time, ax_lr, ax_stats]
     for ax in axes:
         ax.set_facecolor('#16213e')
         ax.tick_params(colors='#aaaaaa', labelsize=8)
@@ -97,6 +98,29 @@ def plot(data: dict, save_path: str = None):
             ax.lines[-1].set_alpha(1.0)
             ax.lines[-1].set_label(label)
 
+    # ── Policy loss ────────────────────────────────────────────
+    plot_line(ax_policy, iters, data['policy_loss'], COLORS['policy'], 'policy loss')
+    ax_policy.set_title('Policy Loss (cross-entropy)', fontsize=10, fontweight='bold')
+    ax_policy.set_xlabel('Iteration')
+    ax_policy.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
+    ax_policy.set_xlim(left=1)
+
+    # ── Value loss ───────────────────────────────────────────────
+    plot_line(ax_value, iters, data['value_loss'], COLORS['value'], 'value loss')
+    ax_value.set_title('Value Loss (MSE)', fontsize=10, fontweight='bold')
+    ax_value.set_xlabel('Iteration')
+    ax_value.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
+    ax_value.set_xlim(left=1)
+
+    # ── Ownership loss ───────────────────────────────────────────
+    if 'ownership_loss' in data and np.any(data['ownership_loss'] > 0):
+        plot_line(ax_ownership, iters, data['ownership_loss'], COLORS['ownership'], 'ownership loss')
+        ax_ownership.axhline(np.log(2), color='#666688', linestyle='--', linewidth=1, label='ln(2) random')
+    ax_ownership.set_title('Ownership Loss (BCE)', fontsize=10, fontweight='bold')
+    ax_ownership.set_xlabel('Iteration')
+    ax_ownership.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
+    ax_ownership.set_xlim(left=1)
+
     # ── Total loss ──────────────────────────────────────────────
     plot_line(ax_total, iters, data['total_loss'], COLORS['total'], 'total loss')
     ax_total.set_title('Total Loss', fontsize=10, fontweight='bold')
@@ -104,37 +128,19 @@ def plot(data: dict, save_path: str = None):
     ax_total.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
     ax_total.set_xlim(left=1)
 
-    # ── Policy + Value losses ────────────────────────────────────
-    plot_line(ax_losses, iters, data['policy_loss'], COLORS['policy'], 'policy loss')
-    plot_line(ax_losses, iters, data['value_loss'],  COLORS['value'],  'value loss')
-    ax_losses.set_title('Policy & Value Loss', fontsize=10, fontweight='bold')
-    ax_losses.set_xlabel('Iteration')
-    ax_losses.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
-    ax_losses.set_xlim(left=1)
-
-    # ── Ownership loss ───────────────────────────────────────────
-    if 'ownership_loss' in data and np.any(data['ownership_loss'] > 0):
-        plot_line(ax_ownership, iters, data['ownership_loss'], COLORS['ownership'], 'ownership loss')
-        # Draw ln(2) reference line (random-init baseline)
-        ax_ownership.axhline(np.log(2), color='#666688', linestyle='--', linewidth=1, label='ln(2) random')
-    ax_ownership.set_title('Ownership Loss (auxiliary head)', fontsize=10, fontweight='bold')
-    ax_ownership.set_xlabel('Iteration')
-    ax_ownership.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
-    ax_ownership.set_xlim(left=1)
-
-    # ── Buffer fill ──────────────────────────────────────────────
-    buffer_pct = data['buffer_size'] / BUFFER_CAPACITY * 100
-    ax_buffer.fill_between(iters, buffer_pct, color=COLORS['buffer'], alpha=0.4)
-    ax_buffer.plot(iters, buffer_pct, color=COLORS['buffer'], linewidth=1.5)
-    ax_buffer.set_ylim(0, 105)
-    ax_buffer.set_title('Replay Buffer Fill', fontsize=10, fontweight='bold')
-    ax_buffer.set_xlabel('Iteration')
-    ax_buffer.set_ylabel('%')
-    ax_buffer.set_xlim(left=1)
-    if n > 0:
-        ax_buffer.text(0.97, 0.08, f"{buffer_pct[-1]:.1f}%",
-                       transform=ax_buffer.transAxes, ha='right',
-                       color=COLORS['buffer'], fontsize=13, fontweight='bold')
+    # ── Average game length ─────────────────────────────────────────
+    if 'avg_game_length' in data and np.any(data['avg_game_length'] > 0):
+        game_lens = data['avg_game_length']
+        plot_line(ax_gamelen, iters, game_lens, COLORS['game_len'], 'avg length')
+        ax_gamelen.set_title('Avg Game Length', fontsize=10, fontweight='bold')
+        ax_gamelen.set_xlabel('Iteration')
+        ax_gamelen.set_ylabel('moves')
+        ax_gamelen.set_xlim(left=1)
+        ax_gamelen.legend(fontsize=8, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
+    else:
+        ax_gamelen.set_title('Avg Game Length', fontsize=10, fontweight='bold')
+        ax_gamelen.text(0.5, 0.5, 'no data yet', transform=ax_gamelen.transAxes,
+                        ha='center', va='center', color='#666688', fontsize=10)
 
     # ── Time per iteration ───────────────────────────────────────
     sp_min = data['time_selfplay'] / 60
@@ -147,6 +153,16 @@ def plot(data: dict, save_path: str = None):
     ax_time.legend(fontsize=7, facecolor='#1a1a2e', labelcolor='#dddddd', framealpha=0.6)
     ax_time.set_xlim(left=0.5)
 
+    # ── Learning rate ─────────────────────────────────────────────
+    if 'learning_rate' in data:
+        plot_line(ax_lr, iters, data['learning_rate'], '#e74c3c', 'LR')
+        ax_lr.set_title('Learning Rate', fontsize=10, fontweight='bold')
+        ax_lr.set_xlabel('Iteration')
+        ax_lr.ticklabel_format(axis='y', style='sci', scilimits=(-3, -3))
+        ax_lr.set_xlim(left=1)
+    else:
+        ax_lr.axis('off')
+
     # ── Stats summary ────────────────────────────────────────────
     ax_stats.axis('off')
     last = {k: v[-1] for k, v in data.items()}
@@ -154,13 +170,13 @@ def plot(data: dict, save_path: str = None):
     recent_value  = np.mean(data['value_loss'][-5:])  if n >= 5 else data['value_loss'][-1]
     recent_own    = np.mean(data['ownership_loss'][-5:]) if ('ownership_loss' in data and n >= 5) else (data.get('ownership_loss', [0])[-1] if 'ownership_loss' in data else 0)
     total_games   = int(np.sum(data['games_played']))
-    total_samples = int(last['buffer_size'])
     total_time_h  = np.sum(data['time_selfplay'] + data['time_training']) / 3600
+    avg_gl = np.mean(data['avg_game_length'][-5:]) if ('avg_game_length' in data and n >= 5 and np.any(data['avg_game_length'] > 0)) else 0
 
     summary = [
         ('Iterations',        f"{int(last['iteration'])}"),
         ('Total games',       f"{total_games:,}"),
-        ('Buffer samples',    f"{total_samples:,}"),
+        ('Avg game length',   f"{avg_gl:.1f}" if avg_gl > 0 else 'n/a'),
         ('Total train time',  f"{total_time_h:.1f} h"),
         ('',                  ''),
         ('Policy loss (5-avg)', f"{recent_policy:.4f}"),

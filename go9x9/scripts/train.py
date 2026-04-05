@@ -31,6 +31,8 @@ def main():
                         help="Number of training iterations")
     parser.add_argument("--resume", nargs="?", const="auto", default=None,
                         help="Resume from checkpoint (auto or path)")
+    parser.add_argument("--clear-buffer", action="store_true",
+                        help="Clear replay buffer (useful after config changes)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed for reproducibility")
     args = parser.parse_args()
@@ -80,6 +82,12 @@ def main():
                 print("No checkpoint found, starting fresh")
         else:
             trainer.load_checkpoint(args.resume)
+
+    # Clear buffer if requested
+    if args.clear_buffer:
+        trainer.replay_buffer.size = 0
+        trainer.replay_buffer.position = 0
+        print("Replay buffer cleared.")
 
     # Train
     trainer.train(args.iterations)

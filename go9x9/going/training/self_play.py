@@ -61,7 +61,8 @@ class SelfPlayGame:
             dirichlet_alpha=self.config.DIRICHLET_ALPHA,
             dirichlet_epsilon=self.config.DIRICHLET_EPSILON,
             device=self.device,
-            batch_size=getattr(self.config, 'MCTS_BATCH_SIZE', 1)
+            batch_size=getattr(self.config, 'MCTS_BATCH_SIZE', 1),
+            early_term_threshold=getattr(self.config, 'MCTS_EARLY_TERM', 0.5)
         )
         mcts_slow = MCTS(num_simulations=self.config.MCTS_SIMS_SELFPLAY, **mcts_common)
         mcts_fast = MCTS(num_simulations=getattr(self.config, 'MCTS_SIMS_FAST', 20), **mcts_common)
@@ -127,7 +128,7 @@ class SelfPlayGame:
             else:
                 ownerships.append(1.0 - ownership_abs)
 
-        return states, policies, values, ownerships, surprises
+        return states, policies, values, ownerships, surprises, move_count
 
     def _sample_action(self, policy: np.ndarray, temperature: float, game=None) -> int:
         if game is not None:
@@ -175,18 +176,20 @@ def play_games_sequential(
     all_values = []
     all_ownerships = []
     all_surprises = []
+    all_game_lengths = []
 
     self_play = SelfPlayGame(network, config, device)
     bar_width = 40
     print("  ", end="", flush=True)
 
     for game_idx in range(num_games):
-        states, policies, values, ownerships, surprises = self_play.play_game(on_move=on_move)
+        states, policies, values, ownerships, surprises, game_length = self_play.play_game(on_move=on_move)
         all_states.extend(states)
         all_policies.extend(policies)
         all_values.extend(values)
         all_ownerships.extend(ownerships)
         all_surprises.extend(surprises)
+        all_game_lengths.append(game_length)
 
         progress = (game_idx + 1) / num_games
         filled = int(bar_width * progress)
@@ -195,15 +198,15 @@ def play_games_sequential(
               f"{len(all_states)} examples", end="", flush=True)
 
     print()
-    return all_states, all_policies, all_values, all_ownerships, all_surprises
+    return all_states, all_policies, all_values, all_ownerships, all_surprises, all_game_lengths
 
 
 def self_play_worker(rank, network, config, device, games_to_play, result_queue):
     self_play = SelfPlayGame(network, config, device)
     for _ in range(games_to_play):
-        states, policies, values, ownerships, surprises = self_play.play_game()
+        states, policies, values, ownerships, surprises, game_length = self_play.play_game()
         if len(states) > 0:
-            result_queue.put((states, policies, values, ownerships, surprises))
+            result_queue.put((states, policies, values, ownerships, surprises, game_length))
 
 
 def play_games_parallel(
@@ -262,6 +265,7 @@ def play_games_parallel(
     all_values = []
     all_ownerships = []
     all_surprises = []
+    all_game_lengths = []
     collected_games = 0
     bar_width = 40
     print("  ", end="", flush=True)
@@ -269,12 +273,13 @@ def play_games_parallel(
     while collected_games < num_games:
         try:
             data = result_queue.get(timeout=0.1)
-            states, policies, values, ownerships, surprises = data
+            states, policies, values, ownerships, surprises, game_length = data
             all_states.extend(states)
             all_policies.extend(policies)
             all_values.extend(values)
             all_ownerships.extend(ownerships)
             all_surprises.extend(surprises)
+            all_game_lengths.append(game_length)
             collected_games += 1
 
             progress = collected_games / num_games
@@ -296,4 +301,4 @@ def play_games_parallel(
         request_queue.put(None)  # shutdown sentinel
         server_process.join(timeout=5)
 
-    return all_states, all_policies, all_values, all_ownerships, all_surprises
+    return all_states, all_policies, all_values, all_ownerships, all_surprises, all_game_lengths

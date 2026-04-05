@@ -11,19 +11,20 @@ class Config:
     # Network architecture
     NUM_FILTERS = 128
     NUM_RES_BLOCKS = 6
-    INPUT_PLANES = 5   # 2 history × 2 colors + 1 color-to-play
+    INPUT_PLANES = 4   # 2 history × 2 colors (no color-to-play)
     POLICY_SIZE = 82   # 81 intersections + pass
     GLOBAL_POOL_FREQ = 3      # Insert global-pool-bias layer every N residual blocks
-    OWNERSHIP_LOSS_WEIGHT = 0.5  # Weight on ownership auxiliary head BCE loss
+    OWNERSHIP_LOSS_WEIGHT = 0.25  # Reduced: ownership loss was stuck, don't let it drag trunk
 
     # MCTS configuration
-    MCTS_SIMS_SELFPLAY = 200   # halved from 400 to get more games through
+    MCTS_SIMS_SELFPLAY = 200   # curriculum phase 1
     MCTS_SIMS_FAST = 50        # sims for non-training (fast) moves
     MCTS_SIMS_EVAL = 200
     MCTS_BATCH_SIZE = 16
+    MCTS_EARLY_TERM = 0.25    # min fraction of sims before early termination kicks in
 
     # Playout cap randomization (KataGo-style)
-    P_FAST_MOVE = 0.85         # fraction of moves that are fast (not stored in buffer)
+    P_FAST_MOVE = 0.55         # fraction of moves that are fast (not stored in buffer)
 
     # Exploration
     C_PUCT = 1.0
@@ -31,11 +32,11 @@ class Config:
     DIRICHLET_EPSILON = 0.25
 
     # Temperature
-    TEMPERATURE_THRESHOLD = 20   # Exploit after opening phase
+    TEMPERATURE_THRESHOLD = 12   # Shorter exploration window — policy is strong enough now
     TEMPERATURE = 1.0
 
     # Training configuration
-    GAMES_PER_ITERATION = 50
+    GAMES_PER_ITERATION = 50   # curriculum phase 2 (raised from 30 at iter 200)
     NUM_WORKERS = 6
     BUFFER_SIZE = 100_000
 
@@ -45,8 +46,11 @@ class Config:
     BATCH_SIZE = 256
     MIN_SAMPLE_REUSE = 10
     MAX_SAMPLE_REUSE = 15
-    LEARNING_RATE = 0.002
+    LEARNING_RATE = 3e-4          # curriculum phase 2 (dropped from 1e-3 at iter 200; drop to 1e-4 at 500)
+    LR_SCHEDULE = "flat"          # "flat" or "cosine"
     LR_MIN = 1e-4
+    COSINE_T0 = 50
+    COSINE_T_MULT = 2
     WEIGHT_DECAY = 1e-4
     GRAD_CLIP = 5.0
 
@@ -54,6 +58,12 @@ class Config:
     EVAL_FREQUENCY = 50
     EVAL_GAMES = 11
     PROMOTION_THRESHOLD = 0.55
+
+    # Distributed self-play — list of "host:port" servers (empty = local only)
+    # Each server runs scripts/selfplay_server.py and plays its share of games.
+    SELFPLAY_SERVERS = [
+        "127.0.0.1:9377",
+    ]
 
     # System
     DEVICE = "mps"
@@ -126,7 +136,7 @@ class Config:
         print(f"  Buffer size: {cls.BUFFER_SIZE:,}")
         print(f"  Batch size: {cls.BATCH_SIZE}")
         print(f"  Sample Reuse: {cls.MIN_SAMPLE_REUSE} to {cls.MAX_SAMPLE_REUSE}x")
-        print(f"  Learning rate: {cls.LEARNING_RATE} → {cls.LR_MIN} (plateau)")
+        print(f"  Learning rate: {cls.LEARNING_RATE} → {cls.LR_MIN} (cosine warm restarts, T0={cls.COSINE_T0})")
 
         print("\n[Evaluation]")
         print(f"  Frequency: every {cls.EVAL_FREQUENCY} iterations")
