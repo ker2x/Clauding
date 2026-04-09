@@ -1,0 +1,15 @@
+# Compiled binaries (output of senpai compiler)
+arrays
+classes
+factorial
+myprog
+*.ll
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+*.swp
+*.swo
+*~

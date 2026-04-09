@@ -27,10 +27,27 @@ def compile_and_run(source: str) -> str:
         Path(binary).unlink(missing_ok=True)
 
 
-def expect_compile_error(source: str, expected_fragment: str):
+def compile_and_run_with_modules(source: str, modules: dict[str, str]) -> str:
+    """Compile source with module files, run binary, return stdout.
+    modules: dict of filename -> source code (written to temp dir).
+    """
+    import os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for fname, msrc in modules.items():
+            Path(tmpdir, fname).write_text(msrc)
+        Path(tmpdir, "main.sen").write_text(source)
+        binary = compile_source(source, source_dir=tmpdir)
+        try:
+            result = subprocess.run([binary], capture_output=True, text=True, timeout=10)
+            return result.stdout
+        finally:
+            Path(binary).unlink(missing_ok=True)
+
+
+def expect_compile_error(source: str, expected_fragment: str, source_dir: str | None = None):
     """Assert that compilation fails with an error containing the fragment."""
     try:
-        compile_source(source)
+        compile_source(source, source_dir=source_dir)
         assert False, f"expected CompileError containing '{expected_fragment}'"
     except CompileError as e:
         assert expected_fragment in str(e), f"expected '{expected_fragment}' in '{e}'"
@@ -1309,6 +1326,129 @@ fn main():
 '''
     out = compile_and_run(src)
     assert out.strip() == "0\n0\n1\n2\n2\n4"
+
+
+# === Phase 4b: Imports/Modules ===
+
+@test("e2e: import function")
+def _():
+    modules = {"mymath.sen": '''fn double(x: I64) -> I64:
+    return x * 2
+
+fn triple(x: I64) -> I64:
+    return x * 3
+'''}
+    src = '''import "mymath.sen"
+
+fn main():
+    print(mymath.double(5))
+    print(mymath.triple(5))
+'''
+    out = compile_and_run_with_modules(src, modules)
+    assert out.strip() == "10\n15"
+
+@test("e2e: import class")
+def _():
+    modules = {"shapes.sen": '''class Rect(Object):
+    fn __init__(self, w: I64, h: I64):
+        self.w = w
+        self.h = h
+
+    fn area(self) -> I64:
+        return self.w * self.h
+'''}
+    src = '''import "shapes.sen"
+
+fn main():
+    let r = shapes.Rect(3, 4)
+    print(r.area())
+    print(r.w)
+'''
+    out = compile_and_run_with_modules(src, modules)
+    assert out.strip() == "12\n3"
+
+@test("e2e: import class with operator")
+def _():
+    modules = {"vec.sen": '''class Vec2(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+    fn __add__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x + other.x, self.y + other.y)
+'''}
+    src = '''import "vec.sen"
+
+fn main():
+    let a = vec.Vec2(1, 2)
+    let b = vec.Vec2(3, 4)
+    let c = a + b
+    print(c.x)
+    print(c.y)
+'''
+    out = compile_and_run_with_modules(src, modules)
+    assert out.strip() == "4\n6"
+
+@test("e2e: import multiple modules")
+def _():
+    modules = {
+        "mod_a.sen": '''fn greet() -> Str:
+    return "hello"
+''',
+        "mod_b.sen": '''fn farewell() -> Str:
+    return "goodbye"
+''',
+    }
+    src = '''import "mod_a.sen"
+import "mod_b.sen"
+
+fn main():
+    print(mod_a.greet())
+    print(mod_b.farewell())
+'''
+    out = compile_and_run_with_modules(src, modules)
+    assert out.strip() == "hello\ngoodbye"
+
+@test("e2e: import ignores module main")
+def _():
+    modules = {"lib.sen": '''fn helper() -> I64:
+    return 42
+
+fn main():
+    print(0)
+'''}
+    src = '''import "lib.sen"
+
+fn main():
+    print(lib.helper())
+'''
+    out = compile_and_run_with_modules(src, modules)
+    assert out.strip() == "42"
+
+@test("type error: import nonexistent module")
+def _():
+    import os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        expect_compile_error('''import "nonexistent.sen"
+
+fn main():
+    print(1)
+''', "cannot find module", source_dir=tmpdir)
+
+@test("type error: import unknown function")
+def _():
+    modules = {"lib.sen": '''fn foo() -> I64:
+    return 1
+'''}
+    import os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for fname, msrc in modules.items():
+            Path(tmpdir, fname).write_text(msrc)
+        expect_compile_error('''import "lib.sen"
+
+fn main():
+    lib.bar()
+''', "has no 'bar'", source_dir=tmpdir)
 
 
 # === Report ===

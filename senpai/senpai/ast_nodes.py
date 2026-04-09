@@ -135,7 +135,14 @@ class ClassDecl:
     line: int = 0
 
 @dataclass
+class ImportDecl:
+    path: str = ""          # e.g. "math.sen"
+    module_name: str = ""   # e.g. "math"
+    line: int = 0
+
+@dataclass
 class Program:
     functions: list[FnDecl] = field(default_factory=list)
     classes: list[ClassDecl] = field(default_factory=list)
+    imports: list[ImportDecl] = field(default_factory=list)
     class_info: dict = field(default_factory=dict)  # filled by type checker

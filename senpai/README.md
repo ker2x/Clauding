@@ -19,7 +19,7 @@ python scripts/run.py examples/hello.sen
 # Inspect generated LLVM IR
 python scripts/run.py examples/hello.sen --ir
 
-# Run tests (112 tests)
+# Run tests (119 tests)
 python tests/test_compiler.py
 ```
 
@@ -154,6 +154,16 @@ class Dog(Animal):
 
 **Arrays** &mdash; `Array[T]()`, `.push(val)`, `.get(idx)`, `.set(idx, val)`, `.len()`
 
+**Modules** &mdash; import files with namespaced access:
+```python
+import "mathlib.sen"
+
+fn main():
+    print(mathlib.abs(-42))
+    let v = mathlib.Vec2(1, 2)
+    print(v.x)
+```
+
 ## How It Works
 
 ```
@@ -173,3 +183,5 @@ The compiler emits LLVM IR as plain text strings (no llvmlite or LLVM bindings),
 | `examples/strings.sen` | String concatenation |
 | `examples/classes.sen` | Inheritance, super, operator overloading, method chaining |
 | `examples/arrays.sen` | Arrays, for loops, to_str, type casting |
+| `examples/mathlib.sen` | Reusable module (functions + classes) |
+| `examples/import_demo.sen` | Importing and using a module |

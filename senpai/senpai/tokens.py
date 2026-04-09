@@ -34,6 +34,7 @@ class TT(Enum):
     IN = auto()
     RANGE = auto()
     AS = auto()
+    IMPORT = auto()
 
     # Operators
     PLUS = auto()       # +
@@ -94,6 +95,7 @@ KEYWORDS = {
     "in": TT.IN,
     "range": TT.RANGE,
     "as": TT.AS,
+    "import": TT.IMPORT,
     "true": TT.BOOL_LIT,
     "false": TT.BOOL_LIT,
 }

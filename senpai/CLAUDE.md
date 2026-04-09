@@ -64,6 +64,7 @@ No ambiguous types — every numeric type has an explicit width.
 - **Type casting** via `expr as Type` for numeric conversions (int↔float, width changes)
 - **for loops** via `for x in range(n):` and `for x in range(start, end):`
 - **Array[T]** generic growable array with `push(val)`, `get(idx)`, `set(idx, val)`, `len()`
+- **Imports** via `import "file.sen"` with namespaced access (`module.func()`, `module.Class()`)
 - **Integer/float literals** adapt to declared types (e.g., `let x: I8 = 42` works); `f` suffix for Float32
 - **Functions** prefixed with `senpai_` in IR; methods as `senpai_ClassName_methodName`
 - **Objects** are heap-allocated via `malloc`; struct layout: `{ vtable_ptr, fields... }`
@@ -91,5 +92,5 @@ senpai/
 │   ├── factorial.sen
 │   └── fib.sen
 └── tests/
-    └── test_compiler.py # 112 tests (standalone, no pytest)
+    └── test_compiler.py # 119 tests (standalone, no pytest)
 ```

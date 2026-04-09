@@ -57,6 +57,7 @@ class TypeEnv:
     variables: dict[str, str] = field(default_factory=dict)
     functions: dict[str, FnSig] = field(default_factory=dict)
     classes: dict[str, ClassInfo] = field(default_factory=dict)
+    modules: dict[str, "ModuleInfo"] = field(default_factory=dict)
     parent: "TypeEnv | None" = None
     current_fn_ret: str = "Void"
     current_class: str | None = None
@@ -82,6 +83,13 @@ class TypeEnv:
             return self.parent.lookup_class(name)
         return None
 
+    def lookup_module(self, name: str) -> "ModuleInfo | None":
+        if name in self.modules:
+            return self.modules[name]
+        if self.parent:
+            return self.parent.lookup_module(name)
+        return None
+
     def child(self) -> "TypeEnv":
         return TypeEnv(parent=self, current_fn_ret=self.current_fn_ret,
                        current_class=self.current_class)
@@ -98,8 +106,10 @@ def _array_elem_type(name: str) -> str:
 
 
 def _valid_type(name: str, env: TypeEnv) -> bool:
-    """Check if a type name is valid (primitive or registered class or Array[T])."""
+    """Check if a type name is valid (primitive or registered class or Array[T] or module type)."""
     if name in PRIMITIVE_TYPES:
+        return True
+    if name.startswith("Module:"):
         return True
     if env.lookup_class(name) is not None:
         return True
@@ -149,6 +159,14 @@ def _type_compatible(actual: str, expected: str, expr, env: TypeEnv) -> bool:
     return False
 
 
+@dataclass
+class ModuleInfo:
+    """Stores type information about an imported module."""
+    name: str
+    functions: dict[str, FnSig] = field(default_factory=dict)
+    classes: dict[str, ClassInfo] = field(default_factory=dict)
+
+
 def check_program(prog: Program) -> None:
     """Type-check a program. Raises TypeError_ on errors."""
     env = TypeEnv()
@@ -160,6 +178,55 @@ def check_program(prog: Program) -> None:
 
     # Register built-in root class
     env.classes["Object"] = ClassInfo(name="Object", parent_name="")
+
+    # Process imports
+    prog.module_info = {}
+    if hasattr(prog, 'module_programs'):
+        for mod_name, mod_prog in prog.module_programs.items():
+            # Type-check the imported module
+            check_program(mod_prog)
+            # Collect its exported functions and classes
+            mi = ModuleInfo(name=mod_name)
+            for fn in mod_prog.functions:
+                if fn.name == "main":
+                    continue  # skip imported main()
+                ret = resolve_type(fn.ret_type)
+                params = [resolve_type(p.type_name) for p in fn.params]
+                mi.functions[fn.name] = FnSig(param_types=params, ret_type=ret)
+            # Collect all class names from this module for type qualification
+            mod_class_names = {c for c in mod_prog.class_info if c != "Object"}
+            for cls_name, ci in mod_prog.class_info.items():
+                if cls_name == "Object":
+                    continue
+                # Create a copy with qualified types in method signatures
+                qual_ci = ClassInfo(
+                    name=f"{mod_name}.{cls_name}",
+                    parent_name=ci.parent_name,
+                    fields=dict(ci.fields),
+                    methods={},
+                    vtable_order=list(ci.vtable_order),
+                    vtable_impl=dict(ci.vtable_impl),
+                )
+                # Qualify field types that reference module classes
+                for fname, ftype in qual_ci.fields.items():
+                    if ftype in mod_class_names:
+                        qual_ci.fields[fname] = f"{mod_name}.{ftype}"
+                # Qualify method signatures
+                for mname, sig in ci.methods.items():
+                    qual_params = []
+                    for pt in sig.param_types:
+                        if pt in mod_class_names:
+                            qual_params.append(f"{mod_name}.{pt}")
+                        else:
+                            qual_params.append(pt)
+                    qual_ret = f"{mod_name}.{sig.ret_type}" if sig.ret_type in mod_class_names else sig.ret_type
+                    qual_ci.methods[mname] = FnSig(param_types=qual_params, ret_type=qual_ret)
+                mi.classes[cls_name] = qual_ci
+                env.classes[f"{mod_name}.{cls_name}"] = qual_ci
+            prog.module_info[mod_name] = mi
+            # Register module in env
+            env.modules[mod_name] = mi
+            env.variables[mod_name] = f"Module:{mod_name}"
 
     # Register class names first (so they can be used as types)
     for cls in prog.classes:
@@ -394,6 +461,50 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
 
     if isinstance(expr, MethodCall):
         obj_type = _check_expr(expr.obj, env)
+        # Module-qualified call: module.func() or module.Class()
+        if obj_type.startswith("Module:"):
+            mod_name = obj_type[7:]  # strip "Module:" prefix
+            # Find the module info — walk up the env chain to find root
+            root = env
+            while root.parent:
+                root = root.parent
+            # Check module_info through the program (stored during check_program)
+            # We stored modules as variables, need to find the ModuleInfo
+            # It's accessible via the class registry with "mod.Class" keys
+            # and function registry... let's use a helper on env
+            mi = env.lookup_module(mod_name)
+            if mi is None:
+                raise TypeError_(expr.line, f"unknown module: {mod_name}")
+            # Check if it's a class constructor
+            if expr.method in mi.classes:
+                ci = mi.classes[expr.method]
+                if "__init__" in ci.methods:
+                    init_sig = ci.methods["__init__"]
+                    if len(expr.args) != len(init_sig.param_types):
+                        raise TypeError_(expr.line,
+                            f"{expr.method}() expects {len(init_sig.param_types)} args, got {len(expr.args)}")
+                    for i, (arg, expected) in enumerate(zip(expr.args, init_sig.param_types)):
+                        at = _check_expr(arg, env)
+                        if not _type_compatible(at, expected, arg, env):
+                            raise TypeError_(expr.line,
+                                f"{expr.method}() arg {i + 1}: expected {expected}, got {at}")
+                elif len(expr.args) != 0:
+                    raise TypeError_(expr.line, f"{expr.method}() takes no arguments")
+                return f"{mod_name}.{expr.method}"
+            # Check if it's a function
+            if expr.method in mi.functions:
+                sig = mi.functions[expr.method]
+                if len(expr.args) != len(sig.param_types):
+                    raise TypeError_(expr.line,
+                        f"{expr.method}() expects {len(sig.param_types)} args, got {len(expr.args)}")
+                for i, (arg, expected) in enumerate(zip(expr.args, sig.param_types)):
+                    at = _check_expr(arg, env)
+                    if not _type_compatible(at, expected, arg, env):
+                        raise TypeError_(expr.line,
+                            f"{expr.method}() arg {i + 1}: expected {expected}, got {at}")
+                return sig.ret_type
+            raise TypeError_(expr.line, f"module '{mod_name}' has no '{expr.method}'")
+
         # Built-in to_str() on primitive types
         if expr.method == "to_str" and len(expr.args) == 0:
             if obj_type in NUMERIC_TYPES or obj_type == "Bool":

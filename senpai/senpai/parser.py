@@ -5,7 +5,7 @@ from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    Param, FnDecl, ClassDecl, Program,
+    Param, FnDecl, ClassDecl, ImportDecl, Program,
 )
 
 
@@ -48,6 +48,10 @@ class Parser:
     def parse(self) -> Program:
         prog = Program()
         self._skip_newlines()
+        # Parse imports first (must be at top of file)
+        while self._at(TT.IMPORT):
+            prog.imports.append(self._parse_import())
+            self._skip_newlines()
         while not self._at(TT.EOF):
             if self._at(TT.FN):
                 prog.functions.append(self._parse_fn())
@@ -57,6 +61,17 @@ class Parser:
                 raise ParseError(self._peek(), "expected 'fn' or 'class' at top level")
             self._skip_newlines()
         return prog
+
+    def _parse_import(self) -> ImportDecl:
+        tok = self._eat(TT.IMPORT)
+        path_tok = self._eat(TT.STR_LIT)
+        path = path_tok.value
+        # Derive module name from filename: "math.sen" -> "math", "lib/utils.sen" -> "utils"
+        import os
+        base = os.path.basename(path)
+        module_name = base.rsplit(".", 1)[0] if "." in base else base
+        self._eat(TT.NEWLINE)
+        return ImportDecl(path=path, module_name=module_name, line=tok.line)
 
     # --- Function ---
 

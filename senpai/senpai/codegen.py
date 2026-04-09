@@ -54,6 +54,8 @@ class CodeGen:
         self._fn_params: dict[str, list[str]] = {} # fn name -> param senpai types
         self._class_info: dict[str, ClassInfo] = {}  # class name -> ClassInfo
         self._current_class: str | None = None  # set when generating a method
+        self._modules: dict = {}  # module_name -> module_programs entry
+        self._current_module: str | None = None  # set when generating module code
 
     def _tmp(self) -> str:
         self._tmp_counter += 1
@@ -130,8 +132,29 @@ class CodeGen:
 
     # --- Class layout helpers ---
 
+    def _resolve_class(self, class_name: str) -> str:
+        """Resolve a class name, qualifying with current module if needed."""
+        if class_name in self._class_info:
+            return class_name
+        if self._current_module:
+            qual = f"{self._current_module}.{class_name}"
+            if qual in self._class_info:
+                return qual
+        return class_name
+
+    def _resolve_fn(self, fn_name: str) -> str:
+        """Resolve a function name, qualifying with current module if needed."""
+        if fn_name in self._fn_sigs:
+            return fn_name
+        if self._current_module:
+            qual = f"{self._current_module}.{fn_name}"
+            if qual in self._fn_sigs:
+                return qual
+        return fn_name
+
     def _struct_name(self, class_name: str) -> str:
-        return f"%struct.{class_name}"
+        # "math.Vec2" -> "%struct.math_Vec2"
+        return f"%struct.{class_name.replace('.', '_')}"
 
     def _field_index(self, class_name: str, field_name: str) -> int:
         """Get field index in struct (0 = vtable ptr, fields start at 1)."""
@@ -149,19 +172,26 @@ class CodeGen:
                 return self._class_info[self._current_class].parent_name
             if expr.name in self._vars:
                 return self._vars[expr.name][1]
+            # Module names
+            if hasattr(self, '_modules') and expr.name in self._modules:
+                return f"Module:{expr.name}"
         if isinstance(expr, FieldAccess):
             obj_type = self._peek_type(expr.obj)
-            if obj_type and obj_type in self._class_info:
-                ci = self._class_info[obj_type]
-                if expr.field_name in ci.fields:
-                    return ci.fields[expr.field_name]
+            if obj_type:
+                resolved = self._resolve_class(obj_type)
+                if resolved in self._class_info:
+                    ci = self._class_info[resolved]
+                    if expr.field_name in ci.fields:
+                        return ci.fields[expr.field_name]
         if isinstance(expr, Call):
             if _is_array_type(expr.func):
                 return expr.func
-            if expr.func in self._class_info and expr.func != "Object":
-                return expr.func
-            if expr.func in self._fn_sigs:
-                return self._fn_sigs[expr.func]
+            resolved = self._resolve_class(expr.func)
+            if resolved in self._class_info and expr.func != "Object":
+                return resolved
+            resolved_fn = self._resolve_fn(expr.func)
+            if resolved_fn in self._fn_sigs:
+                return self._fn_sigs[resolved_fn]
         if isinstance(expr, MethodCall):
             obj_type = self._peek_type(expr.obj)
             if obj_type and _is_array_type(obj_type):
@@ -172,10 +202,21 @@ class CodeGen:
                     return "I64"
                 if expr.method in ("push", "set"):
                     return "Void"
-            if obj_type and obj_type in self._class_info:
-                ci = self._class_info[obj_type]
-                if expr.method in ci.methods:
-                    return ci.methods[expr.method].ret_type
+            if obj_type and obj_type.startswith("Module:"):
+                mod_name = obj_type[7:]
+                qual_fn = f"{mod_name}.{expr.method}"
+                if qual_fn in self._fn_sigs:
+                    return self._fn_sigs[qual_fn]
+                # Class constructor
+                qual_cls = f"{mod_name}.{expr.method}"
+                if qual_cls in self._class_info:
+                    return qual_cls
+            if obj_type:
+                resolved = self._resolve_class(obj_type)
+                if resolved in self._class_info:
+                    ci = self._class_info[resolved]
+                    if expr.method in ci.methods:
+                        return ci.methods[expr.method].ret_type
         if isinstance(expr, CastExpr):
             return resolve_type(expr.target_type)
         return None
@@ -185,7 +226,8 @@ class CodeGen:
         return ci.vtable_order.index(method_name)
 
     def _method_fn_name(self, class_name: str, method_name: str) -> str:
-        return f"@senpai_{class_name}_{method_name}"
+        # "math.Vec2" -> "@senpai_math_Vec2_method"
+        return f"@senpai_{class_name.replace('.', '_')}_{method_name}"
 
     # --- Top-level generation ---
 
@@ -213,6 +255,27 @@ class CodeGen:
                         params.append(resolve_type(p.type_name))
                 self._fn_params[full_name] = params
 
+        # Process imported modules
+        if hasattr(prog, 'module_info'):
+            self._modules = prog.module_info
+            for mod_name, mi in prog.module_info.items():
+                # Register qualified class info from type checker
+                for cls_name, ci in mi.classes.items():
+                    qual_name = f"{mod_name}.{cls_name}"
+                    self._class_info[qual_name] = ci
+                # Register function sigs from module_info
+                for fn_name, sig in mi.functions.items():
+                    qual_name = f"{mod_name}.{fn_name}"
+                    self._fn_sigs[qual_name] = sig.ret_type
+                    self._fn_params[qual_name] = list(sig.param_types)
+                # Register method sigs from qualified class info
+                for cls_name, ci in mi.classes.items():
+                    qual_cls = f"{mod_name}.{cls_name}"
+                    for mname, sig in ci.methods.items():
+                        full_name = f"{qual_cls}_{mname}"
+                        self._fn_sigs[full_name] = sig.ret_type
+                        self._fn_params[full_name] = [qual_cls] + list(sig.param_types)
+
         # External declarations
         self._emit_global('; External declarations')
         self._emit_global('declare i32 @printf(ptr, ...)')
@@ -227,9 +290,25 @@ class CodeGen:
         self._emit_global('%struct.Array = type { i64, i64, ptr }')
         self._emit_global('')
 
+        # Emit struct types and vtables for imported classes
+        if hasattr(prog, 'module_programs'):
+            for mod_name, mod_prog in prog.module_programs.items():
+                for cls in mod_prog.classes:
+                    self._emit_class_types_module(cls, mod_name)
+
         # Emit struct types and vtables for classes
         for cls in prog.classes:
             self._emit_class_types(cls)
+
+        # Generate imported module functions and methods
+        if hasattr(prog, 'module_programs'):
+            for mod_name, mod_prog in prog.module_programs.items():
+                for fn in mod_prog.functions:
+                    if fn.name == "main":
+                        continue
+                    self._gen_fn_module(fn, mod_name)
+                for cls in mod_prog.classes:
+                    self._gen_class_methods_module(cls, mod_name)
 
         # Generate each free function
         for fn in prog.functions:
@@ -285,6 +364,79 @@ class CodeGen:
             self._emit_global(f'@vtable.{cls.name} = global [0 x ptr] zeroinitializer')
 
         self._emit_global('')
+
+    def _emit_class_types_module(self, cls: ClassDecl, mod_name: str):
+        """Emit struct type and vtable for an imported class."""
+        qual_name = f"{mod_name}.{cls.name}"
+        ci = self._class_info[qual_name]
+        safe_name = qual_name.replace(".", "_")
+
+        # Struct type
+        field_types = ["ptr"]
+        for fname, ftype in ci.fields.items():
+            field_types.append(_llvm_type(ftype))
+        self._emit_global(f'%struct.{safe_name} = type {{ {", ".join(field_types)} }}')
+
+        # Vtable
+        if ci.vtable_order:
+            vtable_entries = []
+            for method_name in ci.vtable_order:
+                impl_class = ci.vtable_impl[method_name]
+                # The impl_class is the local class name, prefix with module
+                vtable_entries.append(f'ptr @senpai_{mod_name}_{impl_class}_{method_name}')
+            n = len(vtable_entries)
+            self._emit_global(
+                f'@vtable.{safe_name} = global [{n} x ptr] [{", ".join(vtable_entries)}]'
+            )
+        else:
+            self._emit_global(f'@vtable.{safe_name} = global [0 x ptr] zeroinitializer')
+        self._emit_global('')
+
+    def _gen_fn_module(self, fn: FnDecl, mod_name: str):
+        """Generate a module function with module-prefixed name."""
+        self._tmp_counter = 0
+        self._vars = {}
+        self._current_module = mod_name
+
+        ret_type = resolve_type(fn.ret_type)
+        llvm_ret = _llvm_type(ret_type)
+
+        params = []
+        for p in fn.params:
+            pt = resolve_type(p.type_name)
+            params.append(f"{_llvm_type(pt)} %param_{p.name}")
+
+        fn_name = f"senpai_{mod_name}_{fn.name}"
+        self._emit(f'define {llvm_ret} @{fn_name}({", ".join(params)}) {{')
+        self._emit('entry:')
+
+        for p in fn.params:
+            pt = resolve_type(p.type_name)
+            lt = _llvm_type(pt)
+            alloca = self._tmp()
+            self._emit(f'  {alloca} = alloca {lt}')
+            self._emit(f'  store {lt} %param_{p.name}, ptr {alloca}')
+            self._vars[p.name] = (alloca, pt)
+
+        self._gen_stmts(fn.body, ret_type)
+
+        if ret_type == "Void":
+            self._emit('  ret void')
+        else:
+            zero = _zero_value(ret_type)
+            self._emit(f'  ret {llvm_ret} {zero}')
+
+        self._emit('}')
+        self._emit('')
+        self._current_module = None
+
+    def _gen_class_methods_module(self, cls: ClassDecl, mod_name: str):
+        """Generate methods for an imported class."""
+        qual_name = f"{mod_name}.{cls.name}"
+        self._current_module = mod_name
+        for method in cls.methods:
+            self._gen_method(qual_name, method)
+        self._current_module = None
 
     def _gen_class_methods(self, cls: ClassDecl):
         """Generate LLVM IR for all methods of a class."""
@@ -429,6 +581,7 @@ class CodeGen:
     def _gen_field_assign(self, stmt: AssignStmt):
         """Generate field assignment: obj.field = value."""
         obj_reg, obj_type = self._gen_expr(stmt.target.obj)
+        obj_type = self._resolve_class(obj_type)
         val_reg, val_type = self._gen_expr(stmt.value)
         field_name = stmt.target.field_name
         field_idx = self._field_index(obj_type, field_name)
@@ -590,6 +743,7 @@ class CodeGen:
     def _gen_field_access(self, expr: FieldAccess) -> tuple[str, str]:
         """Generate field read: obj.field."""
         obj_reg, obj_type = self._gen_expr(expr.obj)
+        obj_type = self._resolve_class(obj_type)
         field_name = expr.field_name
         field_idx = self._field_index(obj_type, field_name)
         field_stype = self._field_type(obj_type, field_name)
@@ -615,10 +769,15 @@ class CodeGen:
         if obj_type and _is_array_type(obj_type):
             return self._gen_array_method(expr, obj_type)
 
+        # Module-qualified call: module.func() or module.Class()
+        if obj_type and obj_type.startswith("Module:"):
+            return self._gen_module_call(expr, obj_type[7:])
+
         # Check if this is a super call (direct dispatch, not vtable)
         is_super = isinstance(expr.obj, Var) and expr.obj.name == "super"
 
         obj_reg, obj_type = self._gen_expr(expr.obj)
+        obj_type = self._resolve_class(obj_type)
         ci = self._class_info[obj_type]
         method_name = expr.method
         sig = ci.methods[method_name]
@@ -641,6 +800,7 @@ class CodeGen:
             # __init__ is always on the defining class
             if method_name == "__init__":
                 impl_class = obj_type
+            impl_class = self._resolve_class(impl_class)
             fn_name = self._method_fn_name(impl_class, method_name)
             if ret_type == "Void":
                 self._emit(f'  call void {fn_name}({", ".join(args_ir)})')
@@ -685,6 +845,8 @@ class CodeGen:
         # Check if left operand is a class type — if so, use operator methods
         # (peek at type without generating code yet)
         left_type = self._peek_type(expr.left)
+        if left_type:
+            left_type = self._resolve_class(left_type)
         if left_type and left_type in self._class_info:
             from .types import BINOP_METHODS
             method_name = BINOP_METHODS.get(expr.op)
@@ -810,6 +972,8 @@ class CodeGen:
         # Check for class operator method first (avoid double-eval)
         if expr.op == "-":
             op_type = self._peek_type(expr.operand)
+            if op_type:
+                op_type = self._resolve_class(op_type)
             if op_type and op_type in self._class_info:
                 ci = self._class_info[op_type]
                 if "__neg__" in ci.methods:
@@ -848,14 +1012,16 @@ class CodeGen:
             return self._gen_array_constructor(expr.func, expr)
 
         # Constructor call
-        if expr.func in self._class_info and expr.func != "Object":
-            return self._gen_constructor(expr)
+        resolved_cls = self._resolve_class(expr.func)
+        if resolved_cls in self._class_info and expr.func != "Object":
+            return self._gen_constructor(expr, resolved_cls)
 
         # User function
-        ret_type = self._fn_sigs.get(expr.func, "Void")
+        resolved_fn = self._resolve_fn(expr.func)
+        ret_type = self._fn_sigs.get(resolved_fn, "Void")
         llvm_ret = _llvm_type(ret_type)
 
-        param_types = self._fn_params.get(expr.func, [])
+        param_types = self._fn_params.get(resolved_fn, [])
         args_ir = []
         for i, arg in enumerate(expr.args):
             ar, at = self._gen_expr(arg)
@@ -864,17 +1030,20 @@ class CodeGen:
                 at = param_types[i]
             args_ir.append(f"{_llvm_type(at)} {ar}")
 
+        # Use resolved name for IR (e.g., "mod.func" -> "senpai_mod_func")
+        ir_name = f"senpai_{resolved_fn.replace('.', '_')}"
         if ret_type == "Void":
-            self._emit(f'  call void @senpai_{expr.func}({", ".join(args_ir)})')
+            self._emit(f'  call void @{ir_name}({", ".join(args_ir)})')
             return "void", "Void"
         else:
             result = self._tmp()
-            self._emit(f'  {result} = call {llvm_ret} @senpai_{expr.func}({", ".join(args_ir)})')
+            self._emit(f'  {result} = call {llvm_ret} @{ir_name}({", ".join(args_ir)})')
             return result, ret_type
 
-    def _gen_constructor(self, expr: Call) -> tuple[str, str]:
+    def _gen_constructor(self, expr: Call, class_name: str | None = None) -> tuple[str, str]:
         """Generate constructor: malloc + store vtable + call __init__."""
-        class_name = expr.func
+        if class_name is None:
+            class_name = expr.func
         ci = self._class_info[class_name]
         struct = self._struct_name(class_name)
 
@@ -892,7 +1061,8 @@ class CodeGen:
         vtable_ptr = self._tmp()
         self._emit(f'  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0')
         n = len(ci.vtable_order)
-        self._emit(f'  store ptr @vtable.{class_name}, ptr {vtable_ptr}')
+        safe_name = class_name.replace(".", "_")
+        self._emit(f'  store ptr @vtable.{safe_name}, ptr {vtable_ptr}')
 
         # Call __init__ if it exists
         if "__init__" in ci.methods:
@@ -907,6 +1077,73 @@ class CodeGen:
             self._emit(f'  call void {self._method_fn_name(class_name, "__init__")}({", ".join(args_ir)})')
 
         return obj, class_name
+
+    # --- Module calls ---
+
+    def _gen_module_call(self, expr: MethodCall, mod_name: str) -> tuple[str, str]:
+        """Generate a module-qualified function call or constructor."""
+        qual_cls = f"{mod_name}.{expr.method}"
+        qual_fn = f"{mod_name}.{expr.method}"
+
+        # Class constructor
+        if qual_cls in self._class_info:
+            ci = self._class_info[qual_cls]
+            struct = self._struct_name(qual_cls)
+
+            # Calculate struct size
+            size_ptr = self._tmp()
+            self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+            size = self._tmp()
+            self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+
+            # Allocate
+            obj = self._tmp()
+            self._emit(f'  {obj} = call ptr @malloc(i64 {size})')
+
+            # Store vtable pointer
+            vtable_ptr = self._tmp()
+            self._emit(f'  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0')
+            safe_name = qual_cls.replace(".", "_")
+            self._emit(f'  store ptr @vtable.{safe_name}, ptr {vtable_ptr}')
+
+            # Call __init__
+            if "__init__" in ci.methods:
+                init_sig = ci.methods["__init__"]
+                args_ir = [f"ptr {obj}"]
+                for i, arg in enumerate(expr.args):
+                    ar, at = self._gen_expr(arg)
+                    if i < len(init_sig.param_types):
+                        ar = self._coerce(ar, at, init_sig.param_types[i])
+                        at = init_sig.param_types[i]
+                    args_ir.append(f"{_llvm_type(at)} {ar}")
+                self._emit(f'  call void {self._method_fn_name(qual_cls, "__init__")}({", ".join(args_ir)})')
+
+            return obj, qual_cls
+
+        # Module function call
+        if qual_fn in self._fn_sigs:
+            ret_type = self._fn_sigs[qual_fn]
+            llvm_ret = _llvm_type(ret_type)
+            param_types = self._fn_params.get(qual_fn, [])
+
+            args_ir = []
+            for i, arg in enumerate(expr.args):
+                ar, at = self._gen_expr(arg)
+                if i < len(param_types):
+                    ar = self._coerce(ar, at, param_types[i])
+                    at = param_types[i]
+                args_ir.append(f"{_llvm_type(at)} {ar}")
+
+            fn_ir_name = f"@senpai_{mod_name}_{expr.method}"
+            if ret_type == "Void":
+                self._emit(f'  call void {fn_ir_name}({", ".join(args_ir)})')
+                return "void", "Void"
+            else:
+                result = self._tmp()
+                self._emit(f'  {result} = call {llvm_ret} {fn_ir_name}({", ".join(args_ir)})')
+                return result, ret_type
+
+        raise RuntimeError(f"module '{mod_name}' has no '{expr.method}'")
 
     # --- Array ---
 
