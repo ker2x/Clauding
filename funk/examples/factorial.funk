@@ -1,0 +1,24 @@
+; Compute 10! using recursion
+PUSH_INT 10
+CALL factorial
+PRINT
+HALT
+
+; factorial(n): expects n on TOS, leaves n! on TOS
+factorial:
+  DUP
+  PUSH_INT 2
+  LT             ; n < 2?
+  JMP_IF base
+  DUP            ; n n
+  PUSH_INT 1
+  SUB            ; n (n-1)
+  CALL factorial  ; n factorial(n-1)
+  MUL            ; n * factorial(n-1)
+  RET
+
+base:
+  ; n is 0 or 1, return 1
+  POP
+  PUSH_INT 1
+  RET

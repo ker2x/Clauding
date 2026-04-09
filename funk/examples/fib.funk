@@ -1,0 +1,27 @@
+; Fibonacci: print first 10 numbers
+PUSH_INT 0
+STORE 0          ; a = 0
+PUSH_INT 1
+STORE 1          ; b = 1
+PUSH_INT 10
+STORE 2          ; count = 10
+
+loop:
+  LOAD 0
+  PRINT          ; print a
+  LOAD 0
+  LOAD 1
+  ADD            ; a + b
+  LOAD 1
+  STORE 0        ; a = old b
+  STORE 1        ; b = a + b
+  LOAD 2
+  PUSH_INT 1
+  SUB
+  DUP
+  STORE 2        ; count--
+  PUSH_INT 0
+  GT             ; count > 0?
+  JMP_IF loop
+
+HALT
