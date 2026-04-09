@@ -4,11 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Funk** is a homoiconic stack-based programming language. Inspired by Jasmin (JVM assembler), Forth (stack-based), and Lisp (homoiconicity). Implementation in Python.
-
-**Current state: Phase 1** — text assembler + stack-based VM. Programs are written in a line-oriented assembly format, assembled into in-memory instructions, and executed by the VM.
-
-Future phases: S-expressions & homoiconicity, FFI via ctypes, REPL, optional LLVM backend.
+**Funk** is a stack-based programming language. Inspired by Jasmin (JVM assembler) and Forth (stack-based). Implementation in Python.
 
 ## Environment & Setup
 
@@ -16,33 +12,39 @@ Future phases: S-expressions & homoiconicity, FFI via ctypes, REPL, optional LLV
 > Always use the python interpreter located in `../.venv/bin/python` for running all scripts and commands in this project.
 > Example: `../.venv/bin/python scripts/run.py examples/hello.funk`
 
-No additional dependencies beyond Python 3.10+ standard library.
+No additional dependencies beyond Python 3.10+ standard library. TUI debugger/IDE require `textual`.
 
 ## Commands
 
 ```bash
 # Run a program
 ../.venv/bin/python scripts/run.py examples/hello.funk
-../.venv/bin/python scripts/run.py examples/fib.funk
-../.venv/bin/python scripts/run.py examples/factorial.funk
+
+# Run with arguments
+../.venv/bin/python scripts/run.py examples/args.funk hello world
 
 # Run tests
 ../.venv/bin/python tests/test_vm.py
+
+# TUI debugger
+../.venv/bin/python scripts/debug.py examples/fib.funk
+
+# TUI IDE
+../.venv/bin/python scripts/ide.py examples/fib.funk
 ```
 
 ## Architecture
 
 ```
-.funk source → Assembler (two-pass) → list[Instruction] → VM (fetch-decode-execute)
+.funk source → Preprocessor (INCLUDE) → Assembler (two-pass) → list[Instruction] → VM
 ```
 
-**`funklang/opcodes.py`** — `Opcode` IntEnum and `Instruction` namedtuple. Defines the full instruction set and classifies opcodes by operand type (LABEL_OPCODES, SLOT_OPCODES, LITERAL_OPCODES).
+- **`funklang/opcodes.py`** — `Opcode` IntEnum (29 opcodes) and `Instruction` NamedTuple. Classifies opcodes by operand type (LABEL_OPCODES, NAME_OPCODES, LITERAL_OPCODES).
+- **`funklang/assembler.py`** — Preprocessor (INCLUDE expansion, alias expansion) + two-pass assembler. Pass 1 collects labels. Pass 2 resolves references.
+- **`funklang/vm.py`** — Stack-based VM. Data stack (shared, Forth-style), call stack of Frames (return address + named locals dict), exception stack for TRY/CATCH.
+- **`stdlib/`** — Standard library modules (included via `INCLUDE "math.funk"`). Labels auto-namespaced by filename.
 
-**`funklang/assembler.py`** — Two-pass assembler. Pass 1 collects label→address mappings. Pass 2 parses instructions and resolves label references. Public API: `assemble(source: str)` and `assemble_file(path: str)`, both return `list[Instruction]`.
-
-**`funklang/vm.py`** — Stack-based virtual machine. Data stack (shared across calls, Forth-style), call stack of Frames (return address + 256 local variable slots). `FunkError` for all runtime errors.
-
-## Instruction Set
+## Instruction Set (29 VM opcodes)
 
 | Opcode | Hex | Operand | Description |
 |--------|-----|---------|-------------|
@@ -69,38 +71,50 @@ No additional dependencies beyond Python 3.10+ standard library.
 | JMP_IF_NOT | 0x32 | label | Jump if TOS falsy (pops) |
 | CALL | 0x40 | label | Push frame, jump to label |
 | RET | 0x41 | — | Pop frame, return |
-| LOAD | 0x50 | slot# | Push local variable |
-| STORE | 0x51 | slot# | Pop into local variable |
+| LOAD | 0x50 | name | Push named variable |
+| STORE | 0x51 | name | Pop into named variable |
 | PRINT | 0x60 | — | Pop and print TOS |
+| TRY | 0x70 | label | Push catch address; on error jump there |
+| CATCH | 0x71 | — | Pop catch address (no error); both push error flag |
 | HALT | 0xFF | — | Stop execution |
 
-**Operand order for binary ops:** second-from-top OP top. `PUSH_INT 10; PUSH_INT 3; SUB` → 7.
+## Assembler Aliases (sugar, no new opcodes)
 
-## Assembly Syntax
+| Alias | Expands to | Description |
+|-------|-----------|-------------|
+| IPUSH n | PUSH_INT n | Short push integer |
+| FPUSH n | PUSH_FLOAT n | Short push float |
+| SPUSH "s" | PUSH_STR "s" | Short push string |
+| SAY "s" | PUSH_STR "s" + PRINT | Push and print string |
+| JEQ label | EQ + JMP_IF | Jump if equal |
+| JNE label | EQ + JMP_IF_NOT | Jump if not equal |
+| JLT label | LT + JMP_IF | Jump if less than |
+| JGT label | GT + JMP_IF | Jump if greater than |
+| JLE label | GT + JMP_IF_NOT | Jump if less or equal |
+| JGE label | LT + JMP_IF_NOT | Jump if greater or equal |
+| JZ label | PUSH_INT 0 + EQ + JMP_IF | Jump if TOS is zero |
+| JNZ label | PUSH_INT 0 + EQ + JMP_IF_NOT | Jump if TOS is nonzero |
 
-```asm
-; comment
-label:              ; label definition
-  PUSH_INT 42       ; instruction with operand
-  ADD               ; no-operand instruction
-  PUSH_STR "hello"  ; string in double quotes
-  JMP label         ; label reference
-  LOAD 0            ; local variable slot
-```
+## INCLUDE & Namespacing
 
-- Lines are case-insensitive for mnemonics
-- `;` starts a comment (respects string literals)
-- Labels end with `:`, referenced without `:`
+- `INCLUDE "path"` inlines a file before assembly
+- Resolves relative to the including file, then falls back to `stdlib/`
+- Labels in included files are auto-prefixed with filename: `square` in `math.funk` → `math.square`
+- Labels starting with `.` are global (dot stripped, no prefix)
+- Duplicate includes are silently skipped (idempotent)
 
 ## Key Semantics
 
-- **Data stack** is shared across function calls (Forth convention). Arguments and return values stay on the stack.
-- **CALL** pushes a new Frame (return address + fresh locals) onto the call stack and jumps to the target.
-- **RET** pops the frame and jumps back. The data stack is untouched.
-- **LOAD/STORE** access the current frame's local variable slots (0-255).
-- **Truthiness:** 0 and empty string are falsy; everything else is truthy.
-- **Type-aware arithmetic:** int+int→int, anything with float→float, str+str→concatenation.
-- Running past the end of the program is an implicit HALT.
+- **Data stack** is shared across function calls (Forth convention)
+- **CALL** pushes a new Frame (return address + fresh locals) and jumps
+- **RET** pops the frame and returns. Data stack is untouched
+- **LOAD/STORE** access named local variables in the current frame (dict-based, unlimited)
+- **TRY/CATCH** — internal exception stack. Error → jump to catch address + push 1. No error → CATCH pushes 0. Nests correctly
+- **Truthiness:** 0 and empty string are falsy; everything else is truthy
+- **Arithmetic:** int+int→int, anything with float→float, str+str→concatenation
+- **Operand order:** second-from-top OP top. `PUSH_INT 10; PUSH_INT 3; SUB` → 7
+- **Args:** runner pushes argv strings then argc onto the stack before execution
+- Running past end of program is implicit HALT
 
 ## Project Structure
 
@@ -111,13 +125,20 @@ funk/
 │   ├── __init__.py
 │   ├── opcodes.py      # instruction definitions
 │   ├── vm.py            # virtual machine
-│   └── assembler.py     # text → instructions
+│   └── assembler.py     # preprocessor + assembler
+├── stdlib/
+│   └── math.funk        # square, abs, max, min
 ├── scripts/
-│   └── run.py           # CLI entry point
+│   ├── run.py           # CLI runner
+│   ├── debug.py         # TUI debugger
+│   └── ide.py           # TUI IDE
 ├── examples/
-│   ├── hello.funk       # Hello, World!
-│   ├── fib.funk         # first 10 fibonacci numbers
-│   └── factorial.funk   # 10! via recursion
+│   ├── hello.funk
+│   ├── fib.funk
+│   ├── factorial.funk
+│   ├── trycatch.funk
+│   ├── args.funk
+│   └── include_demo.funk
 └── tests/
-    └── test_vm.py       # 47 tests (standalone, no pytest)
+    └── test_vm.py       # 78 tests (standalone, no pytest)
 ```

@@ -1,0 +1,35 @@
+; Print command-line arguments
+; Stack at start: [arg1, arg2, ..., argc]
+
+; Store argc
+STORE argc
+
+; Check if no args
+LOAD argc
+PUSH_INT 0
+EQ
+JMP_IF no_args
+
+; Print each arg
+LOAD argc
+STORE counter
+
+print_loop:
+  LOAD counter
+  PUSH_INT 0
+  EQ
+  JMP_IF done
+
+  PRINT          ; print next arg from stack
+
+  LOAD counter
+  PUSH_INT 1
+  SUB
+  STORE counter
+  JMP print_loop
+
+no_args:
+  SAY "No arguments provided."
+
+done:
+HALT

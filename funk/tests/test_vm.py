@@ -35,6 +35,14 @@ def run_vm(instructions):
     return vm
 
 
+def run_asm(source):
+    """Assemble source and run to completion, return the VM."""
+    program = assemble(source)
+    vm = VM(program)
+    vm.run()
+    return vm
+
+
 def capture_output(fn):
     """Capture stdout from fn() and return it as a string."""
     old = sys.stdout
@@ -293,23 +301,23 @@ def test_loop():
     """Sum 1+2+3+4+5 using a loop."""
     program = assemble("""\
 PUSH_INT 0
-STORE 0        ; sum = 0
+STORE sum      ; sum = 0
 PUSH_INT 5
-STORE 1        ; i = 5
+STORE i        ; i = 5
 loop:
-  LOAD 0
-  LOAD 1
+  LOAD sum
+  LOAD i
   ADD
-  STORE 0      ; sum += i
-  LOAD 1
+  STORE sum    ; sum += i
+  LOAD i
   PUSH_INT 1
   SUB
   DUP
-  STORE 1      ; i--
+  STORE i      ; i--
   PUSH_INT 0
   GT           ; i > 0?
   JMP_IF loop
-LOAD 0
+LOAD sum
 HALT
 """)
     vm = VM(program)
@@ -321,20 +329,20 @@ HALT
 def test_store_load():
     vm = run_vm([
         Instruction(Opcode.PUSH_INT, 42),
-        Instruction(Opcode.STORE, 0),
-        Instruction(Opcode.LOAD, 0),
+        Instruction(Opcode.STORE, "x"),
+        Instruction(Opcode.LOAD, "x"),
         Instruction(Opcode.HALT),
     ])
     assert vm.data_stack == [42]
 
-def test_uninitialized_local():
+def test_undefined_variable():
     try:
         run_vm([
-            Instruction(Opcode.LOAD, 0),
+            Instruction(Opcode.LOAD, "nope"),
         ])
         assert False, "expected FunkError"
     except FunkError as e:
-        assert "uninitialized" in str(e)
+        assert "undefined" in str(e)
 
 # ── Functions ──
 
@@ -492,6 +500,284 @@ def test_implicit_halt():
     assert vm.data_stack == [1]
     assert not vm.halted  # didn't hit explicit HALT
 
+
+# ── TRY/CATCH ──
+
+def test_try_catch_error():
+    """TRY/CATCH catches a division by zero."""
+    source = """
+    TRY handler
+      PUSH_INT 10
+      PUSH_INT 0
+      DIV
+    CATCH
+    POP
+    JMP done
+    handler:
+      POP
+      PUSH_STR "caught"
+    done:
+      HALT
+    """
+    vm = run_asm(source)
+    assert vm.data_stack == ["caught"]
+
+def test_try_catch_no_error():
+    """CATCH reached normally pushes 0 (no error)."""
+    source = """
+    TRY handler
+      PUSH_INT 10
+      PUSH_INT 2
+      DIV
+    CATCH
+    HALT
+    handler:
+      HALT
+    """
+    vm = run_asm(source)
+    # stack: 5 (result of 10/2), then 0 (no-error flag from CATCH)
+    assert vm.data_stack == [5, 0]
+
+def test_try_catch_nested():
+    """Inner TRY/CATCH handles error, outer continues."""
+    source = """
+    TRY outer
+      TRY inner
+        PUSH_INT 1
+        PUSH_INT 0
+        DIV
+      CATCH
+      POP
+      JMP after_inner
+      inner:
+        POP
+        PUSH_STR "inner"
+      after_inner:
+    CATCH
+    POP
+    JMP done
+    outer:
+      POP
+      PUSH_STR "outer"
+    done:
+      HALT
+    """
+    vm = run_asm(source)
+    assert vm.data_stack == ["inner"]
+
+def test_try_catch_unwind_to_outer():
+    """Error after inner CATCH unwinds to outer handler."""
+    source = """
+    TRY outer
+      TRY inner
+        PUSH_INT 10
+        PUSH_INT 5
+        DIV
+      CATCH
+      POP
+      ; now cause an error outside inner but inside outer
+      PUSH_INT 1
+      PUSH_INT 0
+      DIV
+    CATCH
+    POP
+    JMP done
+    inner:
+      POP
+      PUSH_STR "inner"
+      JMP done
+    outer:
+      POP
+      PUSH_STR "outer"
+    done:
+      HALT
+    """
+    vm = run_asm(source)
+    assert vm.data_stack == [2, "outer"]
+
+def test_catch_without_try():
+    """CATCH without TRY raises an error."""
+    try:
+        run_asm("CATCH\nHALT\n")
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_uncaught_error_still_raises():
+    """Without TRY, errors still propagate normally."""
+    try:
+        run_asm("PUSH_INT 1\nPUSH_INT 0\nDIV\nHALT\n")
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_trycatch_example():
+    program = assemble_file(os.path.join(EXAMPLES_DIR, "trycatch.funk"))
+    output = capture_output(lambda: VM(program).run())
+    lines = output.strip().split("\n")
+    assert lines == [
+        "Caught division by zero!",
+        "3",
+        "Inner catch handled it",
+        "Outer try continues fine",
+    ], f"got: {lines}"
+
+# ── Assembler aliases ──
+
+def test_ipush():
+    vm = run_asm("IPUSH 99\nHALT\n")
+    assert vm.data_stack == [99]
+
+def test_fpush():
+    vm = run_asm("FPUSH 2.5\nHALT\n")
+    assert vm.data_stack == [2.5]
+
+def test_spush():
+    vm = run_asm('SPUSH "hi"\nHALT\n')
+    assert vm.data_stack == ["hi"]
+
+def test_say():
+    output = capture_output(lambda: run_asm('SAY "hello world"\nHALT\n'))
+    assert output.strip() == "hello world"
+
+def test_say_no_stack_residue():
+    """SAY should not leave anything on the stack."""
+    vm_output = []
+    program = assemble('SAY "test"\nHALT\n')
+    vm = VM(program, on_print=lambda v: vm_output.append(str(v)))
+    vm.run()
+    assert vm.data_stack == []
+    assert vm_output == ["test"]
+
+def test_aliases_case_insensitive():
+    vm = run_asm("ipush 7\nHALT\n")
+    assert vm.data_stack == [7]
+
+# ── INCLUDE ──
+
+def test_include_stdlib():
+    """INCLUDE resolves stdlib path."""
+    program = assemble_file(os.path.join(EXAMPLES_DIR, "include_demo.funk"))
+    def run_with_argc():
+        vm = VM(program)
+        vm._push(0)  # argc = 0, like the runner does
+        vm.run()
+    output = capture_output(run_with_argc)
+    lines = output.strip().split("\n")
+    assert lines == ["49", "15", "9", "3"], f"got: {lines}"
+
+def test_include_relative():
+    """INCLUDE resolves relative to the including file, with auto-namespacing."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "lib.funk"), "w") as f:
+            f.write("double:\n  PUSH_INT 2\n  MUL\n  RET\n")
+        with open(os.path.join(d, "main.funk"), "w") as f:
+            f.write('JMP start\nINCLUDE "lib.funk"\nstart:\nPUSH_INT 5\nCALL lib.double\nHALT\n')
+        program = assemble_file(os.path.join(d, "main.funk"))
+        vm = VM(program)
+        vm.run()
+        assert vm.data_stack == [10]
+
+def test_include_not_found():
+    """INCLUDE of nonexistent file raises error."""
+    try:
+        assemble('INCLUDE "nope.funk"\nHALT\n')
+        assert False, "should have raised"
+    except FunkError as e:
+        assert "not found" in str(e)
+
+def test_include_idempotent():
+    """Including the same file twice doesn't duplicate definitions."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "lib.funk"), "w") as f:
+            f.write("noop:\n  RET\n")
+        with open(os.path.join(d, "main.funk"), "w") as f:
+            f.write('JMP start\nINCLUDE "lib.funk"\nINCLUDE "lib.funk"\nstart:\nHALT\n')
+        program = assemble_file(os.path.join(d, "main.funk"))
+        vm = VM(program)
+        vm.run()
+
+def test_include_namespace_isolation():
+    """Labels from different includes don't collide."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "a.funk"), "w") as f:
+            f.write("helper:\n  PUSH_INT 1\n  RET\n")
+        with open(os.path.join(d, "b.funk"), "w") as f:
+            f.write("helper:\n  PUSH_INT 2\n  RET\n")
+        with open(os.path.join(d, "main.funk"), "w") as f:
+            f.write('JMP start\nINCLUDE "a.funk"\nINCLUDE "b.funk"\nstart:\nCALL a.helper\nCALL b.helper\nADD\nHALT\n')
+        program = assemble_file(os.path.join(d, "main.funk"))
+        vm = VM(program)
+        vm.run()
+        assert vm.data_stack == [3]  # 1 + 2
+
+def test_include_global_label():
+    """Labels starting with . are global (not namespaced)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "lib.funk"), "w") as f:
+            f.write(".shared:\n  PUSH_INT 99\n  RET\n")
+        with open(os.path.join(d, "main.funk"), "w") as f:
+            f.write('JMP start\nINCLUDE "lib.funk"\nstart:\nCALL shared\nHALT\n')
+        program = assemble_file(os.path.join(d, "main.funk"))
+        vm = VM(program)
+        vm.run()
+        assert vm.data_stack == [99]
+
+# ── Comparison jump aliases ──
+
+def test_jeq():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 5\nJEQ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jne():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 3\nJNE yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jlt():
+    vm = run_asm("PUSH_INT 3\nPUSH_INT 5\nJLT yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jgt():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 3\nJGT yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jle():
+    vm = run_asm("PUSH_INT 3\nPUSH_INT 5\nJLE yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jle_equal():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 5\nJLE yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jge():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 3\nJGE yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jge_equal():
+    vm = run_asm("PUSH_INT 5\nPUSH_INT 5\nJGE yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+# ── Zero-comparison jump aliases ──
+
+def test_jz():
+    vm = run_asm("PUSH_INT 0\nJZ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jz_nonzero():
+    vm = run_asm("PUSH_INT 5\nJZ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [0]
+
+def test_jnz():
+    vm = run_asm("PUSH_INT 7\nJNZ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [1]
+
+def test_jnz_zero():
+    vm = run_asm("PUSH_INT 0\nJNZ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
+    assert vm.data_stack == [0]
 
 # ── Run all tests ──
 

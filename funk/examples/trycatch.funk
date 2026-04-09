@@ -1,0 +1,67 @@
+; Try/Catch demo — error handling in Funk
+;
+; TRY pushes a catch address; if an error occurs, VM jumps there.
+; CATCH removes the catch address (no error happened).
+; Both push an error flag: 0 = ok, 1 = error occurred.
+
+; --- Example 1: division by zero (caught) ---
+TRY catch_divzero
+  PUSH_INT 10
+  PUSH_INT 0
+  DIV                 ; triggers error!
+CATCH                 ; skipped because error jumped to catch_divzero
+JMP after_divzero
+
+catch_divzero:
+  ; error flag (1) is on the stack
+  POP                 ; discard it
+  PUSH_STR "Caught division by zero!"
+  PRINT
+
+after_divzero:
+
+; --- Example 2: no error (normal flow) ---
+TRY catch_normal
+  PUSH_INT 10
+  PUSH_INT 3
+  DIV                 ; no error, result = 3
+  PRINT               ; prints 3
+CATCH
+  ; error flag (0) is on the stack
+  POP                 ; discard it
+JMP after_normal
+
+catch_normal:
+  PUSH_STR "This should not print"
+  PRINT
+
+after_normal:
+
+; --- Example 3: nested try/catch ---
+TRY outer_catch
+  TRY inner_catch
+    PUSH_INT 1
+    PUSH_INT 0
+    DIV               ; inner error!
+  CATCH
+  POP
+  JMP after_inner
+
+  inner_catch:
+    POP               ; discard error flag
+    PUSH_STR "Inner catch handled it"
+    PRINT
+
+  after_inner:
+  PUSH_STR "Outer try continues fine"
+  PRINT
+CATCH
+POP
+JMP done
+
+outer_catch:
+  PUSH_STR "This should not print either"
+  PRINT
+
+done:
+HALT

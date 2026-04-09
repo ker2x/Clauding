@@ -1,0 +1,30 @@
+; Demo: using stdlib via INCLUDE
+JMP main
+INCLUDE "math.funk"
+
+main:
+POP              ; discard argc
+
+; math.square(7) = 49
+PUSH_INT 7
+CALL math.square
+PRINT
+
+; math.abs(-15) = 15
+PUSH_INT -15
+CALL math.abs
+PRINT
+
+; math.max(3, 9) = 9
+PUSH_INT 3
+PUSH_INT 9
+CALL math.max
+PRINT
+
+; math.min(3, 9) = 3
+PUSH_INT 3
+PUSH_INT 9
+CALL math.min
+PRINT
+
+HALT

@@ -45,6 +45,10 @@ class Opcode(IntEnum):
     # I/O
     PRINT = 0x60
 
+    # Error handling
+    TRY = 0x70
+    CATCH = 0x71
+
     # System
     HALT = 0xFF
 
@@ -55,10 +59,10 @@ class Instruction(NamedTuple):
 
 
 # Opcodes that take a label reference as operand (resolved to address by assembler)
-LABEL_OPCODES = {Opcode.JMP, Opcode.JMP_IF, Opcode.JMP_IF_NOT, Opcode.CALL}
+LABEL_OPCODES = {Opcode.JMP, Opcode.JMP_IF, Opcode.JMP_IF_NOT, Opcode.CALL, Opcode.TRY}
 
-# Opcodes that take an integer slot index as operand
-SLOT_OPCODES = {Opcode.LOAD, Opcode.STORE}
+# Opcodes that take a variable name as operand
+NAME_OPCODES = {Opcode.LOAD, Opcode.STORE}
 
 # Opcodes that take a typed literal as operand
 LITERAL_OPCODES = {Opcode.PUSH_INT, Opcode.PUSH_FLOAT, Opcode.PUSH_STR}

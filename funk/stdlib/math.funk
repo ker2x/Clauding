@@ -1,0 +1,40 @@
+; stdlib/math.funk — basic math utilities
+
+; square: ( n -- n*n )
+square:
+  DUP
+  MUL
+  RET
+
+; abs: ( n -- |n| )
+abs:
+  DUP
+  PUSH_INT 0
+  LT
+  JMP_IF_NOT abs.done
+  PUSH_INT -1
+  MUL
+abs.done:
+  RET
+
+; max: ( a b -- max )
+max:
+  OVER
+  OVER
+  GT
+  JMP_IF max.keep_a
+  SWAP
+max.keep_a:
+  POP
+  RET
+
+; min: ( a b -- min )
+min:
+  OVER
+  OVER
+  LT
+  JMP_IF min.keep_a
+  SWAP
+min.keep_a:
+  POP
+  RET

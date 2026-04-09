@@ -10,13 +10,13 @@ class FunkError(Exception):
 
 
 class Frame:
-    """Call stack frame with return address and local variable slots."""
+    """Call stack frame with return address and named local variables."""
 
     __slots__ = ("return_addr", "locals")
 
-    def __init__(self, return_addr: int, num_locals: int = 256):
+    def __init__(self, return_addr: int):
         self.return_addr = return_addr
-        self.locals: list[Any] = [None] * num_locals
+        self.locals: dict[str, Any] = {}
 
 
 class VM:
@@ -26,12 +26,14 @@ class VM:
     Uses a data stack for operands and a call stack for function frames.
     """
 
-    def __init__(self, program: list[Instruction]):
+    def __init__(self, program: list[Instruction], on_print=None):
         self.program = program
         self.data_stack: list[Any] = []
         self.call_stack: list[Frame] = [Frame(return_addr=-1)]  # top-level frame
         self.ip = 0
         self.halted = False
+        self.on_print = on_print  # callback for PRINT output
+        self.exception_stack: list[int] = []  # catch addresses
 
     # -- Stack helpers --
 
@@ -50,14 +52,33 @@ class VM:
 
     # -- Main loop --
 
+    @property
+    def done(self) -> bool:
+        return self.halted or self.ip >= len(self.program)
+
+    def step(self) -> bool:
+        """Execute one instruction. Returns True if still running."""
+        if self.done:
+            return False
+        self._step()
+        return not self.done
+
     def run(self) -> None:
         """Execute the loaded program until HALT or end of program."""
-        while not self.halted:
-            if self.ip >= len(self.program):
-                break  # implicit halt
+        while not self.done:
             self._step()
 
     def _step(self) -> None:
+        try:
+            self._execute()
+        except FunkError:
+            if self.exception_stack:
+                self.ip = self.exception_stack.pop()
+                self._push(1)  # error flag: 1 = error occurred
+            else:
+                raise
+
+    def _execute(self) -> None:
         instr = self.program[self.ip]
         op = instr.opcode
         self.ip += 1
@@ -163,21 +184,32 @@ class VM:
 
         # -- Variables --
         elif op == Opcode.LOAD:
-            slot = instr.operand
+            name = instr.operand
             frame = self.call_stack[-1]
-            val = frame.locals[slot]
-            if val is None:
-                raise FunkError(f"uninitialized local variable in slot {slot}")
-            self._push(val)
+            if name not in frame.locals:
+                raise FunkError(f"undefined variable '{name}'")
+            self._push(frame.locals[name])
         elif op == Opcode.STORE:
-            slot = instr.operand
+            name = instr.operand
             frame = self.call_stack[-1]
-            frame.locals[slot] = self._pop()
+            frame.locals[name] = self._pop()
 
         # -- I/O --
         elif op == Opcode.PRINT:
             val = self._pop()
-            print(val)
+            if self.on_print:
+                self.on_print(val)
+            else:
+                print(val)
+
+        # -- Error handling --
+        elif op == Opcode.TRY:
+            self.exception_stack.append(instr.operand)
+        elif op == Opcode.CATCH:
+            if not self.exception_stack:
+                raise FunkError("CATCH without matching TRY")
+            self.exception_stack.pop()
+            self._push(0)  # error flag: 0 = no error
 
         # -- System --
         elif op == Opcode.HALT:

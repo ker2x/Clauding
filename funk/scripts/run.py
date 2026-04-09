@@ -19,6 +19,11 @@ def main():
     try:
         program = assemble_file(path)
         vm = VM(program)
+        # Push argv: args first (in order), then argc on top
+        args = sys.argv[2:]
+        for arg in args:
+            vm._push(arg)
+        vm._push(len(args))
         vm.run()
         if vm.data_stack:
             print(f"[stack: {vm.data_stack}]")
