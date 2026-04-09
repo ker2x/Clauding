@@ -1,0 +1,25 @@
+; echo.funk — read a line, print it back with its length
+JMP main
+INCLUDE "io.funk"
+INCLUDE "string.funk"
+
+main:
+POP                     ; discard argc
+
+SAY "Type something: "
+CALL io.readline        ; ( -- str)
+
+DUP                     ; keep a copy for length
+CALL string.length      ; ( str -- int)
+STORE len
+
+SAY "You said: "
+PRINT                   ; print the input string
+
+PUSH_STR "Length: "
+LOAD len
+TO_STR
+ADD
+PRINT
+
+HALT

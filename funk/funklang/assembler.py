@@ -2,7 +2,7 @@
 
 import os
 
-from .opcodes import Instruction, Opcode, LABEL_OPCODES, NAME_OPCODES
+from .opcodes import ExternDecl, Instruction, Opcode, LABEL_OPCODES, NAME_OPCODES
 from .vm import FunkError
 
 
@@ -44,6 +44,8 @@ def _namespace_source(source: str, namespace: str) -> str:
                 result.append(f"{label[1:]}:")  # strip dot, no prefix
             else:
                 result.append(f"{namespace}.{label}:")
+        elif stripped.upper().startswith(("EXTERN", "CALL_NATIVE")):
+            result.append(line)  # don't namespace FFI directives
         else:
             new_line = line
             # Replace local label references (longest first to avoid partial matches)
@@ -152,8 +154,9 @@ def assemble(source: str, base_dir: str | None = None) -> list[Instruction]:
             continue
         entries.append((lineno, line))
 
-    # Pass 1: collect labels → instruction index; expand aliases
+    # Pass 1: collect labels → instruction index; collect EXTERN declarations; expand aliases
     labels: dict[str, int] = {}
+    externs: dict[str, ExternDecl] = {}
     instruction_entries: list[tuple[int, str]] = []  # entries that are instructions
     for lineno, line in entries:
         if line.endswith(":"):
@@ -163,14 +166,17 @@ def assemble(source: str, base_dir: str | None = None) -> list[Instruction]:
             if label in labels:
                 raise FunkError(f"line {lineno}: duplicate label '{label}'")
             labels[label] = len(instruction_entries)
+        elif line.upper().startswith("EXTERN"):
+            decl = _parse_extern(lineno, line)
+            externs[decl.func_name] = decl
         else:
             for expanded in _expand_aliases(lineno, line):
                 instruction_entries.append(expanded)
 
-    # Pass 2: parse instructions, resolve labels
+    # Pass 2: parse instructions, resolve labels and externs
     program: list[Instruction] = []
     for lineno, line in instruction_entries:
-        instr = _parse_instruction(lineno, line, labels)
+        instr = _parse_instruction(lineno, line, labels, externs)
         program.append(instr)
 
     return program
@@ -198,7 +204,7 @@ def assemble_debug(source: str, base_dir: str | None = None) -> tuple[list[Instr
 
     instruction_entries = []
     for lineno, line in entries:
-        if not line.endswith(":"):
+        if not line.endswith(":") and not line.upper().startswith("EXTERN"):
             for expanded in _expand_aliases(lineno, line):
                 instruction_entries.append(expanded)
 
@@ -218,7 +224,27 @@ def _strip_comment(line: str) -> str:
     return line
 
 
-def _parse_instruction(lineno: int, line: str, labels: dict[str, int]) -> Instruction:
+def _parse_extern(lineno: int, line: str) -> ExternDecl:
+    """Parse an EXTERN directive: EXTERN "lib" funcname (type, ...) -> rettype"""
+    import re
+    m = re.match(r'EXTERN\s+"([^"]+)"\s+(\w+)\s*\(([^)]*)\)\s*->\s*(\w+)', line, re.IGNORECASE)
+    if not m:
+        raise FunkError(f"line {lineno}: invalid EXTERN syntax. Expected: EXTERN \"lib\" name (types) -> rettype")
+    library = m.group(1)
+    func_name = m.group(2)
+    arg_str = m.group(3).strip()
+    arg_types = tuple(a.strip() for a in arg_str.split(",") if a.strip()) if arg_str else ()
+    ret_type = m.group(4)
+    valid_types = {"int", "long", "float", "str", "handle", "void"}
+    for t in arg_types:
+        if t not in valid_types:
+            raise FunkError(f"line {lineno}: unknown type '{t}' in EXTERN")
+    if ret_type not in valid_types:
+        raise FunkError(f"line {lineno}: unknown return type '{ret_type}' in EXTERN")
+    return ExternDecl(library, func_name, arg_types, ret_type)
+
+
+def _parse_instruction(lineno: int, line: str, labels: dict[str, int], externs: dict[str, ExternDecl] | None = None) -> Instruction:
     """Parse a single instruction line into an Instruction."""
     # Split mnemonic from operand
     # Special handling for PUSH_STR: operand is the quoted string
@@ -259,6 +285,14 @@ def _parse_instruction(lineno: int, line: str, labels: dict[str, int]) -> Instru
         if label not in labels:
             raise FunkError(f"line {lineno}: undefined label '{label}'")
         return Instruction(opcode, labels[label])
+
+    elif opcode == Opcode.CALL_NATIVE:
+        if operand_str is None:
+            raise FunkError(f"line {lineno}: CALL_NATIVE requires a function name")
+        name = operand_str.strip()
+        if externs is None or name not in externs:
+            raise FunkError(f"line {lineno}: undeclared native function '{name}' (missing EXTERN?)")
+        return Instruction(opcode, externs[name])
 
     elif opcode in NAME_OPCODES:
         if operand_str is None:

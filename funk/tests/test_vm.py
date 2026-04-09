@@ -779,6 +779,166 @@ def test_jnz_zero():
     vm = run_asm("PUSH_INT 0\nJNZ yes\nPUSH_INT 0\nHALT\nyes:\nPUSH_INT 1\nHALT\n")
     assert vm.data_stack == [0]
 
+# ── ROT ──
+
+def test_rot():
+    vm = run_asm("PUSH_INT 1\nPUSH_INT 2\nPUSH_INT 3\nROT\n")
+    assert vm.data_stack == [2, 3, 1]
+
+def test_rot_underflow():
+    try:
+        run_asm("PUSH_INT 1\nPUSH_INT 2\nROT\n")
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+# ── Type conversion ──
+
+def test_to_int_from_float():
+    vm = run_asm("PUSH_FLOAT 3.7\nTO_INT\n")
+    assert vm.data_stack == [3]
+    assert isinstance(vm.data_stack[0], int)
+
+def test_to_int_from_str():
+    vm = run_asm('PUSH_STR "42"\nTO_INT\n')
+    assert vm.data_stack == [42]
+
+def test_to_int_from_int():
+    vm = run_asm("PUSH_INT 5\nTO_INT\n")
+    assert vm.data_stack == [5]
+
+def test_to_int_bad_str():
+    try:
+        run_asm('PUSH_STR "abc"\nTO_INT\n')
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_to_float_from_int():
+    vm = run_asm("PUSH_INT 5\nTO_FLOAT\n")
+    assert vm.data_stack == [5.0]
+    assert isinstance(vm.data_stack[0], float)
+
+def test_to_float_from_str():
+    vm = run_asm('PUSH_STR "3.14"\nTO_FLOAT\n')
+    assert vm.data_stack[0] == 3.14
+
+def test_to_float_bad_str():
+    try:
+        run_asm('PUSH_STR "nope"\nTO_FLOAT\n')
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_to_str_from_int():
+    vm = run_asm("PUSH_INT 42\nTO_STR\n")
+    assert vm.data_stack == ["42"]
+
+def test_to_str_from_float():
+    vm = run_asm("PUSH_FLOAT 3.14\nTO_STR\n")
+    assert vm.data_stack == ["3.14"]
+
+def test_to_int_negative_str():
+    vm = run_asm('PUSH_STR "-7"\nTO_INT\n')
+    assert vm.data_stack == [-7]
+
+# ── CHR / ORD ──
+
+def test_chr():
+    vm = run_asm("PUSH_INT 65\nCHR\n")
+    assert vm.data_stack == ["A"]
+
+def test_chr_space():
+    vm = run_asm("PUSH_INT 32\nCHR\n")
+    assert vm.data_stack == [" "]
+
+def test_chr_invalid():
+    try:
+        run_asm("PUSH_INT -1\nCHR\n")
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_ord():
+    vm = run_asm('PUSH_STR "A"\nORD\n')
+    assert vm.data_stack == [65]
+
+def test_ord_newline():
+    vm = run_asm('PUSH_INT 10\nCHR\nORD\n')
+    assert vm.data_stack == [10]
+
+def test_ord_not_single_char():
+    try:
+        run_asm('PUSH_STR "AB"\nORD\n')
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_chr_ord_roundtrip():
+    vm = run_asm("PUSH_INT 122\nCHR\nORD\n")
+    assert vm.data_stack == [122]
+
+# ── FFI (CALL_NATIVE) ──
+
+def test_ffi_abs():
+    vm = run_asm('EXTERN "libc" abs (int) -> int\nPUSH_INT -42\nCALL_NATIVE abs\n')
+    assert vm.data_stack == [42]
+
+def test_ffi_strlen():
+    vm = run_asm('EXTERN "libc" strlen (str) -> long\nPUSH_STR "hello"\nCALL_NATIVE strlen\n')
+    assert vm.data_stack == [5]
+
+def test_ffi_no_args():
+    # rand() returns some int — just verify it doesn't crash and pushes something
+    vm = run_asm('EXTERN "libc" rand () -> int\nCALL_NATIVE rand\n')
+    assert len(vm.data_stack) == 1
+    assert isinstance(vm.data_stack[0], int)
+
+def test_ffi_void_return():
+    # srand() returns void — stack should be empty after call
+    vm = run_asm('EXTERN "libc" srand (int) -> void\nPUSH_INT 42\nCALL_NATIVE srand\n')
+    assert vm.data_stack == []
+
+def test_ffi_undeclared():
+    try:
+        run_asm('CALL_NATIVE nope\n')
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_ffi_bad_extern_syntax():
+    try:
+        run_asm('EXTERN bad\n')
+        assert False, "should have raised"
+    except FunkError:
+        pass
+
+def test_ffi_multiple_args():
+    # strtol("123", NULL, 10) — but we can't pass NULL easily
+    # Use atoi instead: atoi("123") -> 123
+    vm = run_asm('EXTERN "libc" atoi (str) -> int\nPUSH_STR "123"\nCALL_NATIVE atoi\n')
+    assert vm.data_stack == [123]
+
+def test_ffi_atoi_negative():
+    vm = run_asm('EXTERN "libc" atoi (str) -> int\nPUSH_STR "-99"\nCALL_NATIVE atoi\n')
+    assert vm.data_stack == [-99]
+
+# ── FFI stdlib ──
+
+def test_string_length():
+    source = 'JMP main\nINCLUDE "string.funk"\nmain:\nPUSH_STR "hello"\nCALL string.length\n'
+    program = assemble(source, base_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stdlib"))
+    vm = VM(program)
+    vm.run()
+    assert vm.data_stack == [5]
+
+def test_string_length_empty():
+    source = 'JMP main\nINCLUDE "string.funk"\nmain:\nPUSH_STR ""\nCALL string.length\n'
+    program = assemble(source, base_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stdlib"))
+    vm = VM(program)
+    vm.run()
+    assert vm.data_stack == [0]
+
 # ── Run all tests ──
 
 if __name__ == "__main__":

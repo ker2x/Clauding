@@ -45,7 +45,7 @@ label:                  ; label definition (jump target / function entry)
 
 ## Instruction Set
 
-29 VM opcodes. The assembler also provides sugar aliases that expand to these.
+36 VM opcodes. The assembler also provides sugar aliases that expand to these.
 
 ### Stack Operations
 
@@ -58,6 +58,7 @@ label:                  ; label definition (jump target / function entry)
 | `DUP` | Duplicate TOS |
 | `SWAP` | Swap top two elements |
 | `OVER` | Copy second-from-top to TOS |
+| `ROT` | Rotate top three: a b c → b c a |
 
 ### Arithmetic
 
@@ -110,11 +111,16 @@ The **data stack is shared** across calls (Forth convention). Arguments and retu
 
 Variables are **named** and **function-scoped** — each call frame has its own set. No limit on number of variables.
 
-### I/O
+### I/O & Type Conversion
 
 | Instruction | Description |
 |------------|-------------|
 | `PRINT` | Pop and print TOS |
+| `TO_INT` | Convert TOS to integer (truncates floats, parses strings) |
+| `TO_FLOAT` | Convert TOS to float (promotes ints, parses strings) |
+| `TO_STR` | Convert TOS to string representation |
+| `CHR` | Integer → single-character string (e.g., 65 → "A") |
+| `ORD` | Single-character string → integer (e.g., "A" → 65) |
 
 ### Error Handling
 
@@ -151,6 +157,29 @@ TRY/CATCH nests correctly — inner handlers catch first.
 | `HALT` | Stop execution |
 
 Running past the end of the program is an implicit HALT.
+
+### FFI (Foreign Function Interface)
+
+| Instruction | Description |
+|------------|-------------|
+| `CALL_NATIVE name` | Call a declared native C function |
+
+Declare native functions with the `EXTERN` directive before calling them:
+
+```asm
+EXTERN "libc" strlen (str) -> long
+EXTERN "libc" abs (int) -> int
+EXTERN "libc" rand () -> int
+EXTERN "libc" srand (int) -> void
+
+PUSH_STR "hello"
+CALL_NATIVE strlen    ; → 5
+PRINT
+```
+
+**FFI types:** `int` (c_int), `long` (c_long), `float` (c_double), `str` (c_char_p), `handle` (c_void_p), `void` (return only).
+
+No structs, pointers, or buffers — use C shims for complex cases. Memory management is manual (Forth tradition: expose `malloc`/`free` via EXTERN if needed).
 
 ## Assembler Aliases
 
@@ -231,6 +260,20 @@ Located in `stdlib/`. Include with `INCLUDE "filename.funk"`.
 | `math.max` | ( a b -- max ) | Maximum of two |
 | `math.min` | ( a b -- min ) | Minimum of two |
 
+### string.funk (FFI)
+
+| Function | Stack effect | Description |
+|----------|-------------|-------------|
+| `string.length` | ( str -- int ) | String length (via libc `strlen`) |
+
+### io.funk (FFI)
+
+| Function | Stack effect | Description |
+|----------|-------------|-------------|
+| `io.getchar` | ( -- int ) | Read one char (-1 on EOF) |
+| `io.putchar` | ( int -- ) | Write one char by code |
+| `io.readline` | ( -- str ) | Read line from stdin (no trailing newline) |
+
 ## Tools
 
 ### TUI Debugger
@@ -277,3 +320,4 @@ Text editor with integrated debugger.
 | `trycatch.funk` | Error handling demo |
 | `args.funk` | Command-line arguments |
 | `include_demo.funk` | Using the stdlib |
+| `echo.funk` | Read input, print with length (FFI demo) |

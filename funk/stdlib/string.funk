@@ -1,0 +1,7 @@
+; string.funk — string operations via libc FFI
+EXTERN "libc" strlen (str) -> long
+
+; string.length: (str -- int) — returns the length of a string
+length:
+  CALL_NATIVE strlen
+  RET

@@ -39,12 +39,12 @@ No additional dependencies beyond Python 3.10+ standard library. TUI debugger/ID
 .funk source → Preprocessor (INCLUDE) → Assembler (two-pass) → list[Instruction] → VM
 ```
 
-- **`funklang/opcodes.py`** — `Opcode` IntEnum (29 opcodes) and `Instruction` NamedTuple. Classifies opcodes by operand type (LABEL_OPCODES, NAME_OPCODES, LITERAL_OPCODES).
-- **`funklang/assembler.py`** — Preprocessor (INCLUDE expansion, alias expansion) + two-pass assembler. Pass 1 collects labels. Pass 2 resolves references.
-- **`funklang/vm.py`** — Stack-based VM. Data stack (shared, Forth-style), call stack of Frames (return address + named locals dict), exception stack for TRY/CATCH.
-- **`stdlib/`** — Standard library modules (included via `INCLUDE "math.funk"`). Labels auto-namespaced by filename.
+- **`funklang/opcodes.py`** — `Opcode` IntEnum (36 opcodes), `Instruction` NamedTuple, `ExternDecl` NamedTuple for FFI declarations. Classifies opcodes by operand type (LABEL_OPCODES, NAME_OPCODES, LITERAL_OPCODES).
+- **`funklang/assembler.py`** — Preprocessor (INCLUDE expansion, alias expansion, EXTERN parsing) + two-pass assembler. Pass 1 collects labels and EXTERN declarations. Pass 2 resolves references.
+- **`funklang/vm.py`** — Stack-based VM. Data stack (shared, Forth-style), call stack of Frames (return address + named locals dict), exception stack for TRY/CATCH. FFI via ctypes for CALL_NATIVE.
+- **`stdlib/`** — Standard library modules (included via `INCLUDE "math.funk"`). Labels auto-namespaced by filename. Some modules use FFI (EXTERN + CALL_NATIVE) to wrap libc functions.
 
-## Instruction Set (29 VM opcodes)
+## Instruction Set (36 VM opcodes)
 
 | Opcode | Hex | Operand | Description |
 |--------|-----|---------|-------------|
@@ -55,6 +55,7 @@ No additional dependencies beyond Python 3.10+ standard library. TUI debugger/ID
 | DUP | 0x05 | — | Duplicate TOS |
 | SWAP | 0x06 | — | Swap top two |
 | OVER | 0x07 | — | Copy second-from-top to TOS |
+| ROT | 0x08 | — | Rotate top three (a b c → b c a) |
 | ADD | 0x10 | — | a + b |
 | SUB | 0x11 | — | a - b (second - top) |
 | MUL | 0x12 | — | a * b |
@@ -74,8 +75,14 @@ No additional dependencies beyond Python 3.10+ standard library. TUI debugger/ID
 | LOAD | 0x50 | name | Push named variable |
 | STORE | 0x51 | name | Pop into named variable |
 | PRINT | 0x60 | — | Pop and print TOS |
+| TO_INT | 0x61 | — | Convert TOS to int |
+| TO_FLOAT | 0x62 | — | Convert TOS to float |
+| TO_STR | 0x63 | — | Convert TOS to string |
+| CHR | 0x64 | — | Int → single-char string |
+| ORD | 0x65 | — | Single-char string → int |
 | TRY | 0x70 | label | Push catch address; on error jump there |
 | CATCH | 0x71 | — | Pop catch address (no error); both push error flag |
+| CALL_NATIVE | 0x80 | extern | Call a declared native C function via FFI |
 | HALT | 0xFF | — | Stop execution |
 
 ## Assembler Aliases (sugar, no new opcodes)
@@ -94,6 +101,15 @@ No additional dependencies beyond Python 3.10+ standard library. TUI debugger/ID
 | JGE label | LT + JMP_IF_NOT | Jump if greater or equal |
 | JZ label | PUSH_INT 0 + EQ + JMP_IF | Jump if TOS is zero |
 | JNZ label | PUSH_INT 0 + EQ + JMP_IF_NOT | Jump if TOS is nonzero |
+
+## FFI (Foreign Function Interface)
+
+- `EXTERN "lib" funcname (arg_types) -> ret_type` declares a native C function
+- `CALL_NATIVE funcname` pops args, calls via ctypes, pushes result
+- Types: `int` (c_int), `long` (c_long), `float` (c_double), `str` (c_char_p), `handle` (c_void_p), `void` (return only)
+- Library "libc" resolves automatically via `ctypes.util.find_library("c")`
+- Libraries are cached per VM instance
+- No structs, no pointers, no buffers — use C shims for complex cases
 
 ## INCLUDE & Namespacing
 
@@ -127,7 +143,9 @@ funk/
 │   ├── vm.py            # virtual machine
 │   └── assembler.py     # preprocessor + assembler
 ├── stdlib/
-│   └── math.funk        # square, abs, max, min
+│   ├── math.funk        # square, abs, max, min
+│   ├── string.funk      # length (via libc strlen)
+│   └── io.funk          # getchar, putchar, readline (via libc FFI)
 ├── scripts/
 │   ├── run.py           # CLI runner
 │   ├── debug.py         # TUI debugger
@@ -138,7 +156,8 @@ funk/
 │   ├── factorial.funk
 │   ├── trycatch.funk
 │   ├── args.funk
-│   └── include_demo.funk
+│   ├── include_demo.funk
+│   └── echo.funk
 └── tests/
-    └── test_vm.py       # 78 tests (standalone, no pytest)
+    └── test_vm.py       # 107 tests (standalone, no pytest)
 ```

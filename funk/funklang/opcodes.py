@@ -13,6 +13,7 @@ class Opcode(IntEnum):
     DUP = 0x05
     SWAP = 0x06
     OVER = 0x07
+    ROT = 0x08
 
     # Arithmetic
     ADD = 0x10
@@ -45,12 +46,30 @@ class Opcode(IntEnum):
     # I/O
     PRINT = 0x60
 
+    # Type conversion
+    TO_INT = 0x61
+    TO_FLOAT = 0x62
+    TO_STR = 0x63
+    CHR = 0x64      # int → single-char string
+    ORD = 0x65      # single-char string → int
+
     # Error handling
     TRY = 0x70
     CATCH = 0x71
 
+    # FFI
+    CALL_NATIVE = 0x80
+
     # System
     HALT = 0xFF
+
+
+class ExternDecl(NamedTuple):
+    """Declaration of a native C function for FFI."""
+    library: str
+    func_name: str
+    arg_types: tuple[str, ...]
+    ret_type: str
 
 
 class Instruction(NamedTuple):

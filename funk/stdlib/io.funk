@@ -1,0 +1,41 @@
+; io.funk — I/O operations via libc FFI
+EXTERN "libc" getchar () -> int
+EXTERN "libc" putchar (int) -> int
+
+; io.getchar: ( -- int) — read one character, returns ASCII code (-1 on EOF)
+getchar:
+  CALL_NATIVE getchar
+  RET
+
+; io.putchar: (int -- ) — write one character by ASCII code
+putchar:
+  CALL_NATIVE putchar
+  POP               ; discard putchar return value
+  RET
+
+; io.readline: ( -- str) — read a line from stdin (without trailing newline)
+readline:
+  PUSH_STR ""
+  STORE acc
+readline.loop:
+  CALL_NATIVE getchar
+  DUP
+  PUSH_INT -1
+  JEQ readline.eof
+  DUP
+  PUSH_INT 10
+  JEQ readline.done
+  CHR
+  LOAD acc
+  SWAP
+  ADD
+  STORE acc
+  JMP readline.loop
+readline.done:
+  POP
+  LOAD acc
+  RET
+readline.eof:
+  POP
+  LOAD acc
+  RET

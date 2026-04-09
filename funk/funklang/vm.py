@@ -1,8 +1,19 @@
 """Stack-based virtual machine for Funk."""
 
+import ctypes
+import ctypes.util
 from typing import Any
 
-from .opcodes import Instruction, Opcode
+from .opcodes import ExternDecl, Instruction, Opcode
+
+# C type mapping for FFI
+_CTYPE_MAP = {
+    "int": ctypes.c_int,
+    "long": ctypes.c_long,
+    "float": ctypes.c_double,
+    "str": ctypes.c_char_p,
+    "handle": ctypes.c_void_p,
+}
 
 
 class FunkError(Exception):
@@ -34,6 +45,17 @@ class VM:
         self.halted = False
         self.on_print = on_print  # callback for PRINT output
         self.exception_stack: list[int] = []  # catch addresses
+        self._lib_cache: dict[str, ctypes.CDLL] = {}  # FFI library cache
+
+    # -- FFI helpers --
+
+    def _get_lib(self, name: str) -> ctypes.CDLL:
+        if name not in self._lib_cache:
+            if name == "libc":
+                self._lib_cache[name] = ctypes.CDLL(ctypes.util.find_library("c"))
+            else:
+                self._lib_cache[name] = ctypes.CDLL(name)
+        return self._lib_cache[name]
 
     # -- Stack helpers --
 
@@ -103,6 +125,13 @@ class VM:
             b = self._pop()
             a = self._peek()
             self._push(b)
+            self._push(a)
+        elif op == Opcode.ROT:
+            c = self._pop()
+            b = self._pop()
+            a = self._pop()
+            self._push(b)
+            self._push(c)
             self._push(a)
 
         # -- Arithmetic --
@@ -202,6 +231,50 @@ class VM:
             else:
                 print(val)
 
+        # -- Type conversion --
+        elif op == Opcode.TO_INT:
+            a = self._pop()
+            if isinstance(a, int):
+                self._push(a)
+            elif isinstance(a, float):
+                self._push(int(a))
+            elif isinstance(a, str):
+                try:
+                    self._push(int(a))
+                except ValueError:
+                    raise FunkError(f"cannot convert '{a}' to int")
+            else:
+                raise FunkError(f"cannot convert to int")
+        elif op == Opcode.TO_FLOAT:
+            a = self._pop()
+            if isinstance(a, float):
+                self._push(a)
+            elif isinstance(a, int):
+                self._push(float(a))
+            elif isinstance(a, str):
+                try:
+                    self._push(float(a))
+                except ValueError:
+                    raise FunkError(f"cannot convert '{a}' to float")
+            else:
+                raise FunkError(f"cannot convert to float")
+        elif op == Opcode.TO_STR:
+            a = self._pop()
+            self._push(str(a))
+        elif op == Opcode.CHR:
+            a = self._pop()
+            if not isinstance(a, int):
+                raise FunkError(f"CHR requires an integer, got {type(a).__name__}")
+            try:
+                self._push(chr(a))
+            except (ValueError, OverflowError):
+                raise FunkError(f"CHR: invalid code point {a}")
+        elif op == Opcode.ORD:
+            a = self._pop()
+            if not isinstance(a, str) or len(a) != 1:
+                raise FunkError(f"ORD requires a single character string")
+            self._push(ord(a))
+
         # -- Error handling --
         elif op == Opcode.TRY:
             self.exception_stack.append(instr.operand)
@@ -210,6 +283,31 @@ class VM:
                 raise FunkError("CATCH without matching TRY")
             self.exception_stack.pop()
             self._push(0)  # error flag: 0 = no error
+
+        # -- FFI --
+        elif op == Opcode.CALL_NATIVE:
+            decl: ExternDecl = instr.operand
+            lib = self._get_lib(decl.library)
+            func = getattr(lib, decl.func_name)
+            func.argtypes = [_CTYPE_MAP[t] for t in decl.arg_types]
+            func.restype = _CTYPE_MAP[decl.ret_type] if decl.ret_type != "void" else None
+            # Pop args (last arg on top of stack, first arg deepest)
+            args = [self._pop() for _ in decl.arg_types]
+            args.reverse()
+            # Marshal: str → bytes for c_char_p
+            c_args = []
+            for val, typ in zip(args, decl.arg_types):
+                if typ == "str":
+                    c_args.append(val.encode("utf-8") if isinstance(val, str) else val)
+                else:
+                    c_args.append(val)
+            result = func(*c_args)
+            # Push result (unless void)
+            if decl.ret_type != "void":
+                if decl.ret_type == "str":
+                    self._push(result.decode("utf-8") if isinstance(result, bytes) else result)
+                else:
+                    self._push(result)
 
         # -- System --
         elif op == Opcode.HALT:
