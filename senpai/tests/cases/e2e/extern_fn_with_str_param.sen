@@ -1,0 +1,5 @@
+extern fn strlen(s: Str) -> I64
+
+fn main():
+    let n: I64 = strlen("hello")
+    print(n)

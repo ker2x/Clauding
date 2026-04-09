@@ -1,0 +1,4 @@
+import "mathutil.sen"
+
+fn main():
+    print(mathutil.wrap_sqrt(36.0))

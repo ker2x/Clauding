@@ -1,0 +1,2 @@
+fn farewell() -> Str:
+    return "goodbye"

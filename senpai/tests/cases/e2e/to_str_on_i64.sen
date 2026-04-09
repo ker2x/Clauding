@@ -1,0 +1,4 @@
+fn main():
+    let x: I64 = 42
+    let s: Str = x.to_str()
+    print(s)

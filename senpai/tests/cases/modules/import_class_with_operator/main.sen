@@ -1,0 +1,8 @@
+import "vec.sen"
+
+fn main():
+    let a = vec.Vec2(1, 2)
+    let b = vec.Vec2(3, 4)
+    let c = a + b
+    print(c.x)
+    print(c.y)

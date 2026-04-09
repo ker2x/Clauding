@@ -1,0 +1,4 @@
+import "lib.sen"
+
+fn main():
+    print(lib.helper())

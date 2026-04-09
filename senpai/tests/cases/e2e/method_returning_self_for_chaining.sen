@@ -1,0 +1,14 @@
+class Builder(Object):
+    fn __init__(self, val: I64):
+        self.val = val
+
+    fn add(self, n: I64) -> Builder:
+        self.val = self.val + n
+        return self
+
+    fn result(self) -> I64:
+        return self.val
+
+fn main():
+    let b = Builder(0)
+    print(b.add(10).add(20).add(12).result())

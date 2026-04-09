@@ -2,10 +2,11 @@
 
 from dataclasses import dataclass, field
 from .ast_nodes import (
-    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
+    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, NilLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    SizeofExpr, TernaryExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    FnDecl, ClassDecl, ExternFnDecl, Program,
+    FnDecl, ClassDecl, StructDecl, ExternFnDecl, Program,
 )
 
 
@@ -17,7 +18,7 @@ class TypeError_(Exception):
 
 # Type names recognized by the type checker
 PRIMITIVE_TYPES = {"I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64",
-                   "Float", "Double", "Bool", "Str", "Void"}
+                   "Float", "Double", "Bool", "Str", "Ptr", "Void"}
 INT_ALIAS = "I64"  # "Int" maps to "I64"
 
 # Integer types and their signedness
@@ -49,6 +50,7 @@ class ClassInfo:
     methods: dict[str, FnSig] = field(default_factory=dict)  # all methods, sigs WITHOUT self
     vtable_order: list[str] = field(default_factory=list)  # method names in vtable slot order (no __init__)
     vtable_impl: dict[str, str] = field(default_factory=dict)  # method_name -> implementing class
+    is_struct: bool = False  # True for struct types (no vtable, no methods)
 
 
 @dataclass
@@ -229,14 +231,25 @@ def check_program(prog: Program) -> None:
             env.variables[mod_name] = f"Module:{mod_name}"
 
     # Register extern functions
-    EXTERN_ALLOWED_TYPES = NUMERIC_TYPES | {"Bool", "Void"}
+    EXTERN_ALLOWED_TYPES = NUMERIC_TYPES | {"Bool", "Str", "Ptr", "Void"}
     for ext in prog.extern_fns:
         ret = resolve_type(ext.ret_type)
         params = [resolve_type(p.type_name) for p in ext.params]
         for t in params + ([ret] if ret != "Void" else []):
-            if t not in EXTERN_ALLOWED_TYPES:
-                raise TypeError_(ext.line, f"extern functions only support numeric and Bool types, got {t}")
+            if t not in EXTERN_ALLOWED_TYPES and t not in env.classes:
+                raise TypeError_(ext.line, f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {t}")
         env.functions[ext.name] = FnSig(param_types=params, ret_type=ret)
+
+    # Register struct types
+    for st in prog.structs:
+        fields = {}
+        for f in st.fields:
+            ft = resolve_type(f.type_name)
+            fields[f.name] = ft
+        ci = ClassInfo(name=st.name, parent_name="")
+        ci.fields = fields
+        ci.is_struct = True
+        env.classes[st.name] = ci
 
     # Register class names first (so they can be used as types)
     for cls in prog.classes:
@@ -447,6 +460,8 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         return "Bool"
     if isinstance(expr, NoneLit):
         return "Void"
+    if isinstance(expr, NilLit):
+        return "Ptr"
 
     if isinstance(expr, Var):
         # super resolves to parent class type
@@ -596,6 +611,18 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 return "Bool"
             # Fall through to operator method check
 
+        elif expr.op in ("&", "|", "^"):
+            if lt in ALL_INT_TYPES and rt in ALL_INT_TYPES and lt == rt:
+                return lt
+            raise TypeError_(expr.line,
+                f"bitwise '{expr.op}' requires matching integer types, got {lt} and {rt}")
+
+        elif expr.op in ("<<", ">>"):
+            if lt in ALL_INT_TYPES and rt in ALL_INT_TYPES:
+                return lt  # result type matches left operand
+            raise TypeError_(expr.line,
+                f"shift '{expr.op}' requires integer types, got {lt} and {rt}")
+
         elif expr.op in ("and", "or"):
             if lt == "Bool" and rt == "Bool":
                 return "Bool"
@@ -634,6 +661,10 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
             if ot == "Bool":
                 return "Bool"
             raise TypeError_(expr.line, f"'not' requires Bool, got {ot}")
+        if expr.op == "~":
+            if ot in ALL_INT_TYPES:
+                return ot
+            raise TypeError_(expr.line, f"'~' requires integer type, got {ot}")
         raise TypeError_(expr.line, f"unknown unary operator: {expr.op}")
 
     if isinstance(expr, Call):
@@ -666,7 +697,7 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         # Check for print overloads
         if expr.func == "print" and len(expr.args) == 1:
             arg_type = _check_expr(expr.args[0], env)
-            if arg_type in NUMERIC_TYPES or arg_type in ("Bool", "Str"):
+            if arg_type in NUMERIC_TYPES or arg_type in ("Bool", "Str", "Ptr"):
                 return "Void"
             raise TypeError_(expr.line, f"print() cannot print type {arg_type}")
 
@@ -694,6 +725,29 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         # Allow Bool to integer
         if src_type == "Bool" and target in ALL_INT_TYPES:
             return target
+        # Allow Ptr <-> integer casts
+        if src_type == "Ptr" and target in ALL_INT_TYPES:
+            return target
+        if src_type in ALL_INT_TYPES and target == "Ptr":
+            return target
         raise TypeError_(expr.line, f"cannot cast {src_type} to {target}")
+
+    if isinstance(expr, TernaryExpr):
+        cond_type = _check_expr(expr.condition, env)
+        if cond_type != "Bool":
+            raise TypeError_(expr.line, f"ternary condition must be Bool, got {cond_type}")
+        true_type = _check_expr(expr.true_expr, env)
+        false_type = _check_expr(expr.false_expr, env)
+        if true_type != false_type:
+            raise TypeError_(expr.line,
+                f"ternary branches must have same type: {true_type} vs {false_type}")
+        return true_type
+
+    if isinstance(expr, SizeofExpr):
+        target = resolve_type(expr.type_name)
+        ci = env.lookup_class(target)
+        if ci is None:
+            raise TypeError_(expr.line, f"sizeof: unknown type '{target}'")
+        return "I64"
 
     raise TypeError_(expr.line, f"unsupported expression type: {type(expr).__name__}")

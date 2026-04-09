@@ -1,8 +1,9 @@
 """LLVM IR text emitter for Senpai."""
 
 from .ast_nodes import (
-    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
+    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, NilLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    SizeofExpr, TernaryExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
     FnDecl, ClassDecl, Program,
 )
@@ -20,6 +21,7 @@ def _llvm_type(senpai_type: str) -> str:
         "Float": "float", "Double": "double",
         "Bool": "i1",
         "Str": "ptr",
+        "Ptr": "ptr",
         "Void": "void",
     }
     return mapping.get(senpai_type, "ptr")  # class types are pointers
@@ -35,7 +37,7 @@ def _zero_value(senpai_type: str) -> str:
         return "0.0"
     if senpai_type == "Bool":
         return "0"
-    if senpai_type == "Str":
+    if senpai_type in ("Str", "Ptr"):
         return "null"
     if senpai_type not in PRIMITIVE_TYPES:
         return "null"  # class types
@@ -158,10 +160,11 @@ class CodeGen:
         return f"%struct.{class_name.replace('.', '_')}"
 
     def _field_index(self, class_name: str, field_name: str) -> int:
-        """Get field index in struct (0 = vtable ptr, fields start at 1)."""
+        """Get field index in struct (classes: +1 for vtable ptr, structs: no offset)."""
         ci = self._class_info[class_name]
         fields = list(ci.fields.keys())
-        return fields.index(field_name) + 1  # +1 for vtable ptr
+        offset = 0 if ci.is_struct else 1  # structs have no vtable ptr
+        return fields.index(field_name) + offset
 
     def _field_type(self, class_name: str, field_name: str) -> str:
         return self._class_info[class_name].fields[field_name]
@@ -220,6 +223,12 @@ class CodeGen:
                         return ci.methods[expr.method].ret_type
         if isinstance(expr, CastExpr):
             return resolve_type(expr.target_type)
+        if isinstance(expr, SizeofExpr):
+            return "I64"
+        if isinstance(expr, TernaryExpr):
+            return self._peek_type(expr.true_expr)
+        if isinstance(expr, NilLit):
+            return "Ptr"
         return None
 
     def _vtable_index(self, class_name: str, method_name: str) -> int:
@@ -277,15 +286,22 @@ class CodeGen:
                         self._fn_sigs[full_name] = sig.ret_type
                         self._fn_params[full_name] = [qual_cls] + list(sig.param_types)
 
-        # External declarations
+        # External declarations — track what's been declared to avoid duplicates
+        declared = set()
+
+        def _declare(name: str, sig: str):
+            if name not in declared:
+                declared.add(name)
+                self._emit_global(sig)
+
         self._emit_global('; External declarations')
-        self._emit_global('declare i32 @printf(ptr, ...)')
-        self._emit_global('declare i32 @puts(ptr)')
-        self._emit_global('declare ptr @malloc(i64)')
-        self._emit_global('declare i64 @strlen(ptr)')
-        self._emit_global('declare ptr @memcpy(ptr, ptr, i64)')
-        self._emit_global('declare i32 @snprintf(ptr, i64, ptr, ...)')
-        self._emit_global('declare ptr @realloc(ptr, i64)')
+        _declare('printf',  'declare i32 @printf(ptr, ...)')
+        _declare('puts',    'declare i32 @puts(ptr)')
+        _declare('malloc',  'declare ptr @malloc(i64)')
+        _declare('strlen',  'declare i64 @strlen(ptr)')
+        _declare('memcpy',  'declare ptr @memcpy(ptr, ptr, i64)')
+        _declare('snprintf','declare i32 @snprintf(ptr, i64, ptr, ...)')
+        _declare('realloc', 'declare ptr @realloc(ptr, i64)')
         self._emit_global('')
         # Array struct type: { i64 len, i64 cap, ptr data }
         self._emit_global('%struct.Array = type { i64, i64, ptr }')
@@ -297,7 +313,7 @@ class CodeGen:
             for mod_prog in prog.module_programs.values():
                 all_externs.extend(mod_prog.extern_fns)
 
-        # Emit extern function declarations
+        # Emit user extern function declarations (skip already declared)
         seen_externs = set()
         for ext in all_externs:
             if ext.name in seen_externs:
@@ -309,7 +325,7 @@ class CodeGen:
             self._fn_sigs[ext.name] = ret
             self._fn_params[ext.name] = params
             param_ir = ", ".join(_llvm_type(p) for p in params)
-            self._emit_global(f'declare {_llvm_type(ret)} @{ext.name}({param_ir})')
+            _declare(ext.name, f'declare {_llvm_type(ret)} @{ext.name}({param_ir})')
         if seen_externs:
             self._emit_global('')
 
@@ -318,6 +334,14 @@ class CodeGen:
             for mod_name, mod_prog in prog.module_programs.items():
                 for cls in mod_prog.classes:
                     self._emit_class_types_module(cls, mod_name)
+
+        # Emit struct types (no vtable)
+        for st in prog.structs:
+            ci = self._class_info[st.name]
+            field_types = [_llvm_type(ft) for ft in ci.fields.values()]
+            struct = self._struct_name(st.name)
+            self._emit_global(f'{struct} = type {{ {", ".join(field_types)} }}')
+            self._emit_global('')
 
         # Emit struct types and vtables for classes
         for cls in prog.classes:
@@ -720,6 +744,9 @@ class CodeGen:
         if isinstance(expr, BoolLit):
             return ("1" if expr.value else "0"), "Bool"
 
+        if isinstance(expr, NilLit):
+            return "null", "Ptr"
+
         if isinstance(expr, StrLit):
             name, byte_len = self._str_const(expr.value)
             reg = self._tmp()
@@ -760,6 +787,24 @@ class CodeGen:
 
         if isinstance(expr, CastExpr):
             return self._gen_cast(expr)
+
+        if isinstance(expr, SizeofExpr):
+            target = resolve_type(expr.type_name)
+            struct = self._struct_name(target)
+            size_ptr = self._tmp()
+            self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+            size = self._tmp()
+            self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+            return size, "I64"
+
+        if isinstance(expr, TernaryExpr):
+            cond_reg, _ = self._gen_expr(expr.condition)
+            true_reg, true_type = self._gen_expr(expr.true_expr)
+            false_reg, _ = self._gen_expr(expr.false_expr)
+            llvm_t = _llvm_type(true_type)
+            result = self._tmp()
+            self._emit(f'  {result} = select i1 {cond_reg}, {llvm_t} {true_reg}, {llvm_t} {false_reg}')
+            return result, true_type
 
         raise RuntimeError(f"unsupported expr: {type(expr).__name__}")
 
@@ -915,6 +960,26 @@ class CodeGen:
                 self._emit(f'  {result} = {rem_op} {llvm_t} {lr}, {rr}')
                 return result, lt
 
+            # Bitwise ops
+            if expr.op == "&":
+                self._emit(f'  {result} = and {llvm_t} {lr}, {rr}')
+                return result, lt
+            if expr.op == "|":
+                self._emit(f'  {result} = or {llvm_t} {lr}, {rr}')
+                return result, lt
+            if expr.op == "^":
+                self._emit(f'  {result} = xor {llvm_t} {lr}, {rr}')
+                return result, lt
+            if expr.op == "<<":
+                rr_coerced = self._coerce(rr, rt, lt)
+                self._emit(f'  {result} = shl {llvm_t} {lr}, {rr_coerced}')
+                return result, lt
+            if expr.op == ">>":
+                rr_coerced = self._coerce(rr, rt, lt)
+                shr_op = "ashr" if is_signed else "lshr"
+                self._emit(f'  {result} = {shr_op} {llvm_t} {lr}, {rr_coerced}')
+                return result, lt
+
             cmp_ops = {
                 "==": "eq", "!=": "ne",
                 "<": "slt" if is_signed else "ult",
@@ -974,6 +1039,12 @@ class CodeGen:
             self._emit(f'  call ptr @memcpy(ptr {dst}, ptr {rr}, i64 {len_b1})')
             return buf, "Str"
 
+        # Pointer comparison
+        if lt == "Ptr" and rt == "Ptr" and expr.op in ("==", "!="):
+            cmp = "eq" if expr.op == "==" else "ne"
+            self._emit(f'  {result} = icmp {cmp} ptr {lr}, {rr}')
+            return result, "Bool"
+
         # Boolean logic
         if lt == "Bool" and rt == "Bool":
             if expr.op == "and":
@@ -1021,6 +1092,10 @@ class CodeGen:
             self._emit(f'  {result} = xor i1 {or_}, 1')
             return result, "Bool"
 
+        if expr.op == "~" and ot in ALL_INT_TYPES:
+            self._emit(f'  {result} = xor {_llvm_type(ot)} {or_}, -1')
+            return result, ot
+
         raise RuntimeError(f"unsupported unary: {expr.op} on {ot}")
 
     # --- Call generation ---
@@ -1034,9 +1109,12 @@ class CodeGen:
         if _is_array_type(expr.func):
             return self._gen_array_constructor(expr.func, expr)
 
-        # Constructor call
+        # Struct or class constructor call
         resolved_cls = self._resolve_class(expr.func)
         if resolved_cls in self._class_info and expr.func != "Object":
+            ci = self._class_info[resolved_cls]
+            if ci.is_struct:
+                return self._gen_struct_constructor(expr, resolved_cls)
             return self._gen_constructor(expr, resolved_cls)
 
         # User function
@@ -1065,6 +1143,28 @@ class CodeGen:
             result = self._tmp()
             self._emit(f'  {result} = call {llvm_ret} @{ir_name}({", ".join(args_ir)})')
             return result, ret_type
+
+    def _gen_struct_constructor(self, expr: Call, struct_name: str) -> tuple[str, str]:
+        """Generate struct constructor: malloc + zero-init."""
+        struct = self._struct_name(struct_name)
+
+        # Calculate size via GEP trick
+        size_ptr = self._tmp()
+        self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+        size = self._tmp()
+        self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+
+        # Allocate and zero-initialize
+        obj = self._tmp()
+        self._emit(f'  {obj} = call ptr @malloc(i64 {size})')
+        ci = self._class_info[struct_name]
+        for i, (fname, ftype) in enumerate(ci.fields.items()):
+            flt = _llvm_type(ftype)
+            ptr = self._tmp()
+            self._emit(f'  {ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 {i}')
+            self._emit(f'  store {flt} {_zero_value(ftype)}, ptr {ptr}')
+
+        return obj, struct_name
 
     def _gen_constructor(self, expr: Call, class_name: str | None = None) -> tuple[str, str]:
         """Generate constructor: malloc + store vtable + call __init__."""
@@ -1413,6 +1513,15 @@ class CodeGen:
             self._emit(f'  {result} = fptoui {src_llvm} {src_reg} to {tgt_llvm}')
             return result, target
 
+        # Ptr to integer
+        if src_type == "Ptr" and target in ALL_INT_TYPES:
+            self._emit(f'  {result} = ptrtoint ptr {src_reg} to {tgt_llvm}')
+            return result, target
+        # Integer to Ptr
+        if src_type in ALL_INT_TYPES and target == "Ptr":
+            self._emit(f'  {result} = inttoptr {src_llvm} {src_reg} to ptr')
+            return result, target
+
         # Int width changes and float width changes — use _coerce
         return self._coerce(src_reg, src_type, target), target
 
@@ -1494,6 +1603,16 @@ class CodeGen:
         elif at == "Str":
             result = self._tmp()
             self._emit(f'  {result} = call i32 @puts(ptr {ar})')
+
+        elif at == "Ptr":
+            fmt_name, fmt_len = self._str_const("%p\n")
+            fmt_reg = self._tmp()
+            self._emit(
+                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
+                f'ptr {fmt_name}, i64 0, i64 0'
+            )
+            result = self._tmp()
+            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, ptr {ar})')
 
         else:
             raise RuntimeError(f"print: unsupported type {at}")

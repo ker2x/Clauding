@@ -1,0 +1,5 @@
+extern fn sqrt(x: Double) -> Double
+
+fn main():
+    let x: I64 = 16
+    sqrt(x)

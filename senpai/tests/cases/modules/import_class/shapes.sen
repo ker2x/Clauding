@@ -1,0 +1,7 @@
+class Rect(Object):
+    fn __init__(self, w: I64, h: I64):
+        self.w = w
+        self.h = h
+
+    fn area(self) -> I64:
+        return self.w * self.h

@@ -2,10 +2,12 @@
 
 from .tokens import TT, Token
 from .ast_nodes import (
-    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
+    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, NilLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    SizeofExpr, TernaryExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    Param, FnDecl, ClassDecl, ExternFnDecl, LinkDecl, ImportDecl, Program,
+    Param, FnDecl, ClassDecl, StructDecl, StructField, ExternFnDecl,
+    LinkDecl, ImportDecl, Program,
 )
 
 
@@ -60,10 +62,12 @@ class Parser:
                 prog.functions.append(self._parse_fn())
             elif self._at(TT.CLASS):
                 prog.classes.append(self._parse_class())
+            elif self._at(TT.STRUCT):
+                prog.structs.append(self._parse_struct())
             elif self._at(TT.EXTERN):
                 prog.extern_fns.append(self._parse_extern_fn())
             else:
-                raise ParseError(self._peek(), "expected 'fn', 'class', or 'extern' at top level")
+                raise ParseError(self._peek(), "expected 'fn', 'class', 'struct', or 'extern' at top level")
             self._skip_newlines()
         return prog
 
@@ -180,6 +184,26 @@ class Parser:
         self._eat(TT.DEDENT)
 
         return ClassDecl(name=name, parent=parent, methods=methods, line=tok.line)
+
+    def _parse_struct(self) -> StructDecl:
+        tok = self._eat(TT.STRUCT)
+        name = self._eat(TT.IDENT).value
+        self._eat(TT.COLON)
+        self._eat(TT.NEWLINE)
+
+        self._eat(TT.INDENT)
+        fields = []
+        self._skip_newlines()
+        while not self._at(TT.DEDENT):
+            fname = self._eat(TT.IDENT)
+            self._eat(TT.COLON)
+            ftype = self._parse_type_name()
+            fields.append(StructField(name=fname.value, type_name=ftype, line=fname.line))
+            self._eat(TT.NEWLINE)
+            self._skip_newlines()
+        self._eat(TT.DEDENT)
+
+        return StructDecl(name=name, fields=fields, line=tok.line)
 
     # --- Block ---
 
@@ -300,7 +324,16 @@ class Parser:
     # --- Expressions (precedence climbing) ---
 
     def _parse_expr(self) -> Expr:
-        return self._parse_or()
+        left = self._parse_or()
+        # Ternary: value if condition else other
+        if self._at(TT.IF):
+            self._eat(TT.IF)
+            condition = self._parse_or()
+            self._eat(TT.ELSE)
+            false_expr = self._parse_expr()  # right-associative
+            return TernaryExpr(true_expr=left, condition=condition,
+                               false_expr=false_expr, line=left.line)
+        return left
 
     def _parse_or(self) -> Expr:
         left = self._parse_and()
@@ -326,8 +359,41 @@ class Parser:
         return self._parse_comparison()
 
     def _parse_comparison(self) -> Expr:
-        left = self._parse_add()
+        left = self._parse_bit_or()
         if self._at(TT.EQEQ, TT.NEQ, TT.LT, TT.GT, TT.LE, TT.GE):
+            tok = self._peek()
+            self.pos += 1
+            right = self._parse_bit_or()
+            left = BinOp(op=tok.value, left=left, right=right, line=left.line)
+        return left
+
+    def _parse_bit_or(self) -> Expr:
+        left = self._parse_bit_xor()
+        while self._at(TT.PIPE):
+            self._eat(TT.PIPE)
+            right = self._parse_bit_xor()
+            left = BinOp(op="|", left=left, right=right, line=left.line)
+        return left
+
+    def _parse_bit_xor(self) -> Expr:
+        left = self._parse_bit_and()
+        while self._at(TT.CARET):
+            self._eat(TT.CARET)
+            right = self._parse_bit_and()
+            left = BinOp(op="^", left=left, right=right, line=left.line)
+        return left
+
+    def _parse_bit_and(self) -> Expr:
+        left = self._parse_shift()
+        while self._at(TT.AMP):
+            self._eat(TT.AMP)
+            right = self._parse_shift()
+            left = BinOp(op="&", left=left, right=right, line=left.line)
+        return left
+
+    def _parse_shift(self) -> Expr:
+        left = self._parse_add()
+        while self._at(TT.SHL, TT.SHR):
             tok = self._peek()
             self.pos += 1
             right = self._parse_add()
@@ -357,6 +423,10 @@ class Parser:
             tok = self._eat(TT.MINUS)
             operand = self._parse_unary()
             return UnaryOp(op="-", operand=operand, line=tok.line)
+        if self._at(TT.TILDE):
+            tok = self._eat(TT.TILDE)
+            operand = self._parse_unary()
+            return UnaryOp(op="~", operand=operand, line=tok.line)
         return self._parse_as()
 
     def _parse_as(self) -> Expr:
@@ -432,6 +502,17 @@ class Parser:
         if tok.type == TT.NONE:
             self.pos += 1
             return NoneLit(line=tok.line)
+
+        if tok.type == TT.NIL:
+            self.pos += 1
+            return NilLit(line=tok.line)
+
+        if tok.type == TT.SIZEOF:
+            self.pos += 1
+            self._eat(TT.LPAREN)
+            type_name = self._parse_type_name()
+            self._eat(TT.RPAREN)
+            return SizeofExpr(type_name=type_name, line=tok.line)
 
         if tok.type == TT.SELF:
             self.pos += 1

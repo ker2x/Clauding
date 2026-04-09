@@ -1,0 +1,2 @@
+fn main():
+    print(2 + 3)

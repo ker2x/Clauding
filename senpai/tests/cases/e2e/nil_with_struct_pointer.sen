@@ -1,0 +1,10 @@
+struct Node:
+    value: I64
+    next: Ptr
+
+fn main():
+    let n = Node()
+    n.value = 1
+    n.next = nil
+    if n.next == nil:
+        print("no next")

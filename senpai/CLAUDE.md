@@ -22,8 +22,11 @@ No dependencies beyond Python 3.10+ standard library. Requires `clang` (Xcode Co
 # Emit LLVM IR (for inspection)
 ../.venv/bin/python scripts/run.py examples/hello.sen --ir
 
-# Run tests
+# Run unit tests (lex/parse/typecheck)
 ../.venv/bin/python tests/test_compiler.py
+
+# Run e2e tests (compile + clang + run, parallel via make)
+make -j16 -C tests test
 ```
 
 ## Architecture
@@ -49,6 +52,7 @@ No dependencies beyond Python 3.10+ standard library. Requires `clang` (Xcode Co
 | `Double` | `double` | 64-bit IEEE 754 |
 | `Bool` | `i1` | Boolean |
 | `Str` | `ptr` | Heap-allocated string (concat with `+`) |
+| `Ptr` | `ptr` | Raw pointer (for FFI, castable to/from integers) |
 | `Void` | `void` | No value (return type only) |
 | `Int` | `i64` | Alias for `I64` |
 
@@ -59,18 +63,24 @@ No ambiguous types — every numeric type has an explicit width.
 - **Classes** with single inheritance, constructors (`__init__`), fields, methods, vtable dispatch
 - **super** calls for invoking parent methods directly (no vtable dispatch)
 - **Operator methods** (`__add__`, `__sub__`, `__mul__`, `__div__`, `__eq__`, `__lt__`, `__neg__`, etc.)
-- **print()** is a built-in that handles all numeric types, Bool, and Str
+- **Structs** plain data types (no vtable, no methods), heap-allocated, field access via `.`
+- **sizeof(Type)** returns `I64` byte size of any struct or class (uses LLVM GEP trick)
+- **Ptr** raw pointer type for FFI; castable to/from integers via `as`; `nil` literal for null pointers
+- **print()** is a built-in that handles all numeric types, Bool, Str, and Ptr
 - **to_str()** built-in method on all numeric types and Bool, returns Str
-- **Type casting** via `expr as Type` for numeric conversions (int↔float, width changes)
+- **Type casting** via `expr as Type` for numeric conversions (int↔float, width changes, Ptr↔int)
 - **for loops** via `for x in range(n):` and `for x in range(start, end):`
 - **Array[T]** generic growable array with `push(val)`, `get(idx)`, `set(idx, val)`, `len()`
 - **Imports** via `import "file.sen"` with namespaced access (`module.func()`, `module.Class()`)
 - **Integer/float literals** adapt to declared types (e.g., `let x: I8 = 42` works); `f` suffix for Float32
 - **Functions** prefixed with `senpai_` in IR; methods as `senpai_ClassName_methodName`
 - **Objects** are heap-allocated via `malloc`; struct layout: `{ vtable_ptr, fields... }`
+- **Bitwise operators** `&`, `|`, `^`, `~`, `<<`, `>>` on integer types (maps to LLVM and/or/xor/shl/ashr/lshr)
+- **Ternary expressions** `value if condition else other` (compiles to LLVM `select`)
 - **Integer division** truncates (sdiv for signed, udiv for unsigned)
 - **No implicit type conversions** — mismatched types are compile errors
 - **Subtype compatibility** — child class instances accepted where parent type expected
+- **FFI** via `extern fn` declarations; supports numeric, Bool, Str, Ptr, and struct types; `link "lib"` for library linking
 
 ## Project Structure
 
@@ -92,5 +102,7 @@ senpai/
 │   ├── factorial.sen
 │   └── fib.sen
 └── tests/
-    └── test_compiler.py # 119 tests (standalone, no pytest)
+    ├── test_compiler.py # 32 unit tests (standalone, no pytest)
+    ├── Makefile         # e2e test runner (make -j16 test)
+    └── cases/           # 112 e2e/error/module test cases (.sen + .expected/.error)
 ```

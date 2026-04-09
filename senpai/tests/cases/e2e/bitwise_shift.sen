@@ -1,0 +1,5 @@
+fn main():
+    let x: I64 = 1
+    print(x << 4)
+    let y: I64 = 256
+    print(y >> 3)

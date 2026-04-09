@@ -1,0 +1,13 @@
+class Point(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+    fn sum(self) -> I64:
+        return self.x + self.y
+
+fn main():
+    let p = Point(3, 4)
+    print(p.sum())
+    print(p.x)
+    print(p.y)

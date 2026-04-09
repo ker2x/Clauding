@@ -1,0 +1,3 @@
+fn main():
+    let s: Str = "hello"
+    let x: I64 = s as I64

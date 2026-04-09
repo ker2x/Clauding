@@ -1,0 +1,29 @@
+struct Point:
+    x: Double
+    y: Double
+
+struct Node:
+    value: I64
+    next: Ptr
+
+fn distance_sq(a: Point, b: Point) -> Double:
+    let dx: Double = a.x - b.x
+    let dy: Double = a.y - b.y
+    return dx * dx + dy * dy
+
+fn main():
+    let a = Point()
+    a.x = 1.0
+    a.y = 2.0
+
+    let b = Point()
+    b.x = 4.0
+    b.y = 6.0
+
+    print(distance_sq(a, b))
+    print(sizeof(Point))
+
+    let n = Node()
+    n.value = 42
+    n.next = 0 as Ptr
+    print(n.value)

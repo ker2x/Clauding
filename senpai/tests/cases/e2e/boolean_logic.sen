@@ -1,0 +1,7 @@
+fn main():
+    let a: Bool = true
+    let b: Bool = false
+    if a and not b:
+        print(1)
+    else:
+        print(0)

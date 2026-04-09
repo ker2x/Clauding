@@ -1,0 +1,6 @@
+import "mod_a.sen"
+import "mod_b.sen"
+
+fn main():
+    print(mod_a.greet())
+    print(mod_b.farewell())

@@ -1,0 +1,13 @@
+class Box(Object):
+    fn __init__(self, value: I64):
+        self.value = value
+
+    fn get(self) -> I64:
+        return self.value
+
+fn unbox(b: Box) -> I64:
+    return b.get()
+
+fn main():
+    let b = Box(99)
+    print(unbox(b))

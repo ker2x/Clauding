@@ -1,0 +1,4 @@
+fn main():
+    let f: Float = 2.5f
+    let d: Double = f as Double
+    print(d)

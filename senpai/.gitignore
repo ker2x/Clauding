@@ -9,6 +9,9 @@ myprog
 __pycache__/
 *.pyc
 
+# Test build artifacts
+tests/.build/
+
 # Editor
 *.swp
 *.swo

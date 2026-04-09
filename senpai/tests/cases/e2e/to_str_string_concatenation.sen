@@ -1,0 +1,3 @@
+fn main():
+    let x: I64 = 42
+    print(x.to_str() + " is the answer")

@@ -1,0 +1,7 @@
+extern fn calloc(count: I64, size: I64) -> Ptr
+
+fn main():
+    let arr = Array[Ptr]()
+    arr.push(calloc(1, 8))
+    arr.push(calloc(1, 16))
+    print(arr.len() as I64)

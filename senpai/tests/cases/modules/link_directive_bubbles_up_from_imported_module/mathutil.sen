@@ -1,0 +1,5 @@
+link "m"
+extern fn sqrt(x: Double) -> Double
+
+fn wrap_sqrt(x: Double) -> Double:
+    return sqrt(x)

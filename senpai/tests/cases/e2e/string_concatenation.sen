@@ -1,0 +1,4 @@
+fn main():
+    let a: Str = "hello"
+    let b: Str = " world"
+    print(a + b)

@@ -37,6 +37,9 @@ class TT(Enum):
     IMPORT = auto()
     EXTERN = auto()
     LINK = auto()
+    STRUCT = auto()
+    SIZEOF = auto()
+    NIL = auto()
 
     # Operators
     PLUS = auto()       # +
@@ -52,6 +55,12 @@ class TT(Enum):
     LE = auto()         # <=
     GE = auto()         # >=
     ARROW = auto()      # ->
+    AMP = auto()        # &
+    PIPE = auto()       # |
+    CARET = auto()      # ^
+    TILDE = auto()      # ~
+    SHL = auto()        # <<
+    SHR = auto()        # >>
 
     # Delimiters
     LPAREN = auto()     # (
@@ -100,6 +109,9 @@ KEYWORDS = {
     "import": TT.IMPORT,
     "extern": TT.EXTERN,
     "link": TT.LINK,
+    "struct": TT.STRUCT,
+    "sizeof": TT.SIZEOF,
+    "nil": TT.NIL,
     "true": TT.BOOL_LIT,
     "false": TT.BOOL_LIT,
 }
@@ -246,6 +258,14 @@ def lex(source: str) -> list[Token]:
                 tokens.append(Token(TT.ARROW, "->", lineno, col))
                 i += 2
                 continue
+            if two == "<<":
+                tokens.append(Token(TT.SHL, "<<", lineno, col))
+                i += 2
+                continue
+            if two == ">>":
+                tokens.append(Token(TT.SHR, ">>", lineno, col))
+                i += 2
+                continue
 
             # Single-character operators/delimiters
             SINGLE = {
@@ -254,6 +274,7 @@ def lex(source: str) -> list[Token]:
                 "(": TT.LPAREN, ")": TT.RPAREN, ":": TT.COLON,
                 ",": TT.COMMA, ".": TT.DOT,
                 "[": TT.LBRACKET, "]": TT.RBRACKET,
+                "&": TT.AMP, "|": TT.PIPE, "^": TT.CARET, "~": TT.TILDE,
             }
             if ch in SINGLE:
                 tokens.append(Token(SINGLE[ch], ch, lineno, col))

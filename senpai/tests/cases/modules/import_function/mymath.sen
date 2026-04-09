@@ -1,0 +1,5 @@
+fn double(x: I64) -> I64:
+    return x * 2
+
+fn triple(x: I64) -> I64:
+    return x * 3

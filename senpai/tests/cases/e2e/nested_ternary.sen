@@ -1,0 +1,4 @@
+fn main():
+    let x: I64 = 5
+    let label: Str = "big" if x > 10 else "medium" if x > 3 else "small"
+    print(label)

@@ -1,0 +1,6 @@
+import "shapes.sen"
+
+fn main():
+    let r = shapes.Rect(3, 4)
+    print(r.area())
+    print(r.w)

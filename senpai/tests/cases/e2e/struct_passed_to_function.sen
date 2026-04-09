@@ -1,0 +1,12 @@
+struct Point:
+    x: I64
+    y: I64
+
+fn sum_point(p: Point) -> I64:
+    return p.x + p.y
+
+fn main():
+    let p = Point()
+    p.x = 10
+    p.y = 20
+    print(sum_point(p))

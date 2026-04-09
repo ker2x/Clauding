@@ -1,0 +1,5 @@
+fn greet(name: Str) -> Str:
+    return "Hello, " + name + "!"
+
+fn main():
+    print(greet("Senpai"))

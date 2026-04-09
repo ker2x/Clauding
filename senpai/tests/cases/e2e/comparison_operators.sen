@@ -1,0 +1,16 @@
+fn check(a: I64, b: I64):
+    if a == b:
+        print(1)
+    if a != b:
+        print(2)
+    if a < b:
+        print(3)
+    if a > b:
+        print(4)
+    if a <= b:
+        print(5)
+    if a >= b:
+        print(6)
+
+fn main():
+    check(3, 5)

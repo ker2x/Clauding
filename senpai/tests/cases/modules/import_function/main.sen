@@ -1,0 +1,5 @@
+import "mymath.sen"
+
+fn main():
+    print(mymath.double(5))
+    print(mymath.triple(5))

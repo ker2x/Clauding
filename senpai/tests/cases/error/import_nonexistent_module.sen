@@ -1,0 +1,4 @@
+import "nonexistent.sen"
+
+fn main():
+    print(1)

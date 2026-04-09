@@ -1,0 +1,8 @@
+extern fn calloc(count: I64, size: I64) -> Ptr
+
+fn main():
+    let p: Ptr = calloc(1, 8)
+    let addr: I64 = p as I64
+    let p2: Ptr = addr as Ptr
+    if p2 == p:
+        print("match")

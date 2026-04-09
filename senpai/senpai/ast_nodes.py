@@ -31,6 +31,10 @@ class NoneLit(Expr):
     pass
 
 @dataclass
+class NilLit(Expr):
+    pass
+
+@dataclass
 class Var(Expr):
     name: str = ""
 
@@ -65,6 +69,16 @@ class CastExpr(Expr):
 class FieldAccess(Expr):
     obj: Expr = field(default_factory=Expr)
     field_name: str = ""
+
+@dataclass
+class SizeofExpr(Expr):
+    type_name: str = ""
+
+@dataclass
+class TernaryExpr(Expr):
+    true_expr: Expr = field(default_factory=Expr)
+    condition: Expr = field(default_factory=Expr)
+    false_expr: Expr = field(default_factory=Expr)
 
 
 # --- Statements ---
@@ -135,6 +149,18 @@ class ClassDecl:
     line: int = 0
 
 @dataclass
+class StructField:
+    name: str = ""
+    type_name: str = ""
+    line: int = 0
+
+@dataclass
+class StructDecl:
+    name: str = ""
+    fields: list[StructField] = field(default_factory=list)
+    line: int = 0
+
+@dataclass
 class LinkDecl:
     lib_name: str = ""
     line: int = 0
@@ -156,6 +182,7 @@ class ImportDecl:
 class Program:
     functions: list[FnDecl] = field(default_factory=list)
     classes: list[ClassDecl] = field(default_factory=list)
+    structs: list[StructDecl] = field(default_factory=list)
     imports: list[ImportDecl] = field(default_factory=list)
     extern_fns: list[ExternFnDecl] = field(default_factory=list)
     links: list[LinkDecl] = field(default_factory=list)

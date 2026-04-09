@@ -1,0 +1,19 @@
+class Cat(Object):
+    fn __init__(self, name: Str):
+        self.name = name
+
+    fn speak(self) -> Str:
+        return self.name + " says meow"
+
+class Dog(Object):
+    fn __init__(self, name: Str):
+        self.name = name
+
+    fn speak(self) -> Str:
+        return self.name + " says woof"
+
+fn main():
+    let c = Cat("Whiskers")
+    let d = Dog("Rex")
+    print(c.speak())
+    print(d.speak())

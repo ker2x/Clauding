@@ -1,0 +1,5 @@
+fn main():
+    let x: U64 = 255
+    let mask: U64 = 15
+    print((x & mask) as I64)
+    print((x >> 4) as I64)

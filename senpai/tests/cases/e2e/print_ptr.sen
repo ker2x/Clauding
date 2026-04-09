@@ -1,0 +1,3 @@
+fn main():
+    let p: Ptr = 0 as Ptr
+    print(p)

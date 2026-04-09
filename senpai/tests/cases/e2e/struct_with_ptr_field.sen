@@ -1,0 +1,9 @@
+struct Node:
+    value: I64
+    next: Ptr
+
+fn main():
+    let n = Node()
+    n.value = 42
+    n.next = 0 as Ptr
+    print(n.value)

@@ -1,0 +1,6 @@
+fn main():
+    let x: Double = 3.14
+    if x > 3.0:
+        print(1)
+    else:
+        print(0)

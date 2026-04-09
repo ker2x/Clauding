@@ -1,0 +1,18 @@
+class Base(Object):
+    fn __init__(self, x: I64):
+        self.x = x
+
+    fn value(self) -> I64:
+        return self.x
+
+class Derived(Base):
+    fn __init__(self, x: I64, y: I64):
+        super.__init__(x)
+        self.y = y
+
+    fn value(self) -> I64:
+        return super.value() + self.y
+
+fn main():
+    let d = Derived(10, 20)
+    print(d.value())

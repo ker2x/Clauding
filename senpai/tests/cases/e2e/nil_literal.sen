@@ -1,0 +1,4 @@
+fn main():
+    let p: Ptr = nil
+    if p == nil:
+        print("is nil")

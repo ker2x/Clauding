@@ -1,0 +1,4 @@
+fn main():
+    let x: U64 = 100
+    let y: U64 = 30
+    print(x / y)
