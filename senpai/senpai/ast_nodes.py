@@ -135,6 +135,18 @@ class ClassDecl:
     line: int = 0
 
 @dataclass
+class LinkDecl:
+    lib_name: str = ""
+    line: int = 0
+
+@dataclass
+class ExternFnDecl:
+    name: str = ""
+    params: list[Param] = field(default_factory=list)
+    ret_type: str = "Void"
+    line: int = 0
+
+@dataclass
 class ImportDecl:
     path: str = ""          # e.g. "math.sen"
     module_name: str = ""   # e.g. "math"
@@ -145,4 +157,6 @@ class Program:
     functions: list[FnDecl] = field(default_factory=list)
     classes: list[ClassDecl] = field(default_factory=list)
     imports: list[ImportDecl] = field(default_factory=list)
+    extern_fns: list[ExternFnDecl] = field(default_factory=list)
+    links: list[LinkDecl] = field(default_factory=list)
     class_info: dict = field(default_factory=dict)  # filled by type checker

@@ -5,7 +5,7 @@ from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    FnDecl, ClassDecl, Program,
+    FnDecl, ClassDecl, ExternFnDecl, Program,
 )
 
 
@@ -227,6 +227,16 @@ def check_program(prog: Program) -> None:
             # Register module in env
             env.modules[mod_name] = mi
             env.variables[mod_name] = f"Module:{mod_name}"
+
+    # Register extern functions
+    EXTERN_ALLOWED_TYPES = NUMERIC_TYPES | {"Bool", "Void"}
+    for ext in prog.extern_fns:
+        ret = resolve_type(ext.ret_type)
+        params = [resolve_type(p.type_name) for p in ext.params]
+        for t in params + ([ret] if ret != "Void" else []):
+            if t not in EXTERN_ALLOWED_TYPES:
+                raise TypeError_(ext.line, f"extern functions only support numeric and Bool types, got {t}")
+        env.functions[ext.name] = FnSig(param_types=params, ret_type=ret)
 
     # Register class names first (so they can be used as types)
     for cls in prog.classes:

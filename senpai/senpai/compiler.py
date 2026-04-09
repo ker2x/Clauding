@@ -60,8 +60,21 @@ def _resolve_imports(program, source_dir: Path, loaded: dict | None = None):
         program.module_programs[imp.module_name] = mod_prog
 
 
+def _collect_links(program, collected: set | None = None) -> set[str]:
+    """Collect all link directives from a program and its imported modules."""
+    if collected is None:
+        collected = set()
+    for link in program.links:
+        collected.add(link.lib_name)
+    if hasattr(program, 'module_programs'):
+        for mod_prog in program.module_programs.values():
+            _collect_links(mod_prog, collected)
+    return collected
+
+
 def compile_source(source: str, output_path: str | None = None,
-                   emit_ir: bool = False, source_dir: str | None = None) -> str:
+                   emit_ir: bool = False, source_dir: str | None = None,
+                   extra_links: list[str] | None = None) -> str:
     """Compile Senpai source to a native binary.
 
     Args:
@@ -103,9 +116,15 @@ def compile_source(source: str, output_path: str | None = None,
     if output_path is None:
         output_path = tempfile.mktemp(suffix="")
 
+    # Collect link directives from source and imported modules
+    link_libs = _collect_links(program)
+    if extra_links:
+        link_libs.update(extra_links)
+    link_flags = [f"-l{lib}" for lib in sorted(link_libs)]
+
     try:
         result = subprocess.run(
-            ["clang", "-o", output_path, ll_path, "-O2", "-Wno-override-module"],
+            ["clang", "-o", output_path, ll_path, "-O2", "-Wno-override-module"] + link_flags,
             capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -117,17 +136,17 @@ def compile_source(source: str, output_path: str | None = None,
 
 
 def compile_file(path: str, output_path: str | None = None,
-                 emit_ir: bool = False) -> str:
+                 emit_ir: bool = False, extra_links: list[str] | None = None) -> str:
     """Compile a .sen file."""
     p = Path(path)
     source = p.read_text()
     return compile_source(source, output_path=output_path, emit_ir=emit_ir,
-                         source_dir=str(p.parent))
+                         source_dir=str(p.parent), extra_links=extra_links)
 
 
-def run_file(path: str) -> int:
+def run_file(path: str, extra_links: list[str] | None = None) -> int:
     """Compile and run a .sen file. Returns the exit code."""
-    binary = compile_file(path)
+    binary = compile_file(path, extra_links=extra_links)
     try:
         result = subprocess.run([binary], capture_output=False)
         return result.returncode

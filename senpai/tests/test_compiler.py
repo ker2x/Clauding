@@ -1451,6 +1451,89 @@ fn main():
 ''', "has no 'bar'", source_dir=tmpdir)
 
 
+# === Extern functions ===
+
+@test("e2e: extern fn sqrt")
+def _():
+    out = compile_and_run('''extern fn sqrt(x: Double) -> Double
+
+fn main():
+    let x: Double = 16.0
+    let r = sqrt(x)
+    print(r)
+''')
+    assert out.strip() == "4"
+
+@test("e2e: extern fn floor and ceil")
+def _():
+    out = compile_and_run('''extern fn floor(x: Double) -> Double
+extern fn ceil(x: Double) -> Double
+
+fn main():
+    print(floor(3.7))
+    print(ceil(3.2))
+''')
+    lines = out.strip().split("\n")
+    assert lines[0] == "3"
+    assert lines[1] == "4"
+
+@test("e2e: extern fn used in expression")
+def _():
+    out = compile_and_run('''extern fn sqrt(x: Double) -> Double
+
+fn main():
+    let r = sqrt(9.0) + sqrt(16.0)
+    print(r)
+''')
+    assert out.strip() == "7"
+
+@test("type error: extern fn with Str param")
+def _():
+    expect_compile_error('''extern fn puts(s: Str) -> I32
+
+fn main():
+    print(1)
+''', "extern functions only support numeric and Bool types")
+
+@test("e2e: link directive with extern")
+def _():
+    out = compile_and_run('''link "m"
+extern fn sqrt(x: Double) -> Double
+
+fn main():
+    print(sqrt(25.0))
+''')
+    assert out.strip() == "5"
+
+@test("e2e: link directive bubbles up from imported module")
+def _():
+    modules = {"mathutil.sen": '''link "m"
+extern fn sqrt(x: Double) -> Double
+
+fn wrap_sqrt(x: Double) -> Double:
+    return sqrt(x)
+'''}
+    import os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for fname, msrc in modules.items():
+            Path(tmpdir, fname).write_text(msrc)
+        src = '''import "mathutil.sen"
+
+fn main():
+    print(mathutil.wrap_sqrt(36.0))
+'''
+        out = compile_and_run_with_modules(src, modules)
+        assert out.strip() == "6"
+
+@test("type error: extern fn wrong arg type")
+def _():
+    expect_compile_error('''extern fn sqrt(x: Double) -> Double
+
+fn main():
+    let x: I64 = 16
+    sqrt(x)
+''', "expected Double, got I64")
+
 # === Report ===
 
 print(f"\n{'='*40}")

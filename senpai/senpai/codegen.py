@@ -56,6 +56,7 @@ class CodeGen:
         self._current_class: str | None = None  # set when generating a method
         self._modules: dict = {}  # module_name -> module_programs entry
         self._current_module: str | None = None  # set when generating module code
+        self._extern_fns: set[str] = set()  # extern function names (use real C name)
 
     def _tmp(self) -> str:
         self._tmp_counter += 1
@@ -289,6 +290,28 @@ class CodeGen:
         # Array struct type: { i64 len, i64 cap, ptr data }
         self._emit_global('%struct.Array = type { i64, i64, ptr }')
         self._emit_global('')
+
+        # Collect extern functions from imported modules too
+        all_externs = list(prog.extern_fns)
+        if hasattr(prog, 'module_programs'):
+            for mod_prog in prog.module_programs.values():
+                all_externs.extend(mod_prog.extern_fns)
+
+        # Emit extern function declarations
+        seen_externs = set()
+        for ext in all_externs:
+            if ext.name in seen_externs:
+                continue
+            seen_externs.add(ext.name)
+            self._extern_fns.add(ext.name)
+            ret = resolve_type(ext.ret_type)
+            params = [resolve_type(p.type_name) for p in ext.params]
+            self._fn_sigs[ext.name] = ret
+            self._fn_params[ext.name] = params
+            param_ir = ", ".join(_llvm_type(p) for p in params)
+            self._emit_global(f'declare {_llvm_type(ret)} @{ext.name}({param_ir})')
+        if seen_externs:
+            self._emit_global('')
 
         # Emit struct types and vtables for imported classes
         if hasattr(prog, 'module_programs'):
@@ -1030,8 +1053,11 @@ class CodeGen:
                 at = param_types[i]
             args_ir.append(f"{_llvm_type(at)} {ar}")
 
-        # Use resolved name for IR (e.g., "mod.func" -> "senpai_mod_func")
-        ir_name = f"senpai_{resolved_fn.replace('.', '_')}"
+        # Extern functions use their real C name; others get senpai_ prefix
+        if resolved_fn in self._extern_fns:
+            ir_name = resolved_fn
+        else:
+            ir_name = f"senpai_{resolved_fn.replace('.', '_')}"
         if ret_type == "Void":
             self._emit(f'  call void @{ir_name}({", ".join(args_ir)})')
             return "void", "Void"

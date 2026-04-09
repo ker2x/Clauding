@@ -5,7 +5,7 @@ from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
     BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    Param, FnDecl, ClassDecl, ImportDecl, Program,
+    Param, FnDecl, ClassDecl, ExternFnDecl, LinkDecl, ImportDecl, Program,
 )
 
 
@@ -48,17 +48,22 @@ class Parser:
     def parse(self) -> Program:
         prog = Program()
         self._skip_newlines()
-        # Parse imports first (must be at top of file)
-        while self._at(TT.IMPORT):
-            prog.imports.append(self._parse_import())
+        # Parse imports and link directives first (must be at top of file)
+        while self._at(TT.IMPORT, TT.LINK):
+            if self._at(TT.IMPORT):
+                prog.imports.append(self._parse_import())
+            else:
+                prog.links.append(self._parse_link())
             self._skip_newlines()
         while not self._at(TT.EOF):
             if self._at(TT.FN):
                 prog.functions.append(self._parse_fn())
             elif self._at(TT.CLASS):
                 prog.classes.append(self._parse_class())
+            elif self._at(TT.EXTERN):
+                prog.extern_fns.append(self._parse_extern_fn())
             else:
-                raise ParseError(self._peek(), "expected 'fn' or 'class' at top level")
+                raise ParseError(self._peek(), "expected 'fn', 'class', or 'extern' at top level")
             self._skip_newlines()
         return prog
 
@@ -72,6 +77,32 @@ class Parser:
         module_name = base.rsplit(".", 1)[0] if "." in base else base
         self._eat(TT.NEWLINE)
         return ImportDecl(path=path, module_name=module_name, line=tok.line)
+
+    # --- Link ---
+
+    def _parse_link(self) -> LinkDecl:
+        tok = self._eat(TT.LINK)
+        lib_tok = self._eat(TT.STR_LIT)
+        self._eat(TT.NEWLINE)
+        return LinkDecl(lib_name=lib_tok.value, line=tok.line)
+
+    # --- Extern ---
+
+    def _parse_extern_fn(self) -> ExternFnDecl:
+        tok = self._eat(TT.EXTERN)
+        self._eat(TT.FN)
+        name_tok = self._eat(TT.IDENT)
+        self._eat(TT.LPAREN)
+        params = self._parse_params()
+        self._eat(TT.RPAREN)
+
+        ret_type = "Void"
+        if self._at(TT.ARROW):
+            self._eat(TT.ARROW)
+            ret_type = self._parse_type_name()
+
+        self._eat(TT.NEWLINE)
+        return ExternFnDecl(name=name_tok.value, params=params, ret_type=ret_type, line=tok.line)
 
     # --- Function ---
 

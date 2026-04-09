@@ -35,6 +35,8 @@ class TT(Enum):
     RANGE = auto()
     AS = auto()
     IMPORT = auto()
+    EXTERN = auto()
+    LINK = auto()
 
     # Operators
     PLUS = auto()       # +
@@ -96,6 +98,8 @@ KEYWORDS = {
     "range": TT.RANGE,
     "as": TT.AS,
     "import": TT.IMPORT,
+    "extern": TT.EXTERN,
+    "link": TT.LINK,
     "true": TT.BOOL_LIT,
     "false": TT.BOOL_LIT,
 }
