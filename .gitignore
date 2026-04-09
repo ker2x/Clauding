@@ -1,5 +1,8 @@
 # External projects
 OpenRA/
 
+# Python
+__pycache__/
+
 # OS
 .DS_Store
