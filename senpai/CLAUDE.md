@@ -60,6 +60,10 @@ No ambiguous types — every numeric type has an explicit width.
 - **super** calls for invoking parent methods directly (no vtable dispatch)
 - **Operator methods** (`__add__`, `__sub__`, `__mul__`, `__div__`, `__eq__`, `__lt__`, `__neg__`, etc.)
 - **print()** is a built-in that handles all numeric types, Bool, and Str
+- **to_str()** built-in method on all numeric types and Bool, returns Str
+- **Type casting** via `expr as Type` for numeric conversions (int↔float, width changes)
+- **for loops** via `for x in range(n):` and `for x in range(start, end):`
+- **Array[T]** generic growable array with `push(val)`, `get(idx)`, `set(idx, val)`, `len()`
 - **Integer/float literals** adapt to declared types (e.g., `let x: I8 = 42` works); `f` suffix for Float32
 - **Functions** prefixed with `senpai_` in IR; methods as `senpai_ClassName_methodName`
 - **Objects** are heap-allocated via `malloc`; struct layout: `{ vtable_ptr, fields... }`
@@ -87,5 +91,5 @@ senpai/
 │   ├── factorial.sen
 │   └── fib.sen
 └── tests/
-    └── test_compiler.py # 89 tests (standalone, no pytest)
+    └── test_compiler.py # 112 tests (standalone, no pytest)
 ```

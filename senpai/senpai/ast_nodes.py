@@ -57,6 +57,11 @@ class MethodCall(Expr):
     args: list[Expr] = field(default_factory=list)
 
 @dataclass
+class CastExpr(Expr):
+    expr: Expr = field(default_factory=Expr)
+    target_type: str = ""
+
+@dataclass
 class FieldAccess(Expr):
     obj: Expr = field(default_factory=Expr)
     field_name: str = ""
@@ -94,6 +99,13 @@ class IfStmt(Stmt):
 class WhileStmt(Stmt):
     condition: Expr = field(default_factory=Expr)
     body: list[Stmt] = field(default_factory=list)
+
+@dataclass
+class ForStmt(Stmt):
+    var_name: str = ""
+    start: Expr | None = None       # None means range(end) → start=0
+    end: Expr = field(default_factory=Expr)
+    body: list["Stmt"] = field(default_factory=list)
 
 @dataclass
 class ExprStmt(Stmt):

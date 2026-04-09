@@ -30,6 +30,10 @@ class TT(Enum):
     OR = auto()
     NOT = auto()
     NONE = auto()
+    FOR = auto()
+    IN = auto()
+    RANGE = auto()
+    AS = auto()
 
     # Operators
     PLUS = auto()       # +
@@ -49,6 +53,8 @@ class TT(Enum):
     # Delimiters
     LPAREN = auto()     # (
     RPAREN = auto()     # )
+    LBRACKET = auto()   # [
+    RBRACKET = auto()   # ]
     COLON = auto()      # :
     COMMA = auto()      # ,
     DOT = auto()        # .
@@ -84,6 +90,10 @@ KEYWORDS = {
     "or": TT.OR,
     "not": TT.NOT,
     "none": TT.NONE,
+    "for": TT.FOR,
+    "in": TT.IN,
+    "range": TT.RANGE,
+    "as": TT.AS,
     "true": TT.BOOL_LIT,
     "false": TT.BOOL_LIT,
 }
@@ -237,6 +247,7 @@ def lex(source: str) -> list[Token]:
                 "%": TT.PERCENT, "=": TT.EQ, "<": TT.LT, ">": TT.GT,
                 "(": TT.LPAREN, ")": TT.RPAREN, ":": TT.COLON,
                 ",": TT.COMMA, ".": TT.DOT,
+                "[": TT.LBRACKET, "]": TT.RBRACKET,
             }
             if ch in SINGLE:
                 tokens.append(Token(SINGLE[ch], ch, lineno, col))

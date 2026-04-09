@@ -1051,6 +1051,266 @@ fn main():
     assert out.strip() == "7\n15\n30\n100"
 
 
+# === Phase 4: for loops, casting, to_str, arrays ===
+
+@test("e2e: for-in-range basic")
+def _():
+    src = '''fn main():
+    for i in range(5):
+        print(i)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "0\n1\n2\n3\n4"
+
+@test("e2e: for-in-range with start and end")
+def _():
+    src = '''fn main():
+    for i in range(3, 7):
+        print(i)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "3\n4\n5\n6"
+
+@test("e2e: for loop sum")
+def _():
+    src = '''fn main():
+    let sum: I64 = 0
+    for i in range(1, 11):
+        sum = sum + i
+    print(sum)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "55"
+
+@test("e2e: nested for loops")
+def _():
+    src = '''fn main():
+    let count: I64 = 0
+    for i in range(3):
+        for j in range(4):
+            count = count + 1
+    print(count)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "12"
+
+@test("e2e: as cast int narrowing")
+def _():
+    src = '''fn main():
+    let x: I64 = 42
+    let y: I32 = x as I32
+    print(y)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "42"
+
+@test("e2e: as cast int to double")
+def _():
+    src = '''fn main():
+    let x: I64 = 100
+    let d: Double = x as Double
+    print(d)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "100"
+
+@test("e2e: as cast double to int")
+def _():
+    src = '''fn main():
+    let d: Double = 3.99
+    let x: I64 = d as I64
+    print(x)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "3"
+
+@test("e2e: as cast float widening")
+def _():
+    src = '''fn main():
+    let f: Float = 2.5f
+    let d: Double = f as Double
+    print(d)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "2.5"
+
+@test("type error: invalid cast")
+def _():
+    expect_compile_error('''fn main():
+    let s: Str = "hello"
+    let x: I64 = s as I64
+''', "cannot cast")
+
+@test("e2e: to_str on I64")
+def _():
+    src = '''fn main():
+    let x: I64 = 42
+    let s: Str = x.to_str()
+    print(s)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "42"
+
+@test("e2e: to_str on Double")
+def _():
+    src = '''fn main():
+    let d: Double = 3.14
+    print(d.to_str())
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "3.14"
+
+@test("e2e: to_str on Bool")
+def _():
+    src = '''fn main():
+    let b: Bool = true
+    print(b.to_str())
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "true"
+
+@test("e2e: to_str string concatenation")
+def _():
+    src = '''fn main():
+    let x: I64 = 42
+    print(x.to_str() + " is the answer")
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "42 is the answer"
+
+@test("e2e: Array[I64] basic")
+def _():
+    src = '''fn main():
+    let a = Array[I64]()
+    a.push(10)
+    a.push(20)
+    a.push(30)
+    print(a.len())
+    print(a.get(0))
+    print(a.get(1))
+    print(a.get(2))
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "3\n10\n20\n30"
+
+@test("e2e: Array set")
+def _():
+    src = '''fn main():
+    let a = Array[I64]()
+    a.push(1)
+    a.push(2)
+    a.set(0, 99)
+    print(a.get(0))
+    print(a.get(1))
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "99\n2"
+
+@test("e2e: Array growth")
+def _():
+    src = '''fn main():
+    let a = Array[I64]()
+    for i in range(20):
+        a.push(i * i)
+    print(a.len())
+    print(a.get(0))
+    print(a.get(9))
+    print(a.get(19))
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "20\n0\n81\n361"
+
+@test("e2e: Array[Str]")
+def _():
+    src = '''fn main():
+    let a = Array[Str]()
+    a.push("hello")
+    a.push("world")
+    print(a.get(0))
+    print(a.get(1))
+    print(a.len())
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "hello\nworld\n2"
+
+@test("e2e: Array[Double]")
+def _():
+    src = '''fn main():
+    let a = Array[Double]()
+    a.push(1.5)
+    a.push(2.5)
+    print(a.get(0))
+    print(a.get(1))
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "1.5\n2.5"
+
+@test("e2e: Array with for loop")
+def _():
+    src = '''fn main():
+    let a = Array[I64]()
+    for i in range(5):
+        a.push(i + 1)
+    let sum: I64 = 0
+    for i in range(a.len()):
+        sum = sum + a.get(i)
+    print(sum)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "15"
+
+@test("e2e: Array as function parameter")
+def _():
+    src = '''fn sum_array(arr: Array[I64]) -> I64:
+    let total: I64 = 0
+    for i in range(arr.len()):
+        total = total + arr.get(i)
+    return total
+
+fn main():
+    let a = Array[I64]()
+    a.push(10)
+    a.push(20)
+    a.push(30)
+    print(sum_array(a))
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "60"
+
+@test("type error: Array push wrong type")
+def _():
+    expect_compile_error('''fn main():
+    let a = Array[I64]()
+    a.push("hello")
+''', "push() expects I64")
+
+@test("type error: Array unknown method")
+def _():
+    expect_compile_error('''fn main():
+    let a = Array[I64]()
+    a.pop()
+''', "Array has no method 'pop'")
+
+@test("e2e: for loop + array + classes")
+def _():
+    src = '''class Point(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+fn main():
+    let points = Array[Point]()
+    for i in range(3):
+        points.push(Point(i, i * 2))
+    for i in range(points.len()):
+        let p = points.get(i)
+        print(p.x)
+        print(p.y)
+'''
+    out = compile_and_run(src)
+    assert out.strip() == "0\n0\n1\n2\n2\n4"
+
+
 # === Report ===
 
 print(f"\n{'='*40}")

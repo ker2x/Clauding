@@ -3,8 +3,8 @@
 from dataclasses import dataclass, field
 from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
-    BinOp, UnaryOp, Call, MethodCall, FieldAccess,
-    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ExprStmt,
+    BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
     FnDecl, ClassDecl, Program,
 )
 
@@ -87,9 +87,25 @@ class TypeEnv:
                        current_class=self.current_class)
 
 
+def _is_array_type(name: str) -> bool:
+    """Check if a type name is Array[T]."""
+    return name.startswith("Array[") and name.endswith("]")
+
+
+def _array_elem_type(name: str) -> str:
+    """Extract T from Array[T]."""
+    return name[6:-1]
+
+
 def _valid_type(name: str, env: TypeEnv) -> bool:
-    """Check if a type name is valid (primitive or registered class)."""
-    return name in PRIMITIVE_TYPES or env.lookup_class(name) is not None
+    """Check if a type name is valid (primitive or registered class or Array[T])."""
+    if name in PRIMITIVE_TYPES:
+        return True
+    if env.lookup_class(name) is not None:
+        return True
+    if _is_array_type(name):
+        return _valid_type(_array_elem_type(name), env)
+    return False
 
 
 def _literal_compatible(expr, from_type: str, to_type: str) -> bool:
@@ -325,6 +341,19 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
         for s in stmt.body:
             _check_stmt(s, block_env)
 
+    elif isinstance(stmt, ForStmt):
+        end_type = _check_expr(stmt.end, env)
+        if end_type not in ALL_INT_TYPES:
+            raise TypeError_(stmt.line, f"range() expects integer, got {end_type}")
+        if stmt.start is not None:
+            start_type = _check_expr(stmt.start, env)
+            if start_type not in ALL_INT_TYPES:
+                raise TypeError_(stmt.line, f"range() expects integer, got {start_type}")
+        block_env = env.child()
+        block_env.variables[stmt.var_name] = "I64"
+        for s in stmt.body:
+            _check_stmt(s, block_env)
+
     elif isinstance(stmt, ExprStmt):
         _check_expr(stmt.expr, env)
 
@@ -365,6 +394,42 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
 
     if isinstance(expr, MethodCall):
         obj_type = _check_expr(expr.obj, env)
+        # Built-in to_str() on primitive types
+        if expr.method == "to_str" and len(expr.args) == 0:
+            if obj_type in NUMERIC_TYPES or obj_type == "Bool":
+                return "Str"
+        # Array methods
+        if _is_array_type(obj_type):
+            elem_type = _array_elem_type(obj_type)
+            if expr.method == "push":
+                if len(expr.args) != 1:
+                    raise TypeError_(expr.line, "push() expects 1 argument")
+                at = _check_expr(expr.args[0], env)
+                if not _type_compatible(at, elem_type, expr.args[0], env):
+                    raise TypeError_(expr.line, f"push() expects {elem_type}, got {at}")
+                return "Void"
+            if expr.method == "get":
+                if len(expr.args) != 1:
+                    raise TypeError_(expr.line, "get() expects 1 argument")
+                at = _check_expr(expr.args[0], env)
+                if at not in ALL_INT_TYPES:
+                    raise TypeError_(expr.line, f"get() index must be integer, got {at}")
+                return elem_type
+            if expr.method == "set":
+                if len(expr.args) != 2:
+                    raise TypeError_(expr.line, "set() expects 2 arguments")
+                idx_t = _check_expr(expr.args[0], env)
+                if idx_t not in ALL_INT_TYPES:
+                    raise TypeError_(expr.line, f"set() index must be integer, got {idx_t}")
+                val_t = _check_expr(expr.args[1], env)
+                if not _type_compatible(val_t, elem_type, expr.args[1], env):
+                    raise TypeError_(expr.line, f"set() expects {elem_type}, got {val_t}")
+                return "Void"
+            if expr.method == "len":
+                if len(expr.args) != 0:
+                    raise TypeError_(expr.line, "len() takes no arguments")
+                return "I64"
+            raise TypeError_(expr.line, f"Array has no method '{expr.method}'")
         ci = env.lookup_class(obj_type)
         if ci is None:
             raise TypeError_(expr.line, f"cannot call method on type {obj_type}")
@@ -451,6 +516,15 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         raise TypeError_(expr.line, f"unknown unary operator: {expr.op}")
 
     if isinstance(expr, Call):
+        # Array[T]() constructor
+        if _is_array_type(expr.func):
+            elem_type = _array_elem_type(expr.func)
+            if not _valid_type(elem_type, env):
+                raise TypeError_(expr.line, f"unknown type: {elem_type}")
+            if len(expr.args) != 0:
+                raise TypeError_(expr.line, f"Array constructor takes no arguments")
+            return expr.func
+
         # Check for class constructor
         ci = env.lookup_class(expr.func)
         if ci is not None and expr.func != "Object":
@@ -487,5 +561,18 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 raise TypeError_(expr.line,
                     f"{expr.func}() arg {i + 1}: expected {expected}, got {at}")
         return sig.ret_type
+
+    if isinstance(expr, CastExpr):
+        src_type = _check_expr(expr.expr, env)
+        target = resolve_type(expr.target_type)
+        if not _valid_type(target, env):
+            raise TypeError_(expr.line, f"unknown type: {target}")
+        # Allow numeric-to-numeric casts
+        if src_type in NUMERIC_TYPES and target in NUMERIC_TYPES:
+            return target
+        # Allow Bool to integer
+        if src_type == "Bool" and target in ALL_INT_TYPES:
+            return target
+        raise TypeError_(expr.line, f"cannot cast {src_type} to {target}")
 
     raise TypeError_(expr.line, f"unsupported expression type: {type(expr).__name__}")

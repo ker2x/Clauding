@@ -2,13 +2,14 @@
 
 from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
-    BinOp, UnaryOp, Call, MethodCall, FieldAccess,
-    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ExprStmt,
+    BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
     FnDecl, ClassDecl, Program,
 )
 from .types import (resolve_type, ALL_INT_TYPES, SIGNED_INT_TYPES,
                     UNSIGNED_INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES,
-                    ClassInfo, PRIMITIVE_TYPES)
+                    ClassInfo, PRIMITIVE_TYPES,
+                    _is_array_type, _array_elem_type)
 
 
 # LLVM type mapping
@@ -155,16 +156,28 @@ class CodeGen:
                 if expr.field_name in ci.fields:
                     return ci.fields[expr.field_name]
         if isinstance(expr, Call):
+            if _is_array_type(expr.func):
+                return expr.func
             if expr.func in self._class_info and expr.func != "Object":
                 return expr.func
             if expr.func in self._fn_sigs:
                 return self._fn_sigs[expr.func]
         if isinstance(expr, MethodCall):
             obj_type = self._peek_type(expr.obj)
+            if obj_type and _is_array_type(obj_type):
+                elem = _array_elem_type(obj_type)
+                if expr.method == "get":
+                    return elem
+                if expr.method == "len":
+                    return "I64"
+                if expr.method in ("push", "set"):
+                    return "Void"
             if obj_type and obj_type in self._class_info:
                 ci = self._class_info[obj_type]
                 if expr.method in ci.methods:
                     return ci.methods[expr.method].ret_type
+        if isinstance(expr, CastExpr):
+            return resolve_type(expr.target_type)
         return None
 
     def _vtable_index(self, class_name: str, method_name: str) -> int:
@@ -208,6 +221,10 @@ class CodeGen:
         self._emit_global('declare i64 @strlen(ptr)')
         self._emit_global('declare ptr @memcpy(ptr, ptr, i64)')
         self._emit_global('declare i32 @snprintf(ptr, i64, ptr, ...)')
+        self._emit_global('declare ptr @realloc(ptr, i64)')
+        self._emit_global('')
+        # Array struct type: { i64 len, i64 cap, ptr data }
+        self._emit_global('%struct.Array = type { i64, i64, ptr }')
         self._emit_global('')
 
         # Emit struct types and vtables for classes
@@ -403,6 +420,9 @@ class CodeGen:
         elif isinstance(stmt, WhileStmt):
             self._gen_while(stmt, fn_ret)
 
+        elif isinstance(stmt, ForStmt):
+            self._gen_for(stmt, fn_ret)
+
         elif isinstance(stmt, ExprStmt):
             self._gen_expr(stmt.expr)
 
@@ -458,6 +478,45 @@ class CodeGen:
 
         self._emit(f'{body_label}:')
         self._gen_stmts(stmt.body, fn_ret)
+        self._emit(f'  br label %{cond_label}')
+
+        self._emit(f'{end_label}:')
+
+    def _gen_for(self, stmt: ForStmt, fn_ret: str):
+        """Generate for x in range(start, end): as a counted loop."""
+        # Evaluate start and end
+        if stmt.start is not None:
+            start_reg, _ = self._gen_expr(stmt.start)
+        else:
+            start_reg = "0"
+        end_reg, _ = self._gen_expr(stmt.end)
+
+        # Allocate loop variable
+        alloca = self._tmp()
+        self._emit(f'  {alloca} = alloca i64')
+        self._emit(f'  store i64 {start_reg}, ptr {alloca}')
+        self._vars[stmt.var_name] = (alloca, "I64")
+
+        cond_label = self._label("for.cond")
+        body_label = self._label("for.body")
+        end_label = self._label("for.end")
+
+        self._emit(f'  br label %{cond_label}')
+        self._emit(f'{cond_label}:')
+        cur = self._tmp()
+        self._emit(f'  {cur} = load i64, ptr {alloca}')
+        cmp = self._tmp()
+        self._emit(f'  {cmp} = icmp slt i64 {cur}, {end_reg}')
+        self._emit(f'  br i1 {cmp}, label %{body_label}, label %{end_label}')
+
+        self._emit(f'{body_label}:')
+        self._gen_stmts(stmt.body, fn_ret)
+        # Increment
+        cur2 = self._tmp()
+        self._emit(f'  {cur2} = load i64, ptr {alloca}')
+        inc = self._tmp()
+        self._emit(f'  {inc} = add i64 {cur2}, 1')
+        self._emit(f'  store i64 {inc}, ptr {alloca}')
         self._emit(f'  br label %{cond_label}')
 
         self._emit(f'{end_label}:')
@@ -523,6 +582,9 @@ class CodeGen:
         if isinstance(expr, Call):
             return self._gen_call(expr)
 
+        if isinstance(expr, CastExpr):
+            return self._gen_cast(expr)
+
         raise RuntimeError(f"unsupported expr: {type(expr).__name__}")
 
     def _gen_field_access(self, expr: FieldAccess) -> tuple[str, str]:
@@ -542,6 +604,17 @@ class CodeGen:
 
     def _gen_method_call(self, expr: MethodCall) -> tuple[str, str]:
         """Generate method call with vtable dispatch (or direct for super)."""
+        # Built-in to_str() on primitive types
+        if expr.method == "to_str" and len(expr.args) == 0:
+            obj_type = self._peek_type(expr.obj)
+            if obj_type and (obj_type in NUMERIC_TYPES or obj_type == "Bool"):
+                return self._gen_to_str(expr.obj, obj_type)
+
+        # Array methods
+        obj_type = self._peek_type(expr.obj)
+        if obj_type and _is_array_type(obj_type):
+            return self._gen_array_method(expr, obj_type)
+
         # Check if this is a super call (direct dispatch, not vtable)
         is_super = isinstance(expr.obj, Var) and expr.obj.name == "super"
 
@@ -770,6 +843,10 @@ class CodeGen:
         if expr.func == "print" and len(expr.args) == 1:
             return self._gen_print(expr.args[0])
 
+        # Array constructor
+        if _is_array_type(expr.func):
+            return self._gen_array_constructor(expr.func, expr)
+
         # Constructor call
         if expr.func in self._class_info and expr.func != "Object":
             return self._gen_constructor(expr)
@@ -830,6 +907,251 @@ class CodeGen:
             self._emit(f'  call void {self._method_fn_name(class_name, "__init__")}({", ".join(args_ir)})')
 
         return obj, class_name
+
+    # --- Array ---
+
+    def _elem_size(self, elem_type: str) -> int:
+        """Get element size in bytes."""
+        sizes = {"i8": 1, "i16": 2, "i32": 4, "i64": 8, "float": 4, "double": 8, "i1": 1, "ptr": 8}
+        return sizes.get(_llvm_type(elem_type), 8)
+
+    def _gen_array_constructor(self, array_type: str, expr: Call) -> tuple[str, str]:
+        """Generate Array[T]() — allocates struct + initial data buffer."""
+        # Allocate the struct {i64 len, i64 cap, ptr data}
+        arr = self._tmp()
+        self._emit(f'  {arr} = call ptr @malloc(i64 24)')  # 3 * i64 = 24 bytes
+
+        # Store len = 0
+        len_ptr = self._tmp()
+        self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 0')
+        self._emit(f'  store i64 0, ptr {len_ptr}')
+
+        # Store cap = 8 (initial capacity)
+        cap_ptr = self._tmp()
+        self._emit(f'  {cap_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 1')
+        self._emit(f'  store i64 8, ptr {cap_ptr}')
+
+        # Allocate initial data buffer
+        elem_type = _array_elem_type(array_type)
+        elem_sz = self._elem_size(elem_type)
+        data = self._tmp()
+        self._emit(f'  {data} = call ptr @malloc(i64 {elem_sz * 8})')
+
+        # Store data pointer
+        data_ptr = self._tmp()
+        self._emit(f'  {data_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 2')
+        self._emit(f'  store ptr {data}, ptr {data_ptr}')
+
+        return arr, array_type
+
+    def _gen_array_method(self, expr: MethodCall, array_type: str) -> tuple[str, str]:
+        """Generate array method calls."""
+        elem_type = _array_elem_type(array_type)
+        elem_llvm = _llvm_type(elem_type)
+        elem_sz = self._elem_size(elem_type)
+        obj_reg, _ = self._gen_expr(expr.obj)
+
+        if expr.method == "len":
+            len_ptr = self._tmp()
+            self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0')
+            result = self._tmp()
+            self._emit(f'  {result} = load i64, ptr {len_ptr}')
+            return result, "I64"
+
+        if expr.method == "get":
+            idx_reg, idx_type = self._gen_expr(expr.args[0])
+            idx_reg = self._coerce(idx_reg, idx_type, "I64")
+            # Load data pointer
+            data_ptr_ptr = self._tmp()
+            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            data_ptr = self._tmp()
+            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
+            # GEP to element
+            elem_ptr = self._tmp()
+            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}')
+            result = self._tmp()
+            self._emit(f'  {result} = load {elem_llvm}, ptr {elem_ptr}')
+            return result, elem_type
+
+        if expr.method == "set":
+            idx_reg, idx_type = self._gen_expr(expr.args[0])
+            idx_reg = self._coerce(idx_reg, idx_type, "I64")
+            val_reg, val_type = self._gen_expr(expr.args[1])
+            val_reg = self._coerce(val_reg, val_type, elem_type)
+            # Load data pointer
+            data_ptr_ptr = self._tmp()
+            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            data_ptr = self._tmp()
+            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
+            # GEP to element
+            elem_ptr = self._tmp()
+            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}')
+            self._emit(f'  store {elem_llvm} {val_reg}, ptr {elem_ptr}')
+            return "void", "Void"
+
+        if expr.method == "push":
+            val_reg, val_type = self._gen_expr(expr.args[0])
+            val_reg = self._coerce(val_reg, val_type, elem_type)
+
+            # Load len and cap
+            len_ptr = self._tmp()
+            self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0')
+            cur_len = self._tmp()
+            self._emit(f'  {cur_len} = load i64, ptr {len_ptr}')
+
+            cap_ptr = self._tmp()
+            self._emit(f'  {cap_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 1')
+            cur_cap = self._tmp()
+            self._emit(f'  {cur_cap} = load i64, ptr {cap_ptr}')
+
+            # Check if we need to grow
+            need_grow = self._tmp()
+            self._emit(f'  {need_grow} = icmp sge i64 {cur_len}, {cur_cap}')
+
+            grow_label = self._label("arr.grow")
+            store_label = self._label("arr.store")
+
+            self._emit(f'  br i1 {need_grow}, label %{grow_label}, label %{store_label}')
+
+            # Grow path: double capacity, realloc
+            self._emit(f'{grow_label}:')
+            new_cap = self._tmp()
+            self._emit(f'  {new_cap} = mul i64 {cur_cap}, 2')
+            self._emit(f'  store i64 {new_cap}, ptr {cap_ptr}')
+            new_bytes = self._tmp()
+            self._emit(f'  {new_bytes} = mul i64 {new_cap}, {elem_sz}')
+            data_ptr_ptr_g = self._tmp()
+            self._emit(f'  {data_ptr_ptr_g} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            old_data_g = self._tmp()
+            self._emit(f'  {old_data_g} = load ptr, ptr {data_ptr_ptr_g}')
+            new_data = self._tmp()
+            self._emit(f'  {new_data} = call ptr @realloc(ptr {old_data_g}, i64 {new_bytes})')
+            self._emit(f'  store ptr {new_data}, ptr {data_ptr_ptr_g}')
+            self._emit(f'  br label %{store_label}')
+
+            # Store path: store element at arr[len], increment len
+            self._emit(f'{store_label}:')
+            data_ptr_ptr_s = self._tmp()
+            self._emit(f'  {data_ptr_ptr_s} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            data_ptr_s = self._tmp()
+            self._emit(f'  {data_ptr_s} = load ptr, ptr {data_ptr_ptr_s}')
+            # Reload len (could have been the same, but need to load after phi)
+            cur_len2 = self._tmp()
+            self._emit(f'  {cur_len2} = load i64, ptr {len_ptr}')
+            elem_ptr = self._tmp()
+            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr_s}, i64 {cur_len2}')
+            self._emit(f'  store {elem_llvm} {val_reg}, ptr {elem_ptr}')
+            # Increment len
+            new_len = self._tmp()
+            self._emit(f'  {new_len} = add i64 {cur_len2}, 1')
+            self._emit(f'  store i64 {new_len}, ptr {len_ptr}')
+
+            return "void", "Void"
+
+        raise RuntimeError(f"unknown array method: {expr.method}")
+
+    # --- to_str ---
+
+    def _gen_to_str(self, obj_expr: Expr, obj_type: str) -> tuple[str, str]:
+        """Generate to_str() for primitive types using snprintf."""
+        obj_reg, _ = self._gen_expr(obj_expr)
+
+        # Allocate a buffer (64 bytes is plenty for any number)
+        buf = self._tmp()
+        self._emit(f'  {buf} = call ptr @malloc(i64 64)')
+
+        if obj_type in SIGNED_INT_TYPES:
+            llvm_t = _llvm_type(obj_type)
+            if obj_type != "I64":
+                ext = self._tmp()
+                self._emit(f'  {ext} = sext {llvm_t} {obj_reg} to i64')
+                obj_reg = ext
+            fmt_name, fmt_len = self._str_const("%lld")
+            fmt_reg = self._tmp()
+            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
+            discard = self._tmp()
+            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, i64 {obj_reg})')
+
+        elif obj_type in UNSIGNED_INT_TYPES:
+            llvm_t = _llvm_type(obj_type)
+            if obj_type != "U64":
+                ext = self._tmp()
+                self._emit(f'  {ext} = zext {llvm_t} {obj_reg} to i64')
+                obj_reg = ext
+            fmt_name, fmt_len = self._str_const("%llu")
+            fmt_reg = self._tmp()
+            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
+            discard = self._tmp()
+            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, i64 {obj_reg})')
+
+        elif obj_type == "Float":
+            ext = self._tmp()
+            self._emit(f'  {ext} = fpext float {obj_reg} to double')
+            fmt_name, fmt_len = self._str_const("%g")
+            fmt_reg = self._tmp()
+            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
+            discard = self._tmp()
+            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, double {ext})')
+
+        elif obj_type == "Double":
+            fmt_name, fmt_len = self._str_const("%g")
+            fmt_reg = self._tmp()
+            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
+            discard = self._tmp()
+            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, double {obj_reg})')
+
+        elif obj_type == "Bool":
+            true_name, true_len = self._str_const("true")
+            false_name, false_len = self._str_const("false")
+            true_reg = self._tmp()
+            self._emit(f'  {true_reg} = getelementptr [{true_len} x i8], ptr {true_name}, i64 0, i64 0')
+            false_reg = self._tmp()
+            self._emit(f'  {false_reg} = getelementptr [{false_len} x i8], ptr {false_name}, i64 0, i64 0')
+            sel = self._tmp()
+            self._emit(f'  {sel} = select i1 {obj_reg}, ptr {true_reg}, ptr {false_reg}')
+            # For Bool, just return the string constant directly (no need for snprintf)
+            # Free the unused buffer... or just return the constant
+            return sel, "Str"
+
+        return buf, "Str"
+
+    # --- Cast ---
+
+    def _gen_cast(self, expr: CastExpr) -> tuple[str, str]:
+        """Generate type cast: expr as Type."""
+        src_reg, src_type = self._gen_expr(expr.expr)
+        target = resolve_type(expr.target_type)
+        src_llvm = _llvm_type(src_type)
+        tgt_llvm = _llvm_type(target)
+
+        if src_llvm == tgt_llvm and src_type != "Bool":
+            return src_reg, target  # same LLVM type, just reinterpret
+
+        result = self._tmp()
+
+        # Bool to integer: zext i1 to target
+        if src_type == "Bool" and target in ALL_INT_TYPES:
+            self._emit(f'  {result} = zext i1 {src_reg} to {tgt_llvm}')
+            return result, target
+
+        # Int to float
+        if src_type in SIGNED_INT_TYPES and target in FLOAT_TYPES:
+            self._emit(f'  {result} = sitofp {src_llvm} {src_reg} to {tgt_llvm}')
+            return result, target
+        if src_type in UNSIGNED_INT_TYPES and target in FLOAT_TYPES:
+            self._emit(f'  {result} = uitofp {src_llvm} {src_reg} to {tgt_llvm}')
+            return result, target
+
+        # Float to int
+        if src_type in FLOAT_TYPES and target in SIGNED_INT_TYPES:
+            self._emit(f'  {result} = fptosi {src_llvm} {src_reg} to {tgt_llvm}')
+            return result, target
+        if src_type in FLOAT_TYPES and target in UNSIGNED_INT_TYPES:
+            self._emit(f'  {result} = fptoui {src_llvm} {src_reg} to {tgt_llvm}')
+            return result, target
+
+        # Int width changes and float width changes — use _coerce
+        return self._coerce(src_reg, src_type, target), target
 
     # --- Print ---
 

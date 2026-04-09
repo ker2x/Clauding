@@ -3,8 +3,8 @@
 from .tokens import TT, Token
 from .ast_nodes import (
     Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, Var,
-    BinOp, UnaryOp, Call, MethodCall, FieldAccess,
-    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ExprStmt,
+    BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
+    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
     Param, FnDecl, ClassDecl, Program,
 )
 
@@ -70,7 +70,7 @@ class Parser:
         ret_type = "Void"
         if self._at(TT.ARROW):
             self._eat(TT.ARROW)
-            ret_type = self._eat(TT.IDENT).value
+            ret_type = self._parse_type_name()
 
         self._eat(TT.COLON)
         self._eat(TT.NEWLINE)
@@ -89,6 +89,16 @@ class Parser:
             params.append(self._parse_param())
         return params
 
+    def _parse_type_name(self) -> str:
+        """Parse a type name, including generic Array[T]."""
+        name = self._eat(TT.IDENT).value
+        if name == "Array" and self._at(TT.LBRACKET):
+            self._eat(TT.LBRACKET)
+            elem = self._eat(TT.IDENT).value
+            self._eat(TT.RBRACKET)
+            return f"Array[{elem}]"
+        return name
+
     def _parse_param(self) -> Param:
         # Handle 'self' as a parameter
         if self._at(TT.SELF):
@@ -96,7 +106,7 @@ class Parser:
             return Param(name="self", type_name="Self")
         name = self._eat(TT.IDENT).value
         self._eat(TT.COLON)
-        type_name = self._eat(TT.IDENT).value
+        type_name = self._parse_type_name()
         return Param(name=name, type_name=type_name)
 
     # --- Class ---
@@ -148,6 +158,8 @@ class Parser:
             return self._parse_if()
         if self._at(TT.WHILE):
             return self._parse_while()
+        if self._at(TT.FOR):
+            return self._parse_for()
 
         # Expression statement, or assignment
         line = self._peek().line
@@ -168,7 +180,7 @@ class Parser:
         type_name = None
         if self._at(TT.COLON):
             self._eat(TT.COLON)
-            type_name = self._eat(TT.IDENT).value
+            type_name = self._parse_type_name()
         self._eat(TT.EQ)
         value = self._parse_expr()
         self._eat(TT.NEWLINE)
@@ -217,6 +229,27 @@ class Parser:
         self._eat(TT.NEWLINE)
         body = self._parse_block()
         return WhileStmt(condition=cond, body=body, line=tok.line)
+
+    def _parse_for(self) -> ForStmt:
+        tok = self._eat(TT.FOR)
+        var_name = self._eat(TT.IDENT).value
+        self._eat(TT.IN)
+        self._eat(TT.RANGE)
+        self._eat(TT.LPAREN)
+        first = self._parse_expr()
+        if self._at(TT.COMMA):
+            self._eat(TT.COMMA)
+            second = self._parse_expr()
+            start = first
+            end = second
+        else:
+            start = None
+            end = first
+        self._eat(TT.RPAREN)
+        self._eat(TT.COLON)
+        self._eat(TT.NEWLINE)
+        body = self._parse_block()
+        return ForStmt(var_name=var_name, start=start, end=end, body=body, line=tok.line)
 
     # --- Expressions (precedence climbing) ---
 
@@ -278,7 +311,15 @@ class Parser:
             tok = self._eat(TT.MINUS)
             operand = self._parse_unary()
             return UnaryOp(op="-", operand=operand, line=tok.line)
-        return self._parse_postfix()
+        return self._parse_as()
+
+    def _parse_as(self) -> Expr:
+        left = self._parse_postfix()
+        if self._at(TT.AS):
+            self._eat(TT.AS)
+            type_name = self._parse_type_name()
+            return CastExpr(expr=left, target_type=type_name, line=left.line)
+        return left
 
     def _parse_postfix(self) -> Expr:
         expr = self._parse_primary()
@@ -293,6 +334,15 @@ class Parser:
                     expr = MethodCall(obj=expr, method=name, args=args, line=expr.line)
                 else:
                     expr = FieldAccess(obj=expr, field_name=name, line=expr.line)
+            elif self._at(TT.LBRACKET) and isinstance(expr, Var) and expr.name == "Array":
+                # Array[T]() constructor
+                self._eat(TT.LBRACKET)
+                elem_type = self._eat(TT.IDENT).value
+                self._eat(TT.RBRACKET)
+                self._eat(TT.LPAREN)
+                args = self._parse_args()
+                self._eat(TT.RPAREN)
+                expr = Call(func=f"Array[{elem_type}]", args=args, line=expr.line)
             elif self._at(TT.LPAREN) and isinstance(expr, Var):
                 # Function call: name(args)
                 self._eat(TT.LPAREN)
