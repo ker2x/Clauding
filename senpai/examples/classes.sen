@@ -1,0 +1,64 @@
+class Animal(Object):
+    fn __init__(self, name: Str, sound: Str):
+        self.name = name
+        self.sound = sound
+
+    fn speak(self) -> Str:
+        return self.name + " says " + self.sound
+
+class Dog(Animal):
+    fn __init__(self, name: Str):
+        super.__init__(name, "woof")
+
+    fn fetch(self) -> Str:
+        return self.name + " fetches the ball!"
+
+class Vec2(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+    fn __add__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x + other.x, self.y + other.y)
+
+    fn __sub__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x - other.x, self.y - other.y)
+
+    fn __eq__(self, other: Vec2) -> Bool:
+        if self.x == other.x:
+            if self.y == other.y:
+                return true
+        return false
+
+    fn __neg__(self) -> Vec2:
+        return Vec2(0 - self.x, 0 - self.y)
+
+class Counter(Object):
+    fn __init__(self, start: I64):
+        self.value = start
+
+    fn increment(self) -> Counter:
+        self.value = self.value + 1
+        return self
+
+    fn get(self) -> I64:
+        return self.value
+
+fn main():
+    let a = Animal("Cat", "meow")
+    print(a.speak())
+
+    let d = Dog("Rex")
+    print(d.speak())
+    print(d.fetch())
+
+    let v1 = Vec2(1, 2)
+    let v2 = Vec2(3, 4)
+    let v3 = v1 + v2
+    print(v3.x)
+    print(v3.y)
+    print(v1 == v2)
+    print(v1 != v2)
+
+    let c = Counter(0)
+    print(c.increment().increment().increment().get())

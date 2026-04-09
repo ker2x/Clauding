@@ -1,0 +1,7 @@
+fn fib(n: I64) -> I64:
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+fn main():
+    print(fib(45))
