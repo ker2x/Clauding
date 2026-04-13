@@ -1,12 +1,142 @@
-# Lexer for Kouhai
-# Scans source string and returns token array
+# Lexer for Kouhai - self-hosted implementation
+# Token type IDs (matching Python compiler):
+# INT_LIT=1, FLOAT_LIT=2, STR_LIT=3, BOOL_LIT=4,
+# IDENT=10, FN=20, CLASS=21, LET=22, IF=23, ELIF=24, ELSE=25,
+# WHILE=26, RETURN=27, SELF=28, SUPER=29, AND=30, OR=31, NOT=32,
+# NONE=33, FOR=34, IN=35, RANGE=36, AS=37, IMPORT=38, EXTERN=39,
+# LINK=40, STRUCT=41, SIZEOF=42, NIL=43,
+# PLUS=50, MINUS=51, STAR=52, SLASH=53, PERCENT=54,
+# EQ=55, EQEQ=56, NEQ=57, LT=58, GT=59, LE=60, GE=61, ARROW=62,
+# AMP=63, PIPE=64, CARET=65, TILDE=66, SHL=67, SHR=68,
+# LPAREN=80, RPAREN=81, LBRACKET=82, RBRACKET=83, COLON=84, COMMA=85, DOT=86,
+# INDENT=90, DEDENT=91, NEWLINE=92, EOF=93
 
-class Token:
-    fn __init__(self, type: I64, value: Str, line: I64, col: I64):
-        self.type = type
-        self.value = value
-        self.line = line
-        self.col = col
+struct Token:
+    type: I64
+    value: Str
+    line: I64
+    col: I64
+
+fn token_type_name(t: I64) -> Str:
+    if t == 1:
+        return "INT_LIT"
+    if t == 2:
+        return "FLOAT_LIT"
+    if t == 3:
+        return "STR_LIT"
+    if t == 4:
+        return "BOOL_LIT"
+    if t == 10:
+        return "IDENT"
+    if t == 20:
+        return "FN"
+    if t == 21:
+        return "CLASS"
+    if t == 22:
+        return "LET"
+    if t == 23:
+        return "IF"
+    if t == 24:
+        return "ELIF"
+    if t == 25:
+        return "ELSE"
+    if t == 26:
+        return "WHILE"
+    if t == 27:
+        return "RETURN"
+    if t == 28:
+        return "SELF"
+    if t == 29:
+        return "SUPER"
+    if t == 30:
+        return "AND"
+    if t == 31:
+        return "OR"
+    if t == 32:
+        return "NOT"
+    if t == 33:
+        return "NONE"
+    if t == 34:
+        return "FOR"
+    if t == 35:
+        return "IN"
+    if t == 36:
+        return "RANGE"
+    if t == 37:
+        return "AS"
+    if t == 38:
+        return "IMPORT"
+    if t == 39:
+        return "EXTERN"
+    if t == 40:
+        return "LINK"
+    if t == 41:
+        return "STRUCT"
+    if t == 42:
+        return "SIZEOF"
+    if t == 43:
+        return "NIL"
+    if t == 50:
+        return "PLUS"
+    if t == 51:
+        return "MINUS"
+    if t == 52:
+        return "STAR"
+    if t == 53:
+        return "SLASH"
+    if t == 54:
+        return "PERCENT"
+    if t == 55:
+        return "EQ"
+    if t == 56:
+        return "EQEQ"
+    if t == 57:
+        return "NEQ"
+    if t == 58:
+        return "LT"
+    if t == 59:
+        return "GT"
+    if t == 60:
+        return "LE"
+    if t == 61:
+        return "GE"
+    if t == 62:
+        return "ARROW"
+    if t == 63:
+        return "AMP"
+    if t == 64:
+        return "PIPE"
+    if t == 65:
+        return "CARET"
+    if t == 66:
+        return "TILDE"
+    if t == 67:
+        return "SHL"
+    if t == 68:
+        return "SHR"
+    if t == 80:
+        return "LPAREN"
+    if t == 81:
+        return "RPAREN"
+    if t == 82:
+        return "LBRACKET"
+    if t == 83:
+        return "RBRACKET"
+    if t == 84:
+        return "COLON"
+    if t == 85:
+        return "COMMA"
+    if t == 86:
+        return "DOT"
+    if t == 90:
+        return "INDENT"
+    if t == 91:
+        return "DEDENT"
+    if t == 92:
+        return "NEWLINE"
+    if t == 93:
+        return "EOF"
+    return "UNKNOWN"
 
 struct Lexer:
     source: Str
@@ -51,8 +181,12 @@ fn lexer_match(l: Lexer, ch: I64) -> Bool:
     return false
 
 fn lexer_add_token(l: Lexer, type: I64, value: Str):
-    let t = Token(type, value, l.line, l.col)
-    l.tokens.push(t)
+    let tok = Token()
+    tok.type = type
+    tok.value = value
+    tok.line = l.line
+    tok.col = l.col
+    l.tokens.push(tok)
 
 fn lexer_is_alpha(ch: I64) -> Bool:
     if ch >= 65 and ch <= 90:
@@ -79,7 +213,7 @@ fn lexer_read_string(l: Lexer):
     lexer_consume(l)
     let start = l.pos
     let done = false
-    while done == false:
+    while not done:
         let ch = lexer_current_char(l)
         if ch == 0:
             done = true
@@ -88,13 +222,6 @@ fn lexer_read_string(l: Lexer):
                 done = true
             else:
                 if ch == 92:
-                    lexer_consume(l)
-                    let esc = lexer_current_char(l)
-                    if esc == 110:
-                        esc = 10
-                    else:
-                        if esc == 116:
-                            esc = 9
                     lexer_consume(l)
                 else:
                     lexer_consume(l)
@@ -125,60 +252,87 @@ fn lexer_read_ident(l: Lexer):
     while lexer_is_alnum(lexer_current_char(l)):
         lexer_consume(l)
     let word = l.source.str_substring(start, l.pos)
-    let tt = 10
+    let tt = 10  # IDENT
     if word == "fn":
         tt = 20
-    if word == "class":
+    elif word == "class":
         tt = 21
-    if word == "let":
+    elif word == "let":
         tt = 22
-    if word == "if":
+    elif word == "if":
         tt = 23
-    if word == "elif":
+    elif word == "elif":
         tt = 24
-    if word == "else":
+    elif word == "else":
         tt = 25
-    if word == "while":
+    elif word == "while":
         tt = 26
-    if word == "return":
+    elif word == "return":
         tt = 27
-    if word == "self":
+    elif word == "self":
         tt = 28
-    if word == "super":
+    elif word == "super":
         tt = 29
-    if word == "and":
+    elif word == "and":
         tt = 30
-    if word == "or":
+    elif word == "or":
         tt = 31
-    if word == "not":
+    elif word == "not":
         tt = 32
-    if word == "none":
+    elif word == "none":
         tt = 33
-    if word == "for":
+    elif word == "for":
         tt = 34
-    if word == "in":
+    elif word == "in":
         tt = 35
-    if word == "range":
+    elif word == "range":
         tt = 36
-    if word == "as":
+    elif word == "as":
         tt = 37
-    if word == "import":
+    elif word == "import":
         tt = 38
-    if word == "extern":
+    elif word == "extern":
         tt = 39
-    if word == "link":
+    elif word == "link":
         tt = 40
-    if word == "struct":
+    elif word == "struct":
         tt = 41
-    if word == "sizeof":
+    elif word == "sizeof":
         tt = 42
-    if word == "nil":
+    elif word == "nil":
         tt = 43
-    if word == "true":
-        tt = 4
-    if word == "false":
+    elif word == "true" or word == "false":
         tt = 4
     lexer_add_token(l, tt, word)
+
+fn lexer_scan_delim(l: Lexer):
+    let ch = lexer_current_char(l)
+    if ch == 40:
+        lexer_consume(l)
+        lexer_add_token(l, 80, "(")
+    elif ch == 41:
+        lexer_consume(l)
+        lexer_add_token(l, 81, ")")
+    elif ch == 91:
+        lexer_consume(l)
+        lexer_add_token(l, 82, "[")
+    elif ch == 93:
+        lexer_consume(l)
+        lexer_add_token(l, 83, "]")
+    elif ch == 58:
+        lexer_consume(l)
+        lexer_add_token(l, 84, ":")
+    elif ch == 44:
+        lexer_consume(l)
+        lexer_add_token(l, 85, ",")
+    elif ch == 46:
+        lexer_consume(l)
+        lexer_add_token(l, 86, ".")
+    elif ch == 10:
+        lexer_consume(l)
+        lexer_add_token(l, 92, "\\n")
+    else:
+        lexer_consume(l)
 
 fn lexer_scan_operator(l: Lexer):
     let ch = lexer_current_char(l)
@@ -188,76 +342,64 @@ fn lexer_scan_operator(l: Lexer):
             lexer_add_token(l, 56, "==")
         else:
             lexer_add_token(l, 55, "=")
-    else:
-        if ch == 33:
-            lexer_consume(l)
-            lexer_add_token(l, 57, "!=")
+    elif ch == 33:
+        lexer_consume(l)
+        lexer_add_token(l, 57, "!=")
+    elif ch == 60:
+        lexer_consume(l)
+        if lexer_match(l, 60):
+            lexer_add_token(l, 67, "<<")
         else:
-            if ch == 60:
-                lexer_consume(l)
-                if lexer_match(l, 60):
-                    lexer_add_token(l, 67, "<<")
-                else:
-                    if lexer_match(l, 61):
-                        lexer_add_token(l, 60, "<=")
-                    else:
-                        lexer_add_token(l, 58, "<")
+            if lexer_match(l, 61):
+                lexer_add_token(l, 60, "<=")
             else:
-                if ch == 62:
-                    lexer_consume(l)
-                    if lexer_match(l, 62):
-                        lexer_add_token(l, 68, ">>")
-                    else:
-                        if lexer_match(l, 61):
-                            lexer_add_token(l, 61, ">=")
-                        else:
-                            lexer_add_token(l, 59, ">")
-                else:
-                    if ch == 45:
-                        lexer_consume(l)
-                        if lexer_match(l, 62):
-                            lexer_add_token(l, 62, "->")
-                        else:
-                            lexer_add_token(l, 51, "-")
-                    else:
-                        if ch == 43:
-                            lexer_consume(l)
-                            lexer_add_token(l, 50, "+")
-                        else:
-                            if ch == 42:
-                                lexer_consume(l)
-                                lexer_add_token(l, 52, "*")
-                            else:
-                                if ch == 47:
-                                    lexer_consume(l)
-                                    lexer_add_token(l, 53, "/")
-                                else:
-                                    if ch == 37:
-                                        lexer_consume(l)
-                                        lexer_add_token(l, 54, "%")
-                                    else:
-                                        if ch == 38:
-                                            lexer_consume(l)
-                                            lexer_add_token(l, 63, "&")
-                                        else:
-                                            if ch == 124:
-                                                lexer_consume(l)
-                                                lexer_add_token(l, 64, "|")
-                                            else:
-                                                if ch == 94:
-                                                    lexer_consume(l)
-                                                    lexer_add_token(l, 65, "^")
-                                                else:
-                                                    if ch == 126:
-                                                        lexer_consume(l)
-                                                        lexer_add_token(l, 66, "~")
-                                                    else:
-                                                        lexer_consume(l)
+                lexer_add_token(l, 58, "<")
+    elif ch == 62:
+        lexer_consume(l)
+        if lexer_match(l, 62):
+            lexer_add_token(l, 68, ">>")
+        else:
+            if lexer_match(l, 61):
+                lexer_add_token(l, 61, ">=")
+            else:
+                lexer_add_token(l, 59, ">")
+    elif ch == 45:
+        lexer_consume(l)
+        if lexer_match(l, 62):
+            lexer_add_token(l, 62, "->")
+        else:
+            lexer_add_token(l, 51, "-")
+    elif ch == 43:
+        lexer_consume(l)
+        lexer_add_token(l, 50, "+")
+    elif ch == 42:
+        lexer_consume(l)
+        lexer_add_token(l, 52, "*")
+    elif ch == 47:
+        lexer_consume(l)
+        lexer_add_token(l, 53, "/")
+    elif ch == 37:
+        lexer_consume(l)
+        lexer_add_token(l, 54, "%")
+    elif ch == 38:
+        lexer_consume(l)
+        lexer_add_token(l, 63, "&")
+    elif ch == 124:
+        lexer_consume(l)
+        lexer_add_token(l, 64, "|")
+    elif ch == 94:
+        lexer_consume(l)
+        lexer_add_token(l, 65, "^")
+    elif ch == 126:
+        lexer_consume(l)
+        lexer_add_token(l, 66, "~")
+    else:
+        lexer_scan_delim(l)
 
 fn lex(source: Str) -> Array[Token]:
     let l = init_lexer(source)
     let done = false
-    while done == false:
+    while not done:
         let ch = lexer_current_char(l)
         if ch == 0:
             done = true
@@ -281,3 +423,6 @@ fn lex(source: Str) -> Array[Token]:
 fn main():
     let tokens = lex("fn main():\n    print(42)\n")
     print(tokens.len())
+    print(token_type_name(20))
+    print(token_type_name(10))
+    print(token_type_name(80))

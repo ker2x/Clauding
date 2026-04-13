@@ -203,12 +203,21 @@ class ImportDecl:
 
 
 @dataclass
+class ConstDecl:
+    """Top-level constant declaration: let NAME = value"""
+    name: str = ""
+    value: int = 0  # For now, only support I64 integer constants
+    line: int = 0
+
+
+@dataclass
 class Program:
     functions: "list[FnDecl]" = field(default_factory=list)
     classes: "list[ClassDecl]" = field(default_factory=list)
     structs: "list[StructDecl]" = field(default_factory=list)
     imports: "list[ImportDecl]" = field(default_factory=list)
     extern_fns: "list[ExternFnDecl]" = field(default_factory=list)
+    consts: "list[ConstDecl]" = field(default_factory=list)
     links: "list[LinkDecl]" = field(default_factory=list)
     class_info: dict = field(default_factory=dict)
     module_programs: dict = field(default_factory=dict)

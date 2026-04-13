@@ -7,7 +7,7 @@ from .ast_nodes import (
     SizeofExpr, TernaryExpr,
     Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
     Param, FnDecl, ClassDecl, StructDecl, StructField, ExternFnDecl,
-    LinkDecl, ImportDecl, Program,
+    LinkDecl, ImportDecl, ConstDecl, Program,
 )
 
 
@@ -45,6 +45,15 @@ class Parser:
         while self._at(TT.NEWLINE):
             self.pos += 1
 
+    def _parse_const(self) -> ConstDecl:
+        """Parse top-level const: let NAME = value"""
+        tok = self._eat(TT.LET)
+        name_tok = self._eat(TT.IDENT)
+        self._eat(TT.EQ)
+        value_tok = self._eat(TT.INT_LIT)
+        self._eat(TT.NEWLINE)
+        return ConstDecl(name=name_tok.value, value=int(value_tok.value), line=tok.line)
+
     # --- Top level ---
 
     def parse(self) -> Program:
@@ -66,8 +75,11 @@ class Parser:
                 prog.structs.append(self._parse_struct())
             elif self._at(TT.EXTERN):
                 prog.extern_fns.append(self._parse_extern_fn())
+            elif self._at(TT.LET):
+                # Top-level let for constants (no type annotation, integer value only)
+                prog.consts.append(self._parse_const())
             else:
-                raise ParseError(self._peek(), "expected 'fn', 'class', 'struct', or 'extern' at top level")
+                raise ParseError(self._peek(), "expected 'fn', 'class', 'struct', 'extern', or 'let' at top level")
             self._skip_newlines()
         return prog
 

@@ -446,6 +446,18 @@ class CodeGen:
         rt.append("}")
         rt.append("")
 
+        # Token struct type for self-hosted lexer/parser
+        rt.append("%struct.Token = type { i64, ptr, i64, i64 }  ; type, value, line, col")
+        rt.append("")
+
+        # _rt_token_type(tok: Ptr) -> I64 - extract .type field from Token
+        rt.append("define i64 @_rt_token_type(ptr %tok) {")
+        rt.append("  %type_ptr = getelementptr %struct.Token, ptr %tok, i32 0, i32 0")
+        rt.append("  %type = load i64, ptr %type_ptr")
+        rt.append("  ret i64 %type")
+        rt.append("}")
+        rt.append("")
+
         for line in rt:
             self._emit_global(line)
 
@@ -761,6 +773,7 @@ class CodeGen:
         _declare("kouhai_popcount", "declare i64 @kouhai_popcount(i64)")
         _declare("kouhai_bswap", "declare i64 @kouhai_bswap(i64)")
         _declare("kouhai_panic", "declare void @kouhai_panic()")
+        _declare("_rt_token_type", "declare i64 @_rt_token_type(ptr)")
 
         self._emit_global("")
         # Array struct type: { i64 len, i64 cap, ptr data }
