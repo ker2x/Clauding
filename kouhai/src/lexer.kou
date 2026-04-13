@@ -1,7 +1,7 @@
 # Lexer for Kouhai
 # Scans source string and returns token array
 
-import "src/token.kou"
+import "token.kou"
 
 struct Lexer:
     source: Str

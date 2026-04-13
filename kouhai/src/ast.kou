@@ -1,0 +1,228 @@
+# AST node definitions for Kouhai compiler
+
+# ============== EXPRESSIONS ==============
+
+class IntLit:
+    fn __init__(self, value: I64, line: I64):
+        self.value = value
+        self.line = line
+
+class FloatLit:
+    fn __init__(self, value: Double, line: I64):
+        self.value = value
+        self.is_float32 = false
+        self.line = line
+
+class StrLit:
+    fn __init__(self, value: Str, line: I64):
+        self.value = value
+        self.line = line
+
+class BoolLit:
+    fn __init__(self, value: Bool, line: I64):
+        self.value = value
+        self.line = line
+
+class NoneLit:
+    fn __init__(self, line: I64):
+        self.line = line
+
+class NilLit:
+    fn __init__(self, line: I64):
+        self.line = line
+
+class Var:
+    fn __init__(self, name: Str, line: I64):
+        self.name = name
+        self.line = line
+
+class BinOp:
+    fn __init__(self, op: Str, left: Ptr, right: Ptr, line: I64):
+        self.op = op
+        self.left = left
+        self.right = right
+        self.line = line
+
+class UnaryOp:
+    fn __init__(self, op: Str, operand: Ptr, line: I64):
+        self.op = op
+        self.operand = operand
+        self.line = line
+
+class Call:
+    fn __init__(self, func: Str, args: Array[Ptr], line: I64):
+        self.func = func
+        self.args = args
+        self.line = line
+
+class MethodCall:
+    fn __init__(self, obj: Ptr, method: Str, args: Array[Ptr], line: I64):
+        self.obj = obj
+        self.method = method
+        self.args = args
+        self.line = line
+
+class CastExpr:
+    fn __init__(self, expr: Ptr, target_type: Str, line: I64):
+        self.expr = expr
+        self.target_type = target_type
+        self.line = line
+
+class FieldAccess:
+    fn __init__(self, obj: Ptr, field_name: Str, line: I64):
+        self.obj = obj
+        self.field_name = field_name
+        self.line = line
+
+class SizeofExpr:
+    fn __init__(self, type_name: Str, line: I64):
+        self.type_name = type_name
+        self.line = line
+
+class TernaryExpr:
+    fn __init__(self, condition: Ptr, true_expr: Ptr, false_expr: Ptr, line: I64):
+        self.condition = condition
+        self.true_expr = true_expr
+        self.false_expr = false_expr
+        self.line = line
+
+class ArrayLit:
+    fn __init__(self, elements: Array[Ptr], line: I64):
+        self.elements = elements
+        self.line = line
+
+class IndexAccess:
+    fn __init__(self, obj: Ptr, index: Ptr, line: I64):
+        self.obj = obj
+        self.index = index
+        self.line = line
+
+# ============== STATEMENTS ==============
+
+class LetStmt:
+    fn __init__(self, name: Str, type_name: Ptr, value: Ptr, line: I64):
+        self.name = name
+        self.type_name = type_name
+        self.value = value
+        self.line = line
+
+class AssignStmt:
+    fn __init__(self, target: Ptr, value: Ptr, line: I64):
+        self.target = target
+        self.value = value
+        self.line = line
+
+class ReturnStmt:
+    fn __init__(self, value: Ptr, line: I64):
+        self.value = value
+        self.line = line
+
+class IfStmt:
+    fn __init__(self, condition: Ptr, body: Array[Ptr], line: I64):
+        self.condition = condition
+        self.body = body
+        self.elif_clauses = Array[Ptr]()
+        self.else_body = Array[Ptr]()
+        self.line = line
+
+class WhileStmt:
+    fn __init__(self, condition: Ptr, body: Array[Ptr], line: I64):
+        self.condition = condition
+        self.body = body
+        self.line = line
+
+class ForStmt:
+    fn __init__(self, var_name: Str, start: Ptr, end: Ptr, body: Array[Ptr], line: I64):
+        self.var_name = var_name
+        self.start = start
+        self.end = end
+        self.body = body
+        self.line = line
+
+class ExprStmt:
+    fn __init__(self, expr: Ptr, line: I64):
+        self.expr = expr
+        self.line = line
+
+# ============== DECLARATIONS ==============
+
+class Param:
+    fn __init__(self, name: Str, type_name: Str):
+        self.name = name
+        self.type_name = type_name
+
+class FnDecl:
+    fn __init__(self, name: Str, params: Array[Param], ret_type: Str, body: Array[Ptr], line: I64):
+        self.name = name
+        self.params = params
+        self.ret_type = ret_type
+        self.body = body
+        self.line = line
+
+class MethodDecl:
+    fn __init__(self, name: Str, params: Array[Param], ret_type: Str, body: Array[Ptr], line: I64):
+        self.name = name
+        self.params = params
+        self.ret_type = ret_type
+        self.body = body
+        self.line = line
+
+class ClassDecl:
+    fn __init__(self, name: Str, parent: Str, methods: Array[MethodDecl], fields: Array[Param], line: I64):
+        self.name = name
+        self.parent = parent
+        self.methods = methods
+        self.fields = fields
+        self.line = line
+
+class StructField:
+    fn __init__(self, name: Str, type_name: Str, line: I64):
+        self.name = name
+        self.type_name = type_name
+        self.line = line
+
+class StructDecl:
+    fn __init__(self, name: Str, fields: Array[StructField], line: I64):
+        self.name = name
+        self.fields = fields
+        self.line = line
+
+class LinkDecl:
+    fn __init__(self, lib_name: Str, line: I64):
+        self.lib_name = lib_name
+        self.line = line
+
+class ExternFnDecl:
+    fn __init__(self, name: Str, params: Array[Param], ret_type: Str, line: I64):
+        self.name = name
+        self.params = params
+        self.ret_type = ret_type
+        self.line = line
+
+class ImportDecl:
+    fn __init__(self, path: Str, module_name: Str, line: I64):
+        self.path = path
+        self.module_name = module_name
+        self.line = line
+
+# ============== PROGRAM ==============
+
+class Program:
+    fn __init__(self):
+        self.functions = Array[FnDecl]()
+        self.classes = Array[ClassDecl]()
+        self.structs = Array[StructDecl]()
+        self.imports = Array[ImportDecl]()
+        self.extern_fns = Array[ExternFnDecl]()
+        self.links = Array[LinkDecl]()
+
+fn main():
+    # Test AST node creation
+    let i = IntLit(42, 1)
+    print(i.value)
+    
+    let v = Var("x", 2)
+    print(v.name)
+    
+    let p = Program()
+    print("AST module loaded!")
