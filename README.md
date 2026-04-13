@@ -22,9 +22,21 @@ A progression of RL agents learning to drive in OpenAI Gymnasium's CarRacing-v3:
 - [go9x9](go9x9/) — AlphaZero-style 9x9 Go engine. ResNet trained via MCTS self-play. Includes GTP interface for play in Sabaki.
 - [checkers](checkers/) — AlphaZero-style 8x8 Checkers engine. C++ MCTS core with Python training loop.
 
+### Large Language Models
+
+- [LLMArena](LLMArena/) — Chain-of-debate TUI arena via Ollama. Models argue and vote on answers.
+- [LLMath](LLMath/) — Knowledge distillation: teacher→student fine-tuning for math problems. Uses mlx-lm with LoRA.
+- [LLMgsm8k](LLMgsm8k/) — GSM8K benchmark evaluation pipeline. Downloads problems, generates solutions, evaluates accuracy.
+
 ### Research
 
 - [grokking](grokking/) — Grokking experiment on modular arithmetic. Transformer trained to generalize late after apparent convergence.
+
+### Programming Languages
+
+- [funk](funk/) — Stack-based programming language with Jasmin/Forth-inspired VM and assembler. Written in Python stdlib only.
+- [senpai](senpai/) — Statically-typed OOP language compiling to LLVM IR. Python + clang.
+- [kouhai](kouhai/) — Experimental language project.
 
 ### Miscellaneous
 
