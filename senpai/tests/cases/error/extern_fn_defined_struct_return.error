@@ -1,0 +1,1 @@
+extern functions cannot return struct types by value

@@ -1,0 +1,4 @@
+extern fn foo() -> Point
+
+fn main():
+    foo()

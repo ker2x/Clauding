@@ -106,6 +106,7 @@ class TypeEnv:
     variables: dict[str, str] = field(default_factory=dict)
     functions: dict[str, FnSig] = field(default_factory=dict)
     classes: dict[str, ClassInfo] = field(default_factory=dict)
+    structs: set[str] = field(default_factory=set)  # names of struct types
     modules: dict[str, "ModuleInfo"] = field(default_factory=dict)
     parent: "TypeEnv | None" = None
     current_fn_ret: str = "Void"
@@ -279,8 +280,12 @@ def check_program(prog: Program) -> None:
     # String methods (UFCS-callable: s.str_len() or str_len(s))
     env.functions["str_len"] = FnSig(param_types=["Str"], ret_type="I64")
     env.functions["str_char_at"] = FnSig(param_types=["Str", "I64"], ret_type="I64")
-    env.functions["str_substring"] = FnSig(param_types=["Str", "I64", "I64"], ret_type="Str")
-    env.functions["str_starts_with"] = FnSig(param_types=["Str", "Str"], ret_type="Bool")
+    env.functions["str_substring"] = FnSig(
+        param_types=["Str", "I64", "I64"], ret_type="Str"
+    )
+    env.functions["str_starts_with"] = FnSig(
+        param_types=["Str", "Str"], ret_type="Bool"
+    )
     env.functions["str_index_of"] = FnSig(param_types=["Str", "Str"], ret_type="I64")
     env.functions["str_from_char"] = FnSig(param_types=["I64"], ret_type="Str")
 
@@ -342,20 +347,7 @@ def check_program(prog: Program) -> None:
             env.modules[mod_name] = mi
             env.variables[mod_name] = f"Module:{mod_name}"
 
-    # Register extern functions
-    EXTERN_ALLOWED_TYPES = NUMERIC_TYPES | {"Bool", "Str", "Ptr", "Void"}
-    for ext in prog.extern_fns:
-        ret = resolve_type(ext.ret_type)
-        params = [resolve_type(p.type_name) for p in ext.params]
-        for t in params + ([ret] if ret != "Void" else []):
-            if t not in EXTERN_ALLOWED_TYPES and t not in env.classes:
-                raise TypeError_(
-                    ext.line,
-                    f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {t}",
-                )
-        env.functions[ext.name] = FnSig(param_types=params, ret_type=ret)
-
-    # Register struct types
+    # Register struct types FIRST (before extern checking)
     for st in prog.structs:
         fields = {}
         for f in st.fields:
@@ -365,6 +357,35 @@ def check_program(prog: Program) -> None:
         ci.fields = fields
         ci.is_struct = True
         env.classes[st.name] = ci
+        env.structs.add(st.name)
+
+    # Register extern functions (structs now available in env.classes for checking)
+    EXTERN_ALLOWED_TYPES = NUMERIC_TYPES | {"Bool", "Str", "Ptr", "Void"}
+    for ext in prog.extern_fns:
+        ret = resolve_type(ext.ret_type)
+        params = [resolve_type(p.type_name) for p in ext.params]
+        # Ban struct return by value (sret not implemented yet)
+        is_struct_ret = ret in env.structs or (
+            ret in env.classes and env.classes[ret].is_struct
+        )
+        if is_struct_ret:
+            raise TypeError_(
+                ext.line,
+                f"extern functions cannot return struct types by value (use Ptr instead)",
+            )
+        # Reject unknown return types
+        if ret not in EXTERN_ALLOWED_TYPES and ret not in env.classes:
+            raise TypeError_(
+                ext.line,
+                f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {ret}",
+            )
+        for t in params:
+            if t not in EXTERN_ALLOWED_TYPES and t not in env.classes:
+                raise TypeError_(
+                    ext.line,
+                    f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {t}",
+                )
+        env.functions[ext.name] = FnSig(param_types=params, ret_type=ret)
 
     # Register class names first (so they can be used as types)
     for cls in prog.classes:

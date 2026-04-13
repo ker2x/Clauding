@@ -42,6 +42,9 @@ from .types import (
     _array_elem_type,
 )
 
+# Struct types known to codegen (populated during generate())
+_struct_types: set[str] = set()
+
 
 # LLVM type mapping
 def _llvm_type(senpai_type: str) -> str:
@@ -61,6 +64,11 @@ def _llvm_type(senpai_type: str) -> str:
         "Ptr": "ptr",
         "Void": "void",
     }
+    # Struct types are always pointers in Senpai (heap-allocated).
+    # Only extern byval params use the actual struct type (%struct.Type byval(%struct.Type)).
+    # We return ptr here; the extern declaration builder handles byval separately.
+    if senpai_type in _struct_types:
+        return "ptr"
     return mapping.get(senpai_type, "ptr")  # class types are pointers
 
 
@@ -76,6 +84,8 @@ def _zero_value(senpai_type: str) -> str:
         return "0"
     if senpai_type in ("Str", "Ptr"):
         return "null"
+    if senpai_type in _struct_types:
+        return "zeroinitializer"
     if senpai_type not in PRIMITIVE_TYPES:
         return "null"  # class types
     return "0"
@@ -400,12 +410,18 @@ class CodeGen:
 
         # Double -> Double (single arg)
         for name, intrinsic in [
-            ("sqrt", "llvm.sqrt.f64"), ("sin", "llvm.sin.f64"),
-            ("cos", "llvm.cos.f64"), ("tan", "llvm.tan.f64"),
-            ("exp", "llvm.exp.f64"), ("log", "llvm.log.f64"),
-            ("log2", "llvm.log2.f64"), ("log10", "llvm.log10.f64"),
-            ("floor", "llvm.floor.f64"), ("ceil", "llvm.ceil.f64"),
-            ("round", "llvm.round.f64"), ("trunc", "llvm.trunc.f64"),
+            ("sqrt", "llvm.sqrt.f64"),
+            ("sin", "llvm.sin.f64"),
+            ("cos", "llvm.cos.f64"),
+            ("tan", "llvm.tan.f64"),
+            ("exp", "llvm.exp.f64"),
+            ("log", "llvm.log.f64"),
+            ("log2", "llvm.log2.f64"),
+            ("log10", "llvm.log10.f64"),
+            ("floor", "llvm.floor.f64"),
+            ("ceil", "llvm.ceil.f64"),
+            ("round", "llvm.round.f64"),
+            ("trunc", "llvm.trunc.f64"),
             ("abs", "llvm.fabs.f64"),
         ]:
             rt.append(f"define double @senpai_{name}(double %v) {{")
@@ -492,6 +508,13 @@ class CodeGen:
 
     def _field_type(self, class_name: str, field_name: str) -> str:
         return self._class_info[class_name].fields[field_name]
+
+    def _load_byval(self, ptr_reg: str, senpai_type: str) -> str:
+        """Load a struct by value from a heap pointer for byval calling convention."""
+        struct_llvm = f"%struct.{senpai_type.replace('.', '_')}"
+        result = self._tmp()
+        self._emit(f"  {result} = load {struct_llvm}, ptr {ptr_reg}")
+        return result
 
     def _peek_type(self, expr: Expr) -> str | None:
         """Get the Senpai type of an expression without generating code."""
@@ -585,8 +608,21 @@ class CodeGen:
         self._fn_params["str_from_char"] = ["I64"]
 
         # Register math builtins (UFCS-callable via wrapper IR functions)
-        for name in ["sqrt", "sin", "cos", "tan", "exp", "log", "log2", "log10",
-                      "floor", "ceil", "round", "trunc", "abs"]:
+        for name in [
+            "sqrt",
+            "sin",
+            "cos",
+            "tan",
+            "exp",
+            "log",
+            "log2",
+            "log10",
+            "floor",
+            "ceil",
+            "round",
+            "trunc",
+            "abs",
+        ]:
             self._fn_sigs[name] = "Double"
             self._fn_params[name] = ["Double"]
         self._fn_sigs["pow"] = "Double"
@@ -695,6 +731,30 @@ class CodeGen:
         # Emit runtime helper functions
         self._emit_runtime_functions()
 
+        # Collect and emit ALL struct types BEFORE extern declarations
+        # (extern functions may reference struct types)
+        _struct_types.clear()
+        # Local structs
+        for st in prog.structs:
+            _struct_types.add(st.name)
+        # Module structs (from imported modules)
+        if hasattr(prog, "module_programs"):
+            for mod_name, mod_prog in prog.module_programs.items():
+                # Collect module-level structs
+                for st in getattr(mod_prog, "structs", []):
+                    _struct_types.add(f"{mod_name}.{st.name}")
+                # Also emit module class struct types (vtable ptr + fields)
+                for cls in mod_prog.classes:
+                    self._emit_class_types_module(cls, mod_name)
+
+        # Emit struct types (no vtable) - for local structs
+        for st in prog.structs:
+            ci = self._class_info[st.name]
+            field_types = [_llvm_type(ft) for ft in ci.fields.values()]
+            struct = self._struct_name(st.name)
+            self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
+            self._emit_global("")
+
         # Collect extern functions from imported modules too
         all_externs = list(prog.extern_fns)
         if hasattr(prog, "module_programs"):
@@ -712,23 +772,22 @@ class CodeGen:
             params = [resolve_type(p.type_name) for p in ext.params]
             self._fn_sigs[ext.name] = ret
             self._fn_params[ext.name] = params
-            param_ir = ", ".join(_llvm_type(p) for p in params)
-            _declare(ext.name, f"declare {_llvm_type(ret)} @{ext.name}({param_ir})")
+            # Build param IR with byval for struct types
+            param_parts = []
+            for p in params:
+                if p in _struct_types:
+                    # byval requires actual struct type, not ptr
+                    struct_t = f"%struct.{p.replace('.', '_')}"
+                    param_parts.append(f"{struct_t} byval({struct_t})")
+                else:
+                    param_parts.append(_llvm_type(p))
+            ret_t = (
+                f"%struct.{ret.replace('.', '_')}"
+                if ret in _struct_types
+                else _llvm_type(ret)
+            )
+            _declare(ext.name, f"declare {ret_t} @{ext.name}({', '.join(param_parts)})")
         if seen_externs:
-            self._emit_global("")
-
-        # Emit struct types and vtables for imported classes
-        if hasattr(prog, "module_programs"):
-            for mod_name, mod_prog in prog.module_programs.items():
-                for cls in mod_prog.classes:
-                    self._emit_class_types_module(cls, mod_name)
-
-        # Emit struct types (no vtable)
-        for st in prog.structs:
-            ci = self._class_info[st.name]
-            field_types = [_llvm_type(ft) for ft in ci.fields.values()]
-            struct = self._struct_name(st.name)
-            self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
             self._emit_global("")
 
         # Emit struct types and vtables for classes
@@ -1253,7 +1312,9 @@ class CodeGen:
             # Build args: obj first, then actual args
             if param_types:
                 obj_reg = self._coerce(obj_reg, obj_type_actual, param_types[0])
-            args_ir = [f"{_llvm_type(param_types[0]) if param_types else _llvm_type(obj_type_actual)} {obj_reg}"]
+            args_ir = [
+                f"{_llvm_type(param_types[0]) if param_types else _llvm_type(obj_type_actual)} {obj_reg}"
+            ]
             for i, arg in enumerate(expr.args):
                 ar, at = self._gen_expr(arg)
                 pi = i + 1
@@ -1269,7 +1330,9 @@ class CodeGen:
                 return "void", "Void"
             else:
                 result = self._tmp()
-                self._emit(f"  {result} = call {llvm_ret} {ir_name}({', '.join(args_ir)})")
+                self._emit(
+                    f"  {result} = call {llvm_ret} {ir_name}({', '.join(args_ir)})"
+                )
                 return result, ret_type
 
         # Check if this is a super call (direct dispatch, not vtable)
@@ -1559,11 +1622,18 @@ class CodeGen:
 
         param_types = self._fn_params.get(resolved_fn, [])
         args_ir = []
+        is_extern = resolved_fn in self._extern_fns
         for i, arg in enumerate(expr.args):
             ar, at = self._gen_expr(arg)
             if i < len(param_types):
                 ar = self._coerce(ar, at, param_types[i])
                 at = param_types[i]
+            # For extern calls with struct params: load by value from heap ptr
+            if is_extern and at in _struct_types:
+                ar = self._load_byval(ar, at)
+                struct_llvm = f"%struct.{at.replace('.', '_')}"
+                args_ir.append(f"{struct_llvm} {ar}")
+                continue
             args_ir.append(f"{_llvm_type(at)} {ar}")
 
         # Extern functions use their real C name; others get senpai_ prefix
@@ -1953,4 +2023,3 @@ class CodeGen:
         return "void", "Void"
 
     # --- Math builtins ---
-

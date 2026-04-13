@@ -1,0 +1,8 @@
+struct Point:
+    x: I64
+    y: I64
+
+extern fn make_point() -> Point
+
+fn main():
+    let p = make_point()
