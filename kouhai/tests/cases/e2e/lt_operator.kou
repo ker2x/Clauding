@@ -1,0 +1,14 @@
+class Score(Object):
+    fn __init__(self, pts: I64):
+        self.pts = pts
+
+    fn __lt__(self, other: Score) -> Bool:
+        return self.pts < other.pts
+
+fn main():
+    let a = Score(10)
+    let b = Score(20)
+    if a < b:
+        print(1)
+    else:
+        print(0)

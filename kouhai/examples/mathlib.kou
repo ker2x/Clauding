@@ -1,0 +1,25 @@
+fn abs(x: I64) -> I64:
+    if x < 0:
+        return 0 - x
+    return x
+
+fn max(a: I64, b: I64) -> I64:
+    if a > b:
+        return a
+    return b
+
+fn min(a: I64, b: I64) -> I64:
+    if a < b:
+        return a
+    return b
+
+class Vec2(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+    fn __add__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x + other.x, self.y + other.y)
+
+    fn dot(self, other: Vec2) -> I64:
+        return self.x * other.x + self.y * other.y

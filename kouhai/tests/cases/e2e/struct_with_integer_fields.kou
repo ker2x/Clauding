@@ -1,0 +1,9 @@
+struct Pair:
+    a: I64
+    b: I64
+
+fn main():
+    let p = Pair()
+    p.a = 42
+    p.b = 99
+    print(p.a + p.b)

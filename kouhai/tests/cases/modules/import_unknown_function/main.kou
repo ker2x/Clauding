@@ -1,0 +1,4 @@
+import "lib.kou"
+
+fn main():
+    lib.bar()

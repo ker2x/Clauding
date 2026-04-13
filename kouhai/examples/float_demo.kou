@@ -1,0 +1,11 @@
+fn circle_area(radius: Double) -> Double:
+    return 3.14159265 * radius * radius
+
+fn main():
+    print(circle_area(5.0))
+    print(circle_area(10.0))
+
+    let a = 1.5
+    let b = 2.5
+    print(a + b)
+    print(a * b)

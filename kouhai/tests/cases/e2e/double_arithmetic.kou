@@ -1,0 +1,4 @@
+fn main():
+    let x: Double = 3.14
+    let y: Double = 2.0
+    print(x + y)

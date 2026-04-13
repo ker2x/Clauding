@@ -1,0 +1,13 @@
+class Point(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+fn main():
+    let points = Array[Point]()
+    for i in range(3):
+        points.push(Point(i, i * 2))
+    for i in range(points.len()):
+        let p = points.get(i)
+        print(p.x)
+        print(p.y)

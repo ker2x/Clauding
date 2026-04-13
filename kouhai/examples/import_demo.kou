@@ -1,0 +1,15 @@
+import "mathlib.kou"
+
+fn main():
+    # Module functions
+    print(mathlib.abs(-42))
+    print(mathlib.max(10, 20))
+    print(mathlib.min(10, 20))
+
+    # Module classes
+    let v1 = mathlib.Vec2(1, 2)
+    let v2 = mathlib.Vec2(3, 4)
+    let v3 = v1 + v2
+    print(v3.x)
+    print(v3.y)
+    print(v1.dot(v2))

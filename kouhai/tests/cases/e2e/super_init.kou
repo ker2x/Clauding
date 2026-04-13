@@ -1,0 +1,20 @@
+class Animal(Object):
+    fn __init__(self, name: Str):
+        self.name = name
+
+    fn speak(self) -> Str:
+        return self.name + " speaks"
+
+class Dog(Animal):
+    fn __init__(self, name: Str, breed: Str):
+        super.__init__(name)
+        self.breed = breed
+
+    fn speak(self) -> Str:
+        return super.speak() + " (woof!)"
+
+fn main():
+    let d = Dog("Rex", "Labrador")
+    print(d.speak())
+    print(d.name)
+    print(d.breed)

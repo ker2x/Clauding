@@ -1,0 +1,7 @@
+fn main():
+    let a = Array[Str]()
+    a.push("hello")
+    a.push("world")
+    print(a.get(0))
+    print(a.get(1))
+    print(a.len())

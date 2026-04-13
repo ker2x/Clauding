@@ -1,0 +1,5 @@
+import "mymath.kou"
+
+fn main():
+    print(mymath.double(5))
+    print(mymath.triple(5))

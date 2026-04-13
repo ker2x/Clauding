@@ -1,0 +1,14 @@
+class Box(Object):
+    fn __init__(self, val: I64):
+        self.val = val
+
+    fn __eq__(self, other: Box) -> Bool:
+        return self.val == other.val
+
+fn main():
+    let a = Box(42)
+    let b = Box(42)
+    let c = Box(99)
+    print(a == b)
+    print(a != c)
+    print(a == c)

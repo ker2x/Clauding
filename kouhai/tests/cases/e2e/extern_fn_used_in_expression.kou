@@ -1,0 +1,5 @@
+extern fn sqrt(x: Double) -> Double
+
+fn main():
+    let r = sqrt(9.0) + sqrt(16.0)
+    print(r)

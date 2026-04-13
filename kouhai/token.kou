@@ -1,0 +1,148 @@
+# Token types for Kouhai lexer
+
+class Token:
+    fn __init__(self, type: I64, value: Str, line: I64, col: I64):
+        self.type = type
+        self.value = value
+        self.line = line
+        self.col = col
+    
+    fn is_keyword(self) -> Bool:
+        return self._in_range(self.type, 20, 43)
+    
+    fn is_literal(self) -> Bool:
+        return self._in_range(self.type, 1, 4)
+    
+    fn _in_range(self, v: I64, lo: I64, hi: I64) -> Bool:
+        if v < lo:
+            return false
+        if v > hi:
+            return false
+        return true
+
+fn token_type_name(t: I64) -> Str:
+    if t == 1:
+        return "INT_LIT"
+    if t == 2:
+        return "FLOAT_LIT"
+    if t == 3:
+        return "STR_LIT"
+    if t == 4:
+        return "BOOL_LIT"
+    if t == 10:
+        return "IDENT"
+    if t == 20:
+        return "FN"
+    if t == 21:
+        return "CLASS"
+    if t == 22:
+        return "LET"
+    if t == 23:
+        return "IF"
+    if t == 24:
+        return "ELIF"
+    if t == 25:
+        return "ELSE"
+    if t == 26:
+        return "WHILE"
+    if t == 27:
+        return "RETURN"
+    if t == 28:
+        return "SELF"
+    if t == 29:
+        return "SUPER"
+    if t == 30:
+        return "AND"
+    if t == 31:
+        return "OR"
+    if t == 32:
+        return "NOT"
+    if t == 33:
+        return "NONE"
+    if t == 34:
+        return "FOR"
+    if t == 35:
+        return "IN"
+    if t == 36:
+        return "RANGE"
+    if t == 37:
+        return "AS"
+    if t == 38:
+        return "IMPORT"
+    if t == 39:
+        return "EXTERN"
+    if t == 40:
+        return "LINK"
+    if t == 41:
+        return "STRUCT"
+    if t == 42:
+        return "SIZEOF"
+    if t == 43:
+        return "NIL"
+    if t == 50:
+        return "PLUS"
+    if t == 51:
+        return "MINUS"
+    if t == 52:
+        return "STAR"
+    if t == 53:
+        return "SLASH"
+    if t == 54:
+        return "PERCENT"
+    if t == 55:
+        return "EQ"
+    if t == 56:
+        return "EQEQ"
+    if t == 57:
+        return "NEQ"
+    if t == 58:
+        return "LT"
+    if t == 59:
+        return "GT"
+    if t == 60:
+        return "LE"
+    if t == 61:
+        return "GE"
+    if t == 62:
+        return "ARROW"
+    if t == 63:
+        return "AMP"
+    if t == 64:
+        return "PIPE"
+    if t == 65:
+        return "CARET"
+    if t == 66:
+        return "TILDE"
+    if t == 67:
+        return "SHL"
+    if t == 68:
+        return "SHR"
+    if t == 80:
+        return "LPAREN"
+    if t == 81:
+        return "RPAREN"
+    if t == 82:
+        return "LBRACKET"
+    if t == 83:
+        return "RBRACKET"
+    if t == 84:
+        return "COLON"
+    if t == 85:
+        return "COMMA"
+    if t == 86:
+        return "DOT"
+    if t == 90:
+        return "INDENT"
+    if t == 91:
+        return "DEDENT"
+    if t == 92:
+        return "NEWLINE"
+    if t == 93:
+        return "EOF"
+    return "UNKNOWN"
+
+fn main():
+    let t = Token(1, "42", 1, 0)
+    print(token_type_name(t.type))
+    print(t.is_keyword())
+    print(t.is_literal())

@@ -1,0 +1,4 @@
+fn main():
+    let s: Str = "Hello, World!"
+    print(s.str_substring(0, 5))
+    print(s.str_substring(7, 12))

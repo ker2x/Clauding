@@ -1,0 +1,20 @@
+class Vec2(Object):
+    fn __init__(self, x: I64, y: I64):
+        self.x = x
+        self.y = y
+
+    fn __sub__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x - other.x, self.y - other.y)
+
+    fn __mul__(self, other: Vec2) -> Vec2:
+        return Vec2(self.x * other.x, self.y * other.y)
+
+fn main():
+    let a = Vec2(10, 20)
+    let b = Vec2(3, 5)
+    let c = a - b
+    let d = a * b
+    print(c.x)
+    print(c.y)
+    print(d.x)
+    print(d.y)

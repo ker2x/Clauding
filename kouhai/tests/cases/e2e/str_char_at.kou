@@ -1,0 +1,5 @@
+fn main():
+    let s: Str = "ABC"
+    print(s.str_char_at(0))
+    print(s.str_char_at(1))
+    print(s.str_char_at(2))

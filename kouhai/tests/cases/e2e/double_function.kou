@@ -1,0 +1,5 @@
+fn average(a: Double, b: Double) -> Double:
+    return (a + b) / 2.0
+
+fn main():
+    print(average(3.0, 7.0))

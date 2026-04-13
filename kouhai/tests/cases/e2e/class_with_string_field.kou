@@ -1,0 +1,10 @@
+class Dog(Object):
+    fn __init__(self, name: Str):
+        self.name = name
+
+    fn greet(self) -> Str:
+        return "Woof! I am " + self.name
+
+fn main():
+    let d = Dog("Rex")
+    print(d.greet())

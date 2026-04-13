@@ -1,0 +1,5 @@
+fn main():
+    let x: I64 = 10
+    let y: I64 = 20
+    let max: I64 = x if x > y else y
+    print(max)

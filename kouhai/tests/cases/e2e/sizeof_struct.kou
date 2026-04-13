@@ -1,0 +1,7 @@
+struct Vec3:
+    x: Double
+    y: Double
+    z: Double
+
+fn main():
+    print(sizeof(Vec3))

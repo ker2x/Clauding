@@ -1,0 +1,12 @@
+fn sum_array(arr: Array[I64]) -> I64:
+    let total: I64 = 0
+    for i in range(arr.len()):
+        total = total + arr.get(i)
+    return total
+
+fn main():
+    let a = Array[I64]()
+    a.push(10)
+    a.push(20)
+    a.push(30)
+    print(sum_array(a))

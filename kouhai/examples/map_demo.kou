@@ -1,0 +1,63 @@
+struct Entry:
+    key: I64
+    value: I64
+    used: Bool
+
+fn hash_i64(key: I64) -> I64:
+    let h = key
+    let h = h ^ (h >> 16)
+    let h = h * 2246826267
+    let h = h ^ (h >> 13)
+    let h = h * 3266489909
+    let h = h ^ (h >> 16)
+    return h
+
+class Map:
+    fn __init__(self):
+        self.entries = Array[Entry]()
+        self.count = 0
+    
+    fn put(self, key: I64, val: I64) -> Bool:
+        let idx = hash_i64(key) % 16
+        self._ensure_slot(idx)
+        let e = Entry()
+        e.key = key
+        e.value = val
+        e.used = true
+        self.entries.set(idx, e)
+        self.count = self.count + 1
+        return true
+    
+    fn _ensure_slot(self, idx: I64):
+        while self.entries.len() <= idx:
+            self.entries.push(Entry())
+    
+    fn get(self, key: I64) -> I64:
+        let idx = hash_i64(key) % 16
+        if idx < self.entries.len():
+            let e = self.entries.get(idx)
+            if e.used:
+                if e.key == key:
+                    return e.value
+        return -1
+    
+    fn contains(self, key: I64) -> Bool:
+        let idx = hash_i64(key) % 16
+        if idx < self.entries.len():
+            let e = self.entries.get(idx)
+            if e.used:
+                if e.key == key:
+                    return true
+        return false
+
+fn main():
+    let m = Map()
+    m.put(1, 100)
+    m.put(2, 200)
+    m.put(17, 1700)
+    print(m.contains(1))
+    print(m.contains(2))
+    print(m.contains(17))
+    print(m.contains(3))
+    print(m.get(1))
+    print(m.get(17))

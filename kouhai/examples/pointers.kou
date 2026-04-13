@@ -1,0 +1,19 @@
+extern fn calloc(count: I64, size: I64) -> Ptr
+extern fn free(p: Ptr) -> Void
+
+fn main():
+    let p: Ptr = calloc(1, 64)
+    print(p)
+
+    let addr: I64 = p as I64
+    print(addr)
+
+    let p2: Ptr = addr as Ptr
+    if p2 == p:
+        print("round-trip ok")
+
+    free(p)
+
+    let null_ptr: Ptr = 0 as Ptr
+    if null_ptr != p:
+        print("null != allocated")

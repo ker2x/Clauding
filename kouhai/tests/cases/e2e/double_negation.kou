@@ -1,0 +1,3 @@
+fn main():
+    let x: Double = 3.14
+    print(-x)

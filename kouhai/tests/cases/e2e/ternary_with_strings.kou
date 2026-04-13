@@ -1,0 +1,4 @@
+fn main():
+    let flag: Bool = true
+    let msg: Str = "yes" if flag else "no"
+    print(msg)

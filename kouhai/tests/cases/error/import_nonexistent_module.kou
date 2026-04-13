@@ -1,0 +1,4 @@
+import "nonexistent.kou"
+
+fn main():
+    print(1)

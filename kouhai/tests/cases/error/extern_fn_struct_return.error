@@ -1,0 +1,1 @@
+extern functions only support numeric, Bool, Ptr, Str, and struct types

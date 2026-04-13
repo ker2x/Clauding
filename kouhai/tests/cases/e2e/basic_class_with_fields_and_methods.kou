@@ -1,0 +1,16 @@
+class Counter(Object):
+    fn __init__(self, start: I64):
+        self.value = start
+
+    fn get(self) -> I64:
+        return self.value
+
+    fn increment(self):
+        self.value = self.value + 1
+
+fn main():
+    let c = Counter(0)
+    c.increment()
+    c.increment()
+    c.increment()
+    print(c.get())

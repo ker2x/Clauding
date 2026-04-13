@@ -1,0 +1,4 @@
+fn main():
+    let x: I64 = 100
+    let d: Double = x as Double
+    print(d)

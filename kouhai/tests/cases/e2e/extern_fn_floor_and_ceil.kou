@@ -1,0 +1,6 @@
+extern fn floor(x: Double) -> Double
+extern fn ceil(x: Double) -> Double
+
+fn main():
+    print(floor(3.7))
+    print(ceil(3.2))

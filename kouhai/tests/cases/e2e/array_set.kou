@@ -1,0 +1,7 @@
+fn main():
+    let a = Array[I64]()
+    a.push(1)
+    a.push(2)
+    a.set(0, 99)
+    print(a.get(0))
+    print(a.get(1))

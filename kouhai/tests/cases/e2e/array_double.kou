@@ -1,0 +1,6 @@
+fn main():
+    let a = Array[Double]()
+    a.push(1.5)
+    a.push(2.5)
+    print(a.get(0))
+    print(a.get(1))

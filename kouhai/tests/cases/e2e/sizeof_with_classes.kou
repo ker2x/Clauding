@@ -1,0 +1,7 @@
+class Foo(Object):
+    fn __init__(self):
+        self.x = 1
+        self.y = 2
+
+fn main():
+    print(sizeof(Foo))

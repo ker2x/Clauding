@@ -1,0 +1,23 @@
+fn sum(arr: Array[I64]) -> I64:
+    let total: I64 = 0
+    for i in range(arr.len()):
+        total = total + arr.get(i)
+    return total
+
+fn main():
+    # Build an array of squares
+    let squares = Array[I64]()
+    for i in range(1, 11):
+        squares.push(i * i)
+
+    # Print them all
+    for i in range(squares.len()):
+        print(squares.get(i).to_str() + " ")
+
+    # Sum
+    print("Sum: " + sum(squares).to_str())
+
+    # Type casting
+    let total: I64 = sum(squares)
+    let avg: Double = total as Double / 10.0
+    print("Average: " + avg.to_str())

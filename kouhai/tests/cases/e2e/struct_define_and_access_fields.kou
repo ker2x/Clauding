@@ -1,0 +1,10 @@
+struct Point:
+    x: Double
+    y: Double
+
+fn main():
+    let p = Point()
+    p.x = 3.14
+    p.y = 2.71
+    print(p.x)
+    print(p.y)

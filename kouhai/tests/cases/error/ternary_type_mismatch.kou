@@ -1,0 +1,3 @@
+fn main():
+    let x: Bool = true
+    let y = 1 if x else "no"

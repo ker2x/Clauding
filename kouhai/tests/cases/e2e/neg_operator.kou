@@ -1,0 +1,11 @@
+class Num(Object):
+    fn __init__(self, val: I64):
+        self.val = val
+
+    fn __neg__(self) -> Num:
+        return Num(0 - self.val)
+
+fn main():
+    let a = Num(42)
+    let b = -a
+    print(b.val)

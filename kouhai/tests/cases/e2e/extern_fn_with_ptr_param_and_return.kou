@@ -1,0 +1,7 @@
+extern fn calloc(count: I64, size: I64) -> Ptr
+extern fn free(p: Ptr) -> Void
+
+fn main():
+    let p: Ptr = calloc(1, 64)
+    free(p)
+    print("ok")

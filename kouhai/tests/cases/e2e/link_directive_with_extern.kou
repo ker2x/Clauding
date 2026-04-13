@@ -1,0 +1,5 @@
+link "m"
+extern fn sqrt(x: Double) -> Double
+
+fn main():
+    print(sqrt(25.0))

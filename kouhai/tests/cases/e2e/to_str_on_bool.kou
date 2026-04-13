@@ -1,0 +1,3 @@
+fn main():
+    let b: Bool = true
+    print(b.to_str())

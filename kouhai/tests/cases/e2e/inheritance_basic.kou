@@ -1,0 +1,19 @@
+class Animal(Object):
+    fn __init__(self, name: Str):
+        self.name = name
+
+    fn who(self) -> Str:
+        return self.name
+
+class Dog(Animal):
+    fn __init__(self, name: Str, breed: Str):
+        self.name = name
+        self.breed = breed
+
+    fn info(self) -> Str:
+        return self.name + " the " + self.breed
+
+fn main():
+    let d = Dog("Rex", "Labrador")
+    print(d.who())
+    print(d.info())
