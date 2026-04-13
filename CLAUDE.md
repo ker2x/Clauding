@@ -26,7 +26,8 @@ Monorepo of AI/ML experiments, each in its own directory with its own `CLAUDE.md
 | `LLMgsm8k` | GSM8K benchmark evaluation pipeline | asyncio/aiohttp |
 | `whatever` | Simulations, Metal/GPU experiments, visualizations | Mixed (Metal, JAX, WebGPU) |
 | `funk` | Stack-based programming language (Jasmin/Forth-inspired VM + assembler) | Python (stdlib only) |
-| `senpai` | Statically-typed OOP language compiling to LLVM IR | Python (stdlib only) + clang |
+| `senpai` | Statically-typed OOP language compiling to LLVM IR (archived) | Python (stdlib only) + clang |
+| `kouhai` | Python-syntax systems language targeting self-hosting (archived) | Python (stdlib only) + clang |
 
 ## Conventions
 
