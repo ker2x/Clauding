@@ -1,47 +1,39 @@
-# Kouhai Self-Hosting Plan
+# Kouhai Self-Hosting Status
 
-## Status: Components Written! ⚠️ Need Architecture Change
+## ⚠️ Current Status: PROOF-OF-CONCEPT
 
-All self-hosted components have been written. However, the Python compiler doesn't execute self-hosted Kouhai code - it compiles Kouhai source to LLVM IR using Python's own tools.
+The self-hosted components are **simplified/skeletal versions** demonstrating the concept, not full implementations.
 
-## Self-Hosted Components Written
+## Self-Hosted Components (Simplified)
 
-| Component | File | Status |
-|-----------|------|--------|
-| Lexer | `src/lexer.kou` | ✅ Written |
-| Token types | `src/token.kou` | ✅ Written |
-| AST nodes | `src/ast.kou` | ✅ Written |
-| Parser | `src/parser.kou` | ✅ Written |
-| Type checker | `src/type_checker.kou` | ✅ Written |
-| Code generator | `src/codegen.kou` | ✅ Written |
-| Main CLI | `src/main.kou` | ✅ Written |
+| Component | File | Lines | Status |
+|-----------|------|-------|--------|
+| Lexer | `src/lexer.kou` | ~200 | Basic tokenization |
+| Token types | `src/token.kou` | ~150 | Constants |
+| AST nodes | `src/ast.kou` | ~225 | Definitions |
+| Parser | `src/parser.kou` | 213 | Basic expressions |
+| Type checker | `src/type_checker.kou` | 69 | Stub (all `return true`) |
+| Code generator | `src/codegen.kou` | 33 | Stub (hardcoded output) |
+| Main CLI | `src/main.kou` | 13 | Stub (tests lexer) |
 
-## The Problem
+## Interpreting Self-Hosted Code
 
-The Python compiler (`kouhai/compiler.py`):
-1. Uses Python's own `tokens.py` lexer, not `src/lexer.kou`
-2. Uses Python's own `parser.py`, not `src/parser.kou`  
-3. Uses Python's own `types.py` type checker, not `src/type_checker.kou`
-4. Uses Python's own `codegen.py`, not `src/codegen.kou`
+A **Kouhai interpreter** (`kouhai_interpreter.py`) was added that:
+- Parses Kouhai source using Python tools
+- Interprets the resulting AST
+- Enables `--interpret` mode to run self-hosted components
 
-**Self-hosting requires executing the Kouhai components, not just compiling them.**
+## What Needs Work
 
-## Architecture Needed for True Self-Hosting
-
-1. **Interprete mode**: Execute Kouhai code directly from source
-2. **Bootstrapping**: Use Python-compiled Kouhai to compile self-hosted components
-3. **Cross-compile**: Generate IR that can then be compiled by the Python compiler
-
-## Current Workaround
-
-The Python compiler can still compile Kouhai programs using its own tools. The self-hosted components demonstrate that Kouhai is powerful enough to express its own compiler.
+1. **Parser**: Only handles basic expressions, missing struct/class/import
+2. **Type checker**: All functions return `true` - does nothing
+3. **Codegen**: Hardcodes `define i64 @main() { ret i64 0 }`
+4. **Full bootstrapping**: Need a path to compile Kouhai with Kouhai
 
 ## Key Files
 
-- `src/lexer.kou` - Full lexer (203 lines)
-- `src/ast.kou` - All AST node classes  
-- `src/parser.kou` - Complete recursive descent parser
-- `src/token.kou` - Token type constants
-- `src/type_checker.kou` - Type validation
-- `src/codegen.kou` - LLVM IR generation
-- `src/main.kou` - CLI orchestrator
+- `src/lexer.kou` - Basic lexer
+- `src/parser.kou` - Basic recursive descent  
+- `src/ast.kou` - AST definitions
+- `kouhai_interpreter.py` - Interpreter for AST execution
+- `scripts/run.py --interpret` - Run with interpreter
