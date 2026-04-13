@@ -2,11 +2,35 @@
 
 from dataclasses import dataclass, field
 from .ast_nodes import (
-    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, NilLit, Var,
-    BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
-    SizeofExpr, TernaryExpr,
-    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    FnDecl, ClassDecl, StructDecl, ExternFnDecl, Program,
+    Expr,
+    IntLit,
+    FloatLit,
+    StrLit,
+    BoolLit,
+    NoneLit,
+    NilLit,
+    Var,
+    BinOp,
+    UnaryOp,
+    Call,
+    MethodCall,
+    FieldAccess,
+    CastExpr,
+    SizeofExpr,
+    TernaryExpr,
+    Stmt,
+    LetStmt,
+    AssignStmt,
+    ReturnStmt,
+    IfStmt,
+    WhileStmt,
+    ForStmt,
+    ExprStmt,
+    FnDecl,
+    ClassDecl,
+    StructDecl,
+    ExternFnDecl,
+    Program,
 )
 
 
@@ -17,8 +41,22 @@ class TypeError_(Exception):
 
 
 # Type names recognized by the type checker
-PRIMITIVE_TYPES = {"I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64",
-                   "Float", "Double", "Bool", "Str", "Ptr", "Void"}
+PRIMITIVE_TYPES = {
+    "I8",
+    "I16",
+    "I32",
+    "I64",
+    "U8",
+    "U16",
+    "U32",
+    "U64",
+    "Float",
+    "Double",
+    "Bool",
+    "Str",
+    "Ptr",
+    "Void",
+}
 INT_ALIAS = "I64"  # "Int" maps to "I64"
 
 # Integer types and their signedness
@@ -46,16 +84,25 @@ class FnSig:
 class ClassInfo:
     name: str
     parent_name: str  # "Object" for root classes, "" for Object itself
-    fields: dict[str, str] = field(default_factory=dict)  # all fields, ordered (inherited first)
-    methods: dict[str, FnSig] = field(default_factory=dict)  # all methods, sigs WITHOUT self
-    vtable_order: list[str] = field(default_factory=list)  # method names in vtable slot order (no __init__)
-    vtable_impl: dict[str, str] = field(default_factory=dict)  # method_name -> implementing class
+    fields: dict[str, str] = field(
+        default_factory=dict
+    )  # all fields, ordered (inherited first)
+    methods: dict[str, FnSig] = field(
+        default_factory=dict
+    )  # all methods, sigs WITHOUT self
+    vtable_order: list[str] = field(
+        default_factory=list
+    )  # method names in vtable slot order (no __init__)
+    vtable_impl: dict[str, str] = field(
+        default_factory=dict
+    )  # method_name -> implementing class
     is_struct: bool = False  # True for struct types (no vtable, no methods)
 
 
 @dataclass
 class TypeEnv:
     """Type environment with scoping."""
+
     variables: dict[str, str] = field(default_factory=dict)
     functions: dict[str, FnSig] = field(default_factory=dict)
     classes: dict[str, ClassInfo] = field(default_factory=dict)
@@ -93,8 +140,11 @@ class TypeEnv:
         return None
 
     def child(self) -> "TypeEnv":
-        return TypeEnv(parent=self, current_fn_ret=self.current_fn_ret,
-                       current_class=self.current_class)
+        return TypeEnv(
+            parent=self,
+            current_fn_ret=self.current_fn_ret,
+            current_class=self.current_class,
+        )
 
 
 def _is_array_type(name: str) -> bool:
@@ -122,18 +172,34 @@ def _valid_type(name: str, env: TypeEnv) -> bool:
 
 def _literal_compatible(expr, from_type: str, to_type: str) -> bool:
     """Check if a literal expression can adapt to a target type."""
-    if isinstance(expr, IntLit) and from_type in ALL_INT_TYPES and to_type in ALL_INT_TYPES:
+    if (
+        isinstance(expr, IntLit)
+        and from_type in ALL_INT_TYPES
+        and to_type in ALL_INT_TYPES
+    ):
         return True
-    if isinstance(expr, FloatLit) and from_type in FLOAT_TYPES and to_type in FLOAT_TYPES:
+    if (
+        isinstance(expr, FloatLit)
+        and from_type in FLOAT_TYPES
+        and to_type in FLOAT_TYPES
+    ):
         return True
     return False
 
 
 # Operator → dunder method mapping
 BINOP_METHODS = {
-    "+": "__add__", "-": "__sub__", "*": "__mul__", "/": "__div__", "%": "__mod__",
-    "==": "__eq__", "!=": "__eq__",  # != desugars to not __eq__
-    "<": "__lt__", ">": "__gt__", "<=": "__le__", ">=": "__ge__",
+    "+": "__add__",
+    "-": "__sub__",
+    "*": "__mul__",
+    "/": "__div__",
+    "%": "__mod__",
+    "==": "__eq__",
+    "!=": "__eq__",  # != desugars to not __eq__
+    "<": "__lt__",
+    ">": "__gt__",
+    "<=": "__le__",
+    ">=": "__ge__",
 }
 UNARYOP_METHODS = {
     "-": "__neg__",
@@ -164,6 +230,7 @@ def _type_compatible(actual: str, expected: str, expr, env: TypeEnv) -> bool:
 @dataclass
 class ModuleInfo:
     """Stores type information about an imported module."""
+
     name: str
     functions: dict[str, FnSig] = field(default_factory=dict)
     classes: dict[str, ClassInfo] = field(default_factory=dict)
@@ -178,12 +245,43 @@ def check_program(prog: Program) -> None:
     env.functions["print_str"] = FnSig(param_types=["Str"], ret_type="Void")
     env.functions["print_bool"] = FnSig(param_types=["Bool"], ret_type="Void")
 
+    # Math builtins (Double -> Double)
+    env.functions["sqrt"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["sin"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["cos"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["tan"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["exp"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["log"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["log2"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["log10"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["pow"] = FnSig(param_types=["Double", "Double"], ret_type="Double")
+    env.functions["floor"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["ceil"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["round"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["trunc"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["fma"] = FnSig(
+        param_types=["Double", "Double", "Double"], ret_type="Double"
+    )
+
+    # Abs - function style
+    env.functions["abs"] = FnSig(param_types=["Double"], ret_type="Double")
+    env.functions["abs_i64"] = FnSig(param_types=["I64"], ret_type="I64")
+
+    # Bitwise intrinsics
+    env.functions["clz"] = FnSig(param_types=["I64"], ret_type="I64")
+    env.functions["ctz"] = FnSig(param_types=["I64"], ret_type="I64")
+    env.functions["popcount"] = FnSig(param_types=["I64"], ret_type="I64")
+    env.functions["bswap"] = FnSig(param_types=["I64"], ret_type="I64")
+
+    # Debug
+    env.functions["panic"] = FnSig(param_types=[], ret_type="Void")
+
     # Register built-in root class
     env.classes["Object"] = ClassInfo(name="Object", parent_name="")
 
     # Process imports
     prog.module_info = {}
-    if hasattr(prog, 'module_programs'):
+    if hasattr(prog, "module_programs"):
         for mod_name, mod_prog in prog.module_programs.items():
             # Type-check the imported module
             check_program(mod_prog)
@@ -221,8 +319,14 @@ def check_program(prog: Program) -> None:
                             qual_params.append(f"{mod_name}.{pt}")
                         else:
                             qual_params.append(pt)
-                    qual_ret = f"{mod_name}.{sig.ret_type}" if sig.ret_type in mod_class_names else sig.ret_type
-                    qual_ci.methods[mname] = FnSig(param_types=qual_params, ret_type=qual_ret)
+                    qual_ret = (
+                        f"{mod_name}.{sig.ret_type}"
+                        if sig.ret_type in mod_class_names
+                        else sig.ret_type
+                    )
+                    qual_ci.methods[mname] = FnSig(
+                        param_types=qual_params, ret_type=qual_ret
+                    )
                 mi.classes[cls_name] = qual_ci
                 env.classes[f"{mod_name}.{cls_name}"] = qual_ci
             prog.module_info[mod_name] = mi
@@ -237,7 +341,10 @@ def check_program(prog: Program) -> None:
         params = [resolve_type(p.type_name) for p in ext.params]
         for t in params + ([ret] if ret != "Void" else []):
             if t not in EXTERN_ALLOWED_TYPES and t not in env.classes:
-                raise TypeError_(ext.line, f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {t}")
+                raise TypeError_(
+                    ext.line,
+                    f"extern functions only support numeric, Bool, Ptr, Str, and struct types, got {t}",
+                )
         env.functions[ext.name] = FnSig(param_types=params, ret_type=ret)
 
     # Register struct types
@@ -331,11 +438,13 @@ def _register_class(cls: ClassDecl, env: TypeEnv) -> None:
                 init_env.variables[p.name] = resolve_type(p.type_name)
 
         for stmt in init.body:
-            if (isinstance(stmt, AssignStmt)
-                    and isinstance(stmt.target, FieldAccess)
-                    and isinstance(stmt.target.obj, Var)
-                    and stmt.target.obj.name == "self"
-                    and stmt.target.field_name not in ci.fields):
+            if (
+                isinstance(stmt, AssignStmt)
+                and isinstance(stmt.target, FieldAccess)
+                and isinstance(stmt.target.obj, Var)
+                and stmt.target.obj.name == "self"
+                and stmt.target.field_name not in ci.fields
+            ):
                 val_type = _check_expr(stmt.value, init_env)
                 ci.fields[stmt.target.field_name] = val_type
 
@@ -362,8 +471,9 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
             if not _valid_type(declared, env):
                 raise TypeError_(stmt.line, f"unknown type: {declared}")
             if not _type_compatible(val_type, declared, stmt.value, env):
-                raise TypeError_(stmt.line,
-                    f"type mismatch: declared {declared} but got {val_type}")
+                raise TypeError_(
+                    stmt.line, f"type mismatch: declared {declared} but got {val_type}"
+                )
             env.variables[stmt.name] = declared
         else:
             env.variables[stmt.name] = val_type
@@ -375,8 +485,10 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
                 raise TypeError_(stmt.line, f"undefined variable: {stmt.target.name}")
             val_type = _check_expr(stmt.value, env)
             if val_type != existing:
-                raise TypeError_(stmt.line,
-                    f"cannot assign {val_type} to {existing} variable '{stmt.target.name}'")
+                raise TypeError_(
+                    stmt.line,
+                    f"cannot assign {val_type} to {existing} variable '{stmt.target.name}'",
+                )
         elif isinstance(stmt.target, FieldAccess):
             obj_type = _check_expr(stmt.target.obj, env)
             ci = env.lookup_class(obj_type)
@@ -386,11 +498,14 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
             if stmt.target.field_name in ci.fields:
                 expected = ci.fields[stmt.target.field_name]
                 if not _type_compatible(val_type, expected, stmt.value, env):
-                    raise TypeError_(stmt.line,
-                        f"cannot assign {val_type} to field '{stmt.target.field_name}' of type {expected}")
+                    raise TypeError_(
+                        stmt.line,
+                        f"cannot assign {val_type} to field '{stmt.target.field_name}' of type {expected}",
+                    )
             else:
-                raise TypeError_(stmt.line,
-                    f"'{obj_type}' has no field '{stmt.target.field_name}'")
+                raise TypeError_(
+                    stmt.line, f"'{obj_type}' has no field '{stmt.target.field_name}'"
+                )
         else:
             _check_expr(stmt.value, env)
 
@@ -398,11 +513,15 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
         if stmt.value is not None:
             val_type = _check_expr(stmt.value, env)
             if not _type_compatible(val_type, env.current_fn_ret, stmt.value, env):
-                raise TypeError_(stmt.line,
-                    f"return type mismatch: expected {env.current_fn_ret}, got {val_type}")
+                raise TypeError_(
+                    stmt.line,
+                    f"return type mismatch: expected {env.current_fn_ret}, got {val_type}",
+                )
         elif env.current_fn_ret != "Void":
-            raise TypeError_(stmt.line,
-                f"return without value in function returning {env.current_fn_ret}")
+            raise TypeError_(
+                stmt.line,
+                f"return without value in function returning {env.current_fn_ret}",
+            )
 
     elif isinstance(stmt, IfStmt):
         cond_type = _check_expr(stmt.condition, env)
@@ -414,7 +533,9 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
         for elif_cond, elif_body in stmt.elif_clauses:
             ec_type = _check_expr(elif_cond, env)
             if ec_type != "Bool":
-                raise TypeError_(stmt.line, f"elif condition must be Bool, got {ec_type}")
+                raise TypeError_(
+                    stmt.line, f"elif condition must be Bool, got {ec_type}"
+                )
             elif_env = env.child()
             for s in elif_body:
                 _check_stmt(s, elif_env)
@@ -426,7 +547,9 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
     elif isinstance(stmt, WhileStmt):
         cond_type = _check_expr(stmt.condition, env)
         if cond_type != "Bool":
-            raise TypeError_(stmt.line, f"while condition must be Bool, got {cond_type}")
+            raise TypeError_(
+                stmt.line, f"while condition must be Bool, got {cond_type}"
+            )
         block_env = env.child()
         for s in stmt.body:
             _check_stmt(s, block_env)
@@ -438,7 +561,9 @@ def _check_stmt(stmt: Stmt, env: TypeEnv) -> None:
         if stmt.start is not None:
             start_type = _check_expr(stmt.start, env)
             if start_type not in ALL_INT_TYPES:
-                raise TypeError_(stmt.line, f"range() expects integer, got {start_type}")
+                raise TypeError_(
+                    stmt.line, f"range() expects integer, got {start_type}"
+                )
         block_env = env.child()
         block_env.variables[stmt.var_name] = "I64"
         for s in stmt.body:
@@ -481,7 +606,9 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         if ci is None:
             raise TypeError_(expr.line, f"cannot access field on type {obj_type}")
         if expr.field_name not in ci.fields:
-            raise TypeError_(expr.line, f"'{obj_type}' has no field '{expr.field_name}'")
+            raise TypeError_(
+                expr.line, f"'{obj_type}' has no field '{expr.field_name}'"
+            )
         return ci.fields[expr.field_name]
 
     if isinstance(expr, MethodCall):
@@ -506,13 +633,19 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 if "__init__" in ci.methods:
                     init_sig = ci.methods["__init__"]
                     if len(expr.args) != len(init_sig.param_types):
-                        raise TypeError_(expr.line,
-                            f"{expr.method}() expects {len(init_sig.param_types)} args, got {len(expr.args)}")
-                    for i, (arg, expected) in enumerate(zip(expr.args, init_sig.param_types)):
+                        raise TypeError_(
+                            expr.line,
+                            f"{expr.method}() expects {len(init_sig.param_types)} args, got {len(expr.args)}",
+                        )
+                    for i, (arg, expected) in enumerate(
+                        zip(expr.args, init_sig.param_types)
+                    ):
                         at = _check_expr(arg, env)
                         if not _type_compatible(at, expected, arg, env):
-                            raise TypeError_(expr.line,
-                                f"{expr.method}() arg {i + 1}: expected {expected}, got {at}")
+                            raise TypeError_(
+                                expr.line,
+                                f"{expr.method}() arg {i + 1}: expected {expected}, got {at}",
+                            )
                 elif len(expr.args) != 0:
                     raise TypeError_(expr.line, f"{expr.method}() takes no arguments")
                 return f"{mod_name}.{expr.method}"
@@ -520,13 +653,17 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
             if expr.method in mi.functions:
                 sig = mi.functions[expr.method]
                 if len(expr.args) != len(sig.param_types):
-                    raise TypeError_(expr.line,
-                        f"{expr.method}() expects {len(sig.param_types)} args, got {len(expr.args)}")
+                    raise TypeError_(
+                        expr.line,
+                        f"{expr.method}() expects {len(sig.param_types)} args, got {len(expr.args)}",
+                    )
                 for i, (arg, expected) in enumerate(zip(expr.args, sig.param_types)):
                     at = _check_expr(arg, env)
                     if not _type_compatible(at, expected, arg, env):
-                        raise TypeError_(expr.line,
-                            f"{expr.method}() arg {i + 1}: expected {expected}, got {at}")
+                        raise TypeError_(
+                            expr.line,
+                            f"{expr.method}() arg {i + 1}: expected {expected}, got {at}",
+                        )
                 return sig.ret_type
             raise TypeError_(expr.line, f"module '{mod_name}' has no '{expr.method}'")
 
@@ -534,6 +671,12 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         if expr.method == "to_str" and len(expr.args) == 0:
             if obj_type in NUMERIC_TYPES or obj_type == "Bool":
                 return "Str"
+        # Built-in abs() on primitive types - method style
+        if expr.method == "abs" and len(expr.args) == 0:
+            if obj_type in ALL_INT_TYPES:
+                return obj_type
+            if obj_type in FLOAT_TYPES:
+                return obj_type
         # Array methods
         if _is_array_type(obj_type):
             elem_type = _array_elem_type(obj_type)
@@ -549,17 +692,23 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                     raise TypeError_(expr.line, "get() expects 1 argument")
                 at = _check_expr(expr.args[0], env)
                 if at not in ALL_INT_TYPES:
-                    raise TypeError_(expr.line, f"get() index must be integer, got {at}")
+                    raise TypeError_(
+                        expr.line, f"get() index must be integer, got {at}"
+                    )
                 return elem_type
             if expr.method == "set":
                 if len(expr.args) != 2:
                     raise TypeError_(expr.line, "set() expects 2 arguments")
                 idx_t = _check_expr(expr.args[0], env)
                 if idx_t not in ALL_INT_TYPES:
-                    raise TypeError_(expr.line, f"set() index must be integer, got {idx_t}")
+                    raise TypeError_(
+                        expr.line, f"set() index must be integer, got {idx_t}"
+                    )
                 val_t = _check_expr(expr.args[1], env)
                 if not _type_compatible(val_t, elem_type, expr.args[1], env):
-                    raise TypeError_(expr.line, f"set() expects {elem_type}, got {val_t}")
+                    raise TypeError_(
+                        expr.line, f"set() expects {elem_type}, got {val_t}"
+                    )
                 return "Void"
             if expr.method == "len":
                 if len(expr.args) != 0:
@@ -573,13 +722,17 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
             raise TypeError_(expr.line, f"'{obj_type}' has no method '{expr.method}'")
         sig = ci.methods[expr.method]
         if len(expr.args) != len(sig.param_types):
-            raise TypeError_(expr.line,
-                f"{expr.method}() expects {len(sig.param_types)} args, got {len(expr.args)}")
+            raise TypeError_(
+                expr.line,
+                f"{expr.method}() expects {len(sig.param_types)} args, got {len(expr.args)}",
+            )
         for i, (arg, expected) in enumerate(zip(expr.args, sig.param_types)):
             at = _check_expr(arg, env)
             if not _type_compatible(at, expected, arg, env):
-                raise TypeError_(expr.line,
-                    f"{expr.method}() arg {i + 1}: expected {expected}, got {at}")
+                raise TypeError_(
+                    expr.line,
+                    f"{expr.method}() arg {i + 1}: expected {expected}, got {at}",
+                )
         return sig.ret_type
 
     if isinstance(expr, BinOp):
@@ -589,8 +742,9 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         if expr.op in ("+", "-", "*", "/", "%"):
             if lt in NUMERIC_TYPES and rt in NUMERIC_TYPES:
                 if lt != rt:
-                    raise TypeError_(expr.line,
-                        f"mismatched types in '{expr.op}': {lt} and {rt}")
+                    raise TypeError_(
+                        expr.line, f"mismatched types in '{expr.op}': {lt} and {rt}"
+                    )
                 if expr.op == "/" and lt in ALL_INT_TYPES:
                     return lt
                 return lt
@@ -601,8 +755,7 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         elif expr.op in ("==", "!="):
             if lt in PRIMITIVE_TYPES and rt in PRIMITIVE_TYPES:
                 if lt != rt:
-                    raise TypeError_(expr.line,
-                        f"cannot compare {lt} and {rt}")
+                    raise TypeError_(expr.line, f"cannot compare {lt} and {rt}")
                 return "Bool"
             # Fall through to operator method check for class types
 
@@ -614,20 +767,25 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         elif expr.op in ("&", "|", "^"):
             if lt in ALL_INT_TYPES and rt in ALL_INT_TYPES and lt == rt:
                 return lt
-            raise TypeError_(expr.line,
-                f"bitwise '{expr.op}' requires matching integer types, got {lt} and {rt}")
+            raise TypeError_(
+                expr.line,
+                f"bitwise '{expr.op}' requires matching integer types, got {lt} and {rt}",
+            )
 
         elif expr.op in ("<<", ">>"):
             if lt in ALL_INT_TYPES and rt in ALL_INT_TYPES:
                 return lt  # result type matches left operand
-            raise TypeError_(expr.line,
-                f"shift '{expr.op}' requires integer types, got {lt} and {rt}")
+            raise TypeError_(
+                expr.line,
+                f"shift '{expr.op}' requires integer types, got {lt} and {rt}",
+            )
 
         elif expr.op in ("and", "or"):
             if lt == "Bool" and rt == "Bool":
                 return "Bool"
-            raise TypeError_(expr.line,
-                f"'{expr.op}' requires Bool operands, got {lt} and {rt}")
+            raise TypeError_(
+                expr.line, f"'{expr.op}' requires Bool operands, got {lt} and {rt}"
+            )
 
         # Operator methods on class types
         method_name = BINOP_METHODS.get(expr.op)
@@ -638,14 +796,15 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 sig = ci.methods[actual_method]
                 if len(sig.param_types) == 1:
                     if not _type_compatible(rt, sig.param_types[0], expr.right, env):
-                        raise TypeError_(expr.line,
-                            f"{actual_method}() expects {sig.param_types[0]}, got {rt}")
+                        raise TypeError_(
+                            expr.line,
+                            f"{actual_method}() expects {sig.param_types[0]}, got {rt}",
+                        )
                     if expr.op in ("!=", "==") and actual_method == "__eq__":
                         return "Bool"
                     return sig.ret_type
 
-        raise TypeError_(expr.line,
-            f"cannot apply '{expr.op}' to {lt} and {rt}")
+        raise TypeError_(expr.line, f"cannot apply '{expr.op}' to {lt} and {rt}")
 
     if isinstance(expr, UnaryOp):
         ot = _check_expr(expr.operand, env)
@@ -683,13 +842,19 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
             if "__init__" in ci.methods:
                 init_sig = ci.methods["__init__"]
                 if len(expr.args) != len(init_sig.param_types):
-                    raise TypeError_(expr.line,
-                        f"{expr.func}() expects {len(init_sig.param_types)} args, got {len(expr.args)}")
-                for i, (arg, expected) in enumerate(zip(expr.args, init_sig.param_types)):
+                    raise TypeError_(
+                        expr.line,
+                        f"{expr.func}() expects {len(init_sig.param_types)} args, got {len(expr.args)}",
+                    )
+                for i, (arg, expected) in enumerate(
+                    zip(expr.args, init_sig.param_types)
+                ):
                     at = _check_expr(arg, env)
                     if not _type_compatible(at, expected, arg, env):
-                        raise TypeError_(expr.line,
-                            f"{expr.func}() arg {i + 1}: expected {expected}, got {at}")
+                        raise TypeError_(
+                            expr.line,
+                            f"{expr.func}() arg {i + 1}: expected {expected}, got {at}",
+                        )
             elif len(expr.args) != 0:
                 raise TypeError_(expr.line, f"{expr.func}() takes no arguments")
             return expr.func
@@ -705,13 +870,17 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         if sig is None:
             raise TypeError_(expr.line, f"undefined function: {expr.func}")
         if len(expr.args) != len(sig.param_types):
-            raise TypeError_(expr.line,
-                f"{expr.func}() expects {len(sig.param_types)} args, got {len(expr.args)}")
+            raise TypeError_(
+                expr.line,
+                f"{expr.func}() expects {len(sig.param_types)} args, got {len(expr.args)}",
+            )
         for i, (arg, expected) in enumerate(zip(expr.args, sig.param_types)):
             at = _check_expr(arg, env)
             if not _type_compatible(at, expected, arg, env):
-                raise TypeError_(expr.line,
-                    f"{expr.func}() arg {i + 1}: expected {expected}, got {at}")
+                raise TypeError_(
+                    expr.line,
+                    f"{expr.func}() arg {i + 1}: expected {expected}, got {at}",
+                )
         return sig.ret_type
 
     if isinstance(expr, CastExpr):
@@ -735,12 +904,16 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
     if isinstance(expr, TernaryExpr):
         cond_type = _check_expr(expr.condition, env)
         if cond_type != "Bool":
-            raise TypeError_(expr.line, f"ternary condition must be Bool, got {cond_type}")
+            raise TypeError_(
+                expr.line, f"ternary condition must be Bool, got {cond_type}"
+            )
         true_type = _check_expr(expr.true_expr, env)
         false_type = _check_expr(expr.false_expr, env)
         if true_type != false_type:
-            raise TypeError_(expr.line,
-                f"ternary branches must have same type: {true_type} vs {false_type}")
+            raise TypeError_(
+                expr.line,
+                f"ternary branches must have same type: {true_type} vs {false_type}",
+            )
         return true_type
 
     if isinstance(expr, SizeofExpr):

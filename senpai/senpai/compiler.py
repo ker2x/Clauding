@@ -66,15 +66,19 @@ def _collect_links(program, collected: set | None = None) -> set[str]:
         collected = set()
     for link in program.links:
         collected.add(link.lib_name)
-    if hasattr(program, 'module_programs'):
+    if hasattr(program, "module_programs"):
         for mod_prog in program.module_programs.values():
             _collect_links(mod_prog, collected)
     return collected
 
 
-def compile_source(source: str, output_path: str | None = None,
-                   emit_ir: bool = False, source_dir: str | None = None,
-                   extra_links: list[str] | None = None) -> str:
+def compile_source(
+    source: str,
+    output_path: str | None = None,
+    emit_ir: bool = False,
+    source_dir: str | None = None,
+    extra_links: list[str] | None = None,
+) -> str:
     """Compile Senpai source to a native binary.
 
     Args:
@@ -124,8 +128,19 @@ def compile_source(source: str, output_path: str | None = None,
 
     try:
         result = subprocess.run(
-            ["clang", "-o", output_path, ll_path, "-O2", "-Wno-override-module"] + link_flags,
-            capture_output=True, text=True
+            [
+                "clang",
+                "-x",
+                "ir",
+                "-o",
+                output_path,
+                ll_path,
+                "-O2",
+                "-Wno-override-module",
+            ]
+            + link_flags,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise CompileError(f"clang error:\n{result.stderr}")
@@ -135,13 +150,22 @@ def compile_source(source: str, output_path: str | None = None,
     return output_path
 
 
-def compile_file(path: str, output_path: str | None = None,
-                 emit_ir: bool = False, extra_links: list[str] | None = None) -> str:
+def compile_file(
+    path: str,
+    output_path: str | None = None,
+    emit_ir: bool = False,
+    extra_links: list[str] | None = None,
+) -> str:
     """Compile a .sen file."""
     p = Path(path)
     source = p.read_text()
-    return compile_source(source, output_path=output_path, emit_ir=emit_ir,
-                         source_dir=str(p.parent), extra_links=extra_links)
+    return compile_source(
+        source,
+        output_path=output_path,
+        emit_ir=emit_ir,
+        source_dir=str(p.parent),
+        extra_links=extra_links,
+    )
 
 
 def run_file(path: str, extra_links: list[str] | None = None) -> int:

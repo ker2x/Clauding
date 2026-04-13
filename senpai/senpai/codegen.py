@@ -1,24 +1,85 @@
 """LLVM IR text emitter for Senpai."""
 
 from .ast_nodes import (
-    Expr, IntLit, FloatLit, StrLit, BoolLit, NoneLit, NilLit, Var,
-    BinOp, UnaryOp, Call, MethodCall, FieldAccess, CastExpr,
-    SizeofExpr, TernaryExpr,
-    Stmt, LetStmt, AssignStmt, ReturnStmt, IfStmt, WhileStmt, ForStmt, ExprStmt,
-    FnDecl, ClassDecl, Program,
+    Expr,
+    IntLit,
+    FloatLit,
+    StrLit,
+    BoolLit,
+    NoneLit,
+    NilLit,
+    Var,
+    BinOp,
+    UnaryOp,
+    Call,
+    MethodCall,
+    FieldAccess,
+    CastExpr,
+    SizeofExpr,
+    TernaryExpr,
+    Stmt,
+    LetStmt,
+    AssignStmt,
+    ReturnStmt,
+    IfStmt,
+    WhileStmt,
+    ForStmt,
+    ExprStmt,
+    FnDecl,
+    ClassDecl,
+    Program,
 )
-from .types import (resolve_type, ALL_INT_TYPES, SIGNED_INT_TYPES,
-                    UNSIGNED_INT_TYPES, FLOAT_TYPES, NUMERIC_TYPES,
-                    ClassInfo, PRIMITIVE_TYPES,
-                    _is_array_type, _array_elem_type)
+from .types import (
+    resolve_type,
+    ALL_INT_TYPES,
+    SIGNED_INT_TYPES,
+    UNSIGNED_INT_TYPES,
+    FLOAT_TYPES,
+    NUMERIC_TYPES,
+    ClassInfo,
+    PRIMITIVE_TYPES,
+    _is_array_type,
+    _array_elem_type,
+)
+
+MATH_BUILTINS = {
+    "sqrt",
+    "sin",
+    "cos",
+    "tan",
+    "exp",
+    "log",
+    "log2",
+    "log10",
+    "pow",
+    "floor",
+    "ceil",
+    "round",
+    "trunc",
+    "fma",
+    "abs",
+    "abs_i64",
+    "clz",
+    "ctz",
+    "popcount",
+    "bswap",
+    "panic",
+}
 
 
 # LLVM type mapping
 def _llvm_type(senpai_type: str) -> str:
     mapping = {
-        "I8": "i8", "I16": "i16", "I32": "i32", "I64": "i64",
-        "U8": "i8", "U16": "i16", "U32": "i32", "U64": "i64",
-        "Float": "float", "Double": "double",
+        "I8": "i8",
+        "I16": "i16",
+        "I32": "i32",
+        "I64": "i64",
+        "U8": "i8",
+        "U16": "i16",
+        "U32": "i32",
+        "U64": "i64",
+        "Float": "float",
+        "Double": "double",
         "Bool": "i1",
         "Str": "ptr",
         "Ptr": "ptr",
@@ -46,14 +107,14 @@ def _zero_value(senpai_type: str) -> str:
 
 class CodeGen:
     def __init__(self):
-        self._lines: list[str] = []       # main body lines
-        self._globals: list[str] = []      # global declarations (strings, etc.)
+        self._lines: list[str] = []  # main body lines
+        self._globals: list[str] = []  # global declarations (strings, etc.)
         self._tmp_counter = 0
         self._label_counter = 0
         self._str_counter = 0
         self._vars: dict[str, tuple[str, str]] = {}  # name -> (alloca_reg, senpai_type)
-        self._fn_sigs: dict[str, str] = {} # fn name -> return senpai type
-        self._fn_params: dict[str, list[str]] = {} # fn name -> param senpai types
+        self._fn_sigs: dict[str, str] = {}  # fn name -> return senpai type
+        self._fn_params: dict[str, list[str]] = {}  # fn name -> param senpai types
         self._class_info: dict[str, ClassInfo] = {}  # class name -> ClassInfo
         self._current_class: str | None = None  # set when generating a method
         self._modules: dict = {}  # module_name -> module_programs entry
@@ -87,21 +148,21 @@ class CodeGen:
         if from_llvm in from_bits and to_llvm in from_bits:
             if from_bits[from_llvm] > from_bits[to_llvm]:
                 result = self._tmp()
-                self._emit(f'  {result} = trunc {from_llvm} {reg} to {to_llvm}')
+                self._emit(f"  {result} = trunc {from_llvm} {reg} to {to_llvm}")
                 return result
             else:
                 result = self._tmp()
                 op = "sext" if from_type in SIGNED_INT_TYPES else "zext"
-                self._emit(f'  {result} = {op} {from_llvm} {reg} to {to_llvm}')
+                self._emit(f"  {result} = {op} {from_llvm} {reg} to {to_llvm}")
                 return result
         # Float/Double conversion
         if from_llvm == "double" and to_llvm == "float":
             result = self._tmp()
-            self._emit(f'  {result} = fptrunc double {reg} to float')
+            self._emit(f"  {result} = fptrunc double {reg} to float")
             return result
         if from_llvm == "float" and to_llvm == "double":
             result = self._tmp()
-            self._emit(f'  {result} = fpext float {reg} to double')
+            self._emit(f"  {result} = fpext float {reg} to double")
             return result
         return reg
 
@@ -138,140 +199,152 @@ class CodeGen:
     def _emit_runtime_functions(self):
         """Emit LLVM IR define blocks for runtime helpers (str concat, print, to_str, array)."""
         rt = []
-        rt.append('; --- Senpai runtime helpers ---')
-        rt.append('')
+        rt.append("; --- Senpai runtime helpers ---")
+        rt.append("")
         # String constants used by runtime
         rt.append('@_rt_fmt_lld = private unnamed_addr constant [5 x i8] c"%lld\\00"')
-        rt.append('@_rt_fmt_lldn = private unnamed_addr constant [6 x i8] c"%lld\\0A\\00"')
+        rt.append(
+            '@_rt_fmt_lldn = private unnamed_addr constant [6 x i8] c"%lld\\0A\\00"'
+        )
         rt.append('@_rt_fmt_llu = private unnamed_addr constant [5 x i8] c"%llu\\00"')
-        rt.append('@_rt_fmt_llun = private unnamed_addr constant [6 x i8] c"%llu\\0A\\00"')
+        rt.append(
+            '@_rt_fmt_llun = private unnamed_addr constant [6 x i8] c"%llu\\0A\\00"'
+        )
         rt.append('@_rt_fmt_g = private unnamed_addr constant [3 x i8] c"%g\\00"')
         rt.append('@_rt_fmt_gn = private unnamed_addr constant [4 x i8] c"%g\\0A\\00"')
         rt.append('@_rt_fmt_pn = private unnamed_addr constant [4 x i8] c"%p\\0A\\00"')
         rt.append('@_rt_str_true = private unnamed_addr constant [5 x i8] c"true\\00"')
-        rt.append('@_rt_str_false = private unnamed_addr constant [6 x i8] c"false\\00"')
-        rt.append('')
+        rt.append(
+            '@_rt_str_false = private unnamed_addr constant [6 x i8] c"false\\00"'
+        )
+        rt.append("")
 
         # str_concat
-        rt.append('define ptr @_rt_str_concat(ptr %a, ptr %b) {')
-        rt.append('  %la = call i64 @strlen(ptr %a)')
-        rt.append('  %lb = call i64 @strlen(ptr %b)')
-        rt.append('  %total = add i64 %la, %lb')
-        rt.append('  %total1 = add i64 %total, 1')
-        rt.append('  %buf = call ptr @malloc(i64 %total1)')
-        rt.append('  call ptr @memcpy(ptr %buf, ptr %a, i64 %la)')
-        rt.append('  %dst = getelementptr i8, ptr %buf, i64 %la')
-        rt.append('  %lb1 = add i64 %lb, 1')
-        rt.append('  call ptr @memcpy(ptr %dst, ptr %b, i64 %lb1)')
-        rt.append('  ret ptr %buf')
-        rt.append('}')
-        rt.append('')
+        rt.append("define ptr @_rt_str_concat(ptr %a, ptr %b) {")
+        rt.append("  %la = call i64 @strlen(ptr %a)")
+        rt.append("  %lb = call i64 @strlen(ptr %b)")
+        rt.append("  %total = add i64 %la, %lb")
+        rt.append("  %total1 = add i64 %total, 1")
+        rt.append("  %buf = call ptr @malloc(i64 %total1)")
+        rt.append("  call ptr @memcpy(ptr %buf, ptr %a, i64 %la)")
+        rt.append("  %dst = getelementptr i8, ptr %buf, i64 %la")
+        rt.append("  %lb1 = add i64 %lb, 1")
+        rt.append("  call ptr @memcpy(ptr %dst, ptr %b, i64 %lb1)")
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
 
         # print variants
-        rt.append('define void @_rt_print_i64(i64 %v) {')
-        rt.append('  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_lldn, i64 0, i64 0')
-        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
-        rt.append('define void @_rt_print_u64(i64 %v) {')
-        rt.append('  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_llun, i64 0, i64 0')
-        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
-        rt.append('define void @_rt_print_double(double %v) {')
-        rt.append('  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_gn, i64 0, i64 0')
-        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, double %v)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
-        rt.append('define void @_rt_print_bool(i1 %v) {')
-        rt.append('  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0')
-        rt.append('  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0')
-        rt.append('  %s = select i1 %v, ptr %t, ptr %f')
-        rt.append('  call i32 @puts(ptr %s)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
-        rt.append('define void @_rt_print_str(ptr %v) {')
-        rt.append('  call i32 @puts(ptr %v)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
-        rt.append('define void @_rt_print_ptr(ptr %v) {')
-        rt.append('  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_pn, i64 0, i64 0')
-        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, ptr %v)')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
+        rt.append("define void @_rt_print_i64(i64 %v) {")
+        rt.append("  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_lldn, i64 0, i64 0")
+        rt.append("  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
+        rt.append("define void @_rt_print_u64(i64 %v) {")
+        rt.append("  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_llun, i64 0, i64 0")
+        rt.append("  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
+        rt.append("define void @_rt_print_double(double %v) {")
+        rt.append("  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_gn, i64 0, i64 0")
+        rt.append("  call i32 (ptr, ...) @printf(ptr %fmt, double %v)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
+        rt.append("define void @_rt_print_bool(i1 %v) {")
+        rt.append("  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0")
+        rt.append("  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0")
+        rt.append("  %s = select i1 %v, ptr %t, ptr %f")
+        rt.append("  call i32 @puts(ptr %s)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
+        rt.append("define void @_rt_print_str(ptr %v) {")
+        rt.append("  call i32 @puts(ptr %v)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
+        rt.append("define void @_rt_print_ptr(ptr %v) {")
+        rt.append("  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_pn, i64 0, i64 0")
+        rt.append("  call i32 (ptr, ...) @printf(ptr %fmt, ptr %v)")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
 
         # to_str variants
-        rt.append('define ptr @_rt_i64_to_str(i64 %v) {')
-        rt.append('  %buf = call ptr @malloc(i64 64)')
-        rt.append('  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_lld, i64 0, i64 0')
-        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)')
-        rt.append('  ret ptr %buf')
-        rt.append('}')
-        rt.append('')
-        rt.append('define ptr @_rt_u64_to_str(i64 %v) {')
-        rt.append('  %buf = call ptr @malloc(i64 64)')
-        rt.append('  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_llu, i64 0, i64 0')
-        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)')
-        rt.append('  ret ptr %buf')
-        rt.append('}')
-        rt.append('')
-        rt.append('define ptr @_rt_double_to_str(double %v) {')
-        rt.append('  %buf = call ptr @malloc(i64 64)')
-        rt.append('  %fmt = getelementptr [3 x i8], ptr @_rt_fmt_g, i64 0, i64 0')
-        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, double %v)')
-        rt.append('  ret ptr %buf')
-        rt.append('}')
-        rt.append('')
-        rt.append('define ptr @_rt_bool_to_str(i1 %v) {')
-        rt.append('  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0')
-        rt.append('  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0')
-        rt.append('  %s = select i1 %v, ptr %t, ptr %f')
-        rt.append('  ret ptr %s')
-        rt.append('}')
-        rt.append('')
+        rt.append("define ptr @_rt_i64_to_str(i64 %v) {")
+        rt.append("  %buf = call ptr @malloc(i64 64)")
+        rt.append("  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_lld, i64 0, i64 0")
+        rt.append(
+            "  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)"
+        )
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
+        rt.append("define ptr @_rt_u64_to_str(i64 %v) {")
+        rt.append("  %buf = call ptr @malloc(i64 64)")
+        rt.append("  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_llu, i64 0, i64 0")
+        rt.append(
+            "  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)"
+        )
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
+        rt.append("define ptr @_rt_double_to_str(double %v) {")
+        rt.append("  %buf = call ptr @malloc(i64 64)")
+        rt.append("  %fmt = getelementptr [3 x i8], ptr @_rt_fmt_g, i64 0, i64 0")
+        rt.append(
+            "  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, double %v)"
+        )
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
+        rt.append("define ptr @_rt_bool_to_str(i1 %v) {")
+        rt.append("  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0")
+        rt.append("  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0")
+        rt.append("  %s = select i1 %v, ptr %t, ptr %f")
+        rt.append("  ret ptr %s")
+        rt.append("}")
+        rt.append("")
 
         # array_new
-        rt.append('define ptr @_rt_array_new(i64 %elem_sz) {')
-        rt.append('  %arr = call ptr @malloc(i64 24)')
-        rt.append('  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0')
-        rt.append('  store i64 0, ptr %len_ptr')
-        rt.append('  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1')
-        rt.append('  store i64 8, ptr %cap_ptr')
-        rt.append('  %buf_sz = mul i64 %elem_sz, 8')
-        rt.append('  %data = call ptr @malloc(i64 %buf_sz)')
-        rt.append('  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2')
-        rt.append('  store ptr %data, ptr %data_ptr')
-        rt.append('  ret ptr %arr')
-        rt.append('}')
-        rt.append('')
+        rt.append("define ptr @_rt_array_new(i64 %elem_sz) {")
+        rt.append("  %arr = call ptr @malloc(i64 24)")
+        rt.append("  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0")
+        rt.append("  store i64 0, ptr %len_ptr")
+        rt.append("  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1")
+        rt.append("  store i64 8, ptr %cap_ptr")
+        rt.append("  %buf_sz = mul i64 %elem_sz, 8")
+        rt.append("  %data = call ptr @malloc(i64 %buf_sz)")
+        rt.append("  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2")
+        rt.append("  store ptr %data, ptr %data_ptr")
+        rt.append("  ret ptr %arr")
+        rt.append("}")
+        rt.append("")
 
         # array_ensure_cap (handles grow/realloc)
-        rt.append('define void @_rt_array_ensure_cap(ptr %arr, i64 %elem_sz) {')
-        rt.append('  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0')
-        rt.append('  %len = load i64, ptr %len_ptr')
-        rt.append('  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1')
-        rt.append('  %cap = load i64, ptr %cap_ptr')
-        rt.append('  %need = icmp sge i64 %len, %cap')
-        rt.append('  br i1 %need, label %grow, label %done')
-        rt.append('grow:')
-        rt.append('  %new_cap = mul i64 %cap, 2')
-        rt.append('  store i64 %new_cap, ptr %cap_ptr')
-        rt.append('  %new_bytes = mul i64 %new_cap, %elem_sz')
-        rt.append('  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2')
-        rt.append('  %old_data = load ptr, ptr %data_ptr')
-        rt.append('  %new_data = call ptr @realloc(ptr %old_data, i64 %new_bytes)')
-        rt.append('  store ptr %new_data, ptr %data_ptr')
-        rt.append('  br label %done')
-        rt.append('done:')
-        rt.append('  ret void')
-        rt.append('}')
-        rt.append('')
+        rt.append("define void @_rt_array_ensure_cap(ptr %arr, i64 %elem_sz) {")
+        rt.append("  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0")
+        rt.append("  %len = load i64, ptr %len_ptr")
+        rt.append("  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1")
+        rt.append("  %cap = load i64, ptr %cap_ptr")
+        rt.append("  %need = icmp sge i64 %len, %cap")
+        rt.append("  br i1 %need, label %grow, label %done")
+        rt.append("grow:")
+        rt.append("  %new_cap = mul i64 %cap, 2")
+        rt.append("  store i64 %new_cap, ptr %cap_ptr")
+        rt.append("  %new_bytes = mul i64 %new_cap, %elem_sz")
+        rt.append("  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2")
+        rt.append("  %old_data = load ptr, ptr %data_ptr")
+        rt.append("  %new_data = call ptr @realloc(ptr %old_data, i64 %new_bytes)")
+        rt.append("  store ptr %new_data, ptr %data_ptr")
+        rt.append("  br label %done")
+        rt.append("done:")
+        rt.append("  ret void")
+        rt.append("}")
+        rt.append("")
 
         for line in rt:
             self._emit_global(line)
@@ -320,7 +393,7 @@ class CodeGen:
             if expr.name in self._vars:
                 return self._vars[expr.name][1]
             # Module names
-            if hasattr(self, '_modules') and expr.name in self._modules:
+            if hasattr(self, "_modules") and expr.name in self._modules:
                 return f"Module:{expr.name}"
         if isinstance(expr, FieldAccess):
             obj_type = self._peek_type(expr.obj)
@@ -409,7 +482,7 @@ class CodeGen:
                 self._fn_params[full_name] = params
 
         # Process imported modules
-        if hasattr(prog, 'module_info'):
+        if hasattr(prog, "module_info"):
             self._modules = prog.module_info
             for mod_name, mi in prog.module_info.items():
                 # Register qualified class info from type checker
@@ -437,25 +510,55 @@ class CodeGen:
                 declared.add(name)
                 self._emit_global(sig)
 
-        self._emit_global('; External declarations')
-        _declare('printf',  'declare i32 @printf(ptr, ...)')
-        _declare('puts',    'declare i32 @puts(ptr)')
-        _declare('malloc',  'declare ptr @malloc(i64)')
-        _declare('strlen',  'declare i64 @strlen(ptr)')
-        _declare('memcpy',  'declare ptr @memcpy(ptr, ptr, i64)')
-        _declare('snprintf','declare i32 @snprintf(ptr, i64, ptr, ...)')
-        _declare('realloc', 'declare ptr @realloc(ptr, i64)')
-        self._emit_global('')
+        self._emit_global("; External declarations")
+        _declare("printf", "declare i32 @printf(ptr, ...)")
+        _declare("puts", "declare i32 @puts(ptr)")
+        _declare("malloc", "declare ptr @malloc(i64)")
+        _declare("strlen", "declare i64 @strlen(ptr)")
+        _declare("memcpy", "declare ptr @memcpy(ptr, ptr, i64)")
+        _declare("snprintf", "declare i32 @snprintf(ptr, i64, ptr, ...)")
+        _declare("realloc", "declare ptr @realloc(ptr, i64)")
+
+        # Math intrinsics (Double -> Double)
+        _declare("llvm.sqrt.f64", "declare double @llvm.sqrt.f64(double)")
+        _declare("llvm.sin.f64", "declare double @llvm.sin.f64(double)")
+        _declare("llvm.cos.f64", "declare double @llvm.cos.f64(double)")
+        _declare("llvm.tan.f64", "declare double @llvm.tan.f64(double)")
+        _declare("llvm.exp.f64", "declare double @llvm.exp.f64(double)")
+        _declare("llvm.log.f64", "declare double @llvm.log.f64(double)")
+        _declare("llvm.log2.f64", "declare double @llvm.log2.f64(double)")
+        _declare("llvm.log10.f64", "declare double @llvm.log10.f64(double)")
+        _declare("llvm.pow.f64", "declare double @llvm.pow.f64(double, double)")
+        _declare("llvm.floor.f64", "declare double @llvm.floor.f64(double)")
+        _declare("llvm.ceil.f64", "declare double @llvm.ceil.f64(double)")
+        _declare("llvm.round.f64", "declare double @llvm.round.f64(double)")
+        _declare("llvm.trunc.f64", "declare double @llvm.trunc.f64(double)")
+        _declare("llvm.fma.f64", "declare double @llvm.fma.f64(double, double, double)")
+        _declare("llvm.fabs.f64", "declare double @llvm.fabs.f64(double)")
+
+        # Abs for I64
+        _declare("llvm.abs.i64", "declare i64 @llvm.abs.i64(i64, i1)")
+
+        # Bitwise intrinsics
+        _declare("llvm.ctlz.i64", "declare i64 @llvm.ctlz.i64(i64, i1)")
+        _declare("llvm.cttz.i64", "declare i64 @llvm.cttz.i64(i64, i1)")
+        _declare("llvm.ctpop.i64", "declare i64 @llvm.ctpop.i64(i64)")
+        _declare("llvm.bswap.i64", "declare i64 @llvm.bswap.i64(i64)")
+
+        # Debug
+        _declare("llvm.trap", "declare void @llvm.trap()")
+
+        self._emit_global("")
         # Array struct type: { i64 len, i64 cap, ptr data }
-        self._emit_global('%struct.Array = type { i64, i64, ptr }')
-        self._emit_global('')
+        self._emit_global("%struct.Array = type { i64, i64, ptr }")
+        self._emit_global("")
 
         # Emit runtime helper functions
         self._emit_runtime_functions()
 
         # Collect extern functions from imported modules too
         all_externs = list(prog.extern_fns)
-        if hasattr(prog, 'module_programs'):
+        if hasattr(prog, "module_programs"):
             for mod_prog in prog.module_programs.values():
                 all_externs.extend(mod_prog.extern_fns)
 
@@ -471,12 +574,12 @@ class CodeGen:
             self._fn_sigs[ext.name] = ret
             self._fn_params[ext.name] = params
             param_ir = ", ".join(_llvm_type(p) for p in params)
-            _declare(ext.name, f'declare {_llvm_type(ret)} @{ext.name}({param_ir})')
+            _declare(ext.name, f"declare {_llvm_type(ret)} @{ext.name}({param_ir})")
         if seen_externs:
-            self._emit_global('')
+            self._emit_global("")
 
         # Emit struct types and vtables for imported classes
-        if hasattr(prog, 'module_programs'):
+        if hasattr(prog, "module_programs"):
             for mod_name, mod_prog in prog.module_programs.items():
                 for cls in mod_prog.classes:
                     self._emit_class_types_module(cls, mod_name)
@@ -486,15 +589,15 @@ class CodeGen:
             ci = self._class_info[st.name]
             field_types = [_llvm_type(ft) for ft in ci.fields.values()]
             struct = self._struct_name(st.name)
-            self._emit_global(f'{struct} = type {{ {", ".join(field_types)} }}')
-            self._emit_global('')
+            self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
+            self._emit_global("")
 
         # Emit struct types and vtables for classes
         for cls in prog.classes:
             self._emit_class_types(cls)
 
         # Generate imported module functions and methods
-        if hasattr(prog, 'module_programs'):
+        if hasattr(prog, "module_programs"):
             for mod_name, mod_prog in prog.module_programs.items():
                 for fn in mod_prog.functions:
                     if fn.name == "main":
@@ -513,22 +616,22 @@ class CodeGen:
 
         # Assemble final IR
         parts = [
-            '; Generated by Senpai compiler',
+            "; Generated by Senpai compiler",
             f'target triple = "arm64-apple-macosx"',
-            '',
+            "",
         ]
         parts.extend(self._globals)
-        parts.append('')
+        parts.append("")
         parts.extend(self._lines)
 
         # If there's a main(), emit a C-compatible entry point
         if "main" in self._fn_sigs:
-            parts.append('')
-            parts.append('; C entry point')
-            parts.append('define i32 @main() {')
-            parts.append('  call void @senpai_main()')
-            parts.append('  ret i32 0')
-            parts.append('}')
+            parts.append("")
+            parts.append("; C entry point")
+            parts.append("define i32 @main() {")
+            parts.append("  call void @senpai_main()")
+            parts.append("  ret i32 0")
+            parts.append("}")
 
         return "\n".join(parts) + "\n"
 
@@ -541,22 +644,24 @@ class CodeGen:
         for fname, ftype in ci.fields.items():
             field_types.append(_llvm_type(ftype))
         struct = self._struct_name(cls.name)
-        self._emit_global(f'{struct} = type {{ {", ".join(field_types)} }}')
+        self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
 
         # Vtable global: array of method function pointers
         if ci.vtable_order:
             vtable_entries = []
             for method_name in ci.vtable_order:
                 impl_class = ci.vtable_impl[method_name]
-                vtable_entries.append(f'ptr {self._method_fn_name(impl_class, method_name)}')
+                vtable_entries.append(
+                    f"ptr {self._method_fn_name(impl_class, method_name)}"
+                )
             n = len(vtable_entries)
             self._emit_global(
-                f'@vtable.{cls.name} = global [{n} x ptr] [{", ".join(vtable_entries)}]'
+                f"@vtable.{cls.name} = global [{n} x ptr] [{', '.join(vtable_entries)}]"
             )
         else:
-            self._emit_global(f'@vtable.{cls.name} = global [0 x ptr] zeroinitializer')
+            self._emit_global(f"@vtable.{cls.name} = global [0 x ptr] zeroinitializer")
 
-        self._emit_global('')
+        self._emit_global("")
 
     def _emit_class_types_module(self, cls: ClassDecl, mod_name: str):
         """Emit struct type and vtable for an imported class."""
@@ -568,7 +673,7 @@ class CodeGen:
         field_types = ["ptr"]
         for fname, ftype in ci.fields.items():
             field_types.append(_llvm_type(ftype))
-        self._emit_global(f'%struct.{safe_name} = type {{ {", ".join(field_types)} }}')
+        self._emit_global(f"%struct.{safe_name} = type {{ {', '.join(field_types)} }}")
 
         # Vtable
         if ci.vtable_order:
@@ -576,14 +681,16 @@ class CodeGen:
             for method_name in ci.vtable_order:
                 impl_class = ci.vtable_impl[method_name]
                 # The impl_class is the local class name, prefix with module
-                vtable_entries.append(f'ptr @senpai_{mod_name}_{impl_class}_{method_name}')
+                vtable_entries.append(
+                    f"ptr @senpai_{mod_name}_{impl_class}_{method_name}"
+                )
             n = len(vtable_entries)
             self._emit_global(
-                f'@vtable.{safe_name} = global [{n} x ptr] [{", ".join(vtable_entries)}]'
+                f"@vtable.{safe_name} = global [{n} x ptr] [{', '.join(vtable_entries)}]"
             )
         else:
-            self._emit_global(f'@vtable.{safe_name} = global [0 x ptr] zeroinitializer')
-        self._emit_global('')
+            self._emit_global(f"@vtable.{safe_name} = global [0 x ptr] zeroinitializer")
+        self._emit_global("")
 
     def _gen_fn_module(self, fn: FnDecl, mod_name: str):
         """Generate a module function with module-prefixed name."""
@@ -600,27 +707,27 @@ class CodeGen:
             params.append(f"{_llvm_type(pt)} %param_{p.name}")
 
         fn_name = f"senpai_{mod_name}_{fn.name}"
-        self._emit(f'define {llvm_ret} @{fn_name}({", ".join(params)}) {{')
-        self._emit('entry:')
+        self._emit(f"define {llvm_ret} @{fn_name}({', '.join(params)}) {{")
+        self._emit("entry:")
 
         for p in fn.params:
             pt = resolve_type(p.type_name)
             lt = _llvm_type(pt)
             alloca = self._tmp()
-            self._emit(f'  {alloca} = alloca {lt}')
-            self._emit(f'  store {lt} %param_{p.name}, ptr {alloca}')
+            self._emit(f"  {alloca} = alloca {lt}")
+            self._emit(f"  store {lt} %param_{p.name}, ptr {alloca}")
             self._vars[p.name] = (alloca, pt)
 
         self._gen_stmts(fn.body, ret_type)
 
         if ret_type == "Void":
-            self._emit('  ret void')
+            self._emit("  ret void")
         else:
             zero = _zero_value(ret_type)
-            self._emit(f'  ret {llvm_ret} {zero}')
+            self._emit(f"  ret {llvm_ret} {zero}")
 
-        self._emit('}')
-        self._emit('')
+        self._emit("}")
+        self._emit("")
         self._current_module = None
 
     def _gen_class_methods_module(self, cls: ClassDecl, mod_name: str):
@@ -655,22 +762,22 @@ class CodeGen:
                 params.append(f"{_llvm_type(pt)} %param_{p.name}")
 
         fn_name = self._method_fn_name(class_name, method.name).lstrip("@")
-        self._emit(f'define {llvm_ret} @{fn_name}({", ".join(params)}) {{')
-        self._emit('entry:')
+        self._emit(f"define {llvm_ret} @{fn_name}({', '.join(params)}) {{")
+        self._emit("entry:")
 
         # Allocate space for parameters and copy them
         for p in method.params:
             if p.name == "self":
                 alloca = self._tmp()
-                self._emit(f'  {alloca} = alloca ptr')
-                self._emit(f'  store ptr %param_self, ptr {alloca}')
+                self._emit(f"  {alloca} = alloca ptr")
+                self._emit(f"  store ptr %param_self, ptr {alloca}")
                 self._vars["self"] = (alloca, class_name)
             else:
                 pt = resolve_type(p.type_name)
                 lt = _llvm_type(pt)
                 alloca = self._tmp()
-                self._emit(f'  {alloca} = alloca {lt}')
-                self._emit(f'  store {lt} %param_{p.name}, ptr {alloca}')
+                self._emit(f"  {alloca} = alloca {lt}")
+                self._emit(f"  store {lt} %param_{p.name}, ptr {alloca}")
                 self._vars[p.name] = (alloca, pt)
 
         # Generate body
@@ -678,13 +785,13 @@ class CodeGen:
 
         # Ensure function always terminates
         if ret_type == "Void":
-            self._emit('  ret void')
+            self._emit("  ret void")
         else:
             zero = _zero_value(ret_type)
-            self._emit(f'  ret {llvm_ret} {zero}')
+            self._emit(f"  ret {llvm_ret} {zero}")
 
-        self._emit('}')
-        self._emit('')
+        self._emit("}")
+        self._emit("")
         self._current_class = None
 
     # --- Function generation (unchanged for free functions) ---
@@ -702,27 +809,27 @@ class CodeGen:
             params.append(f"{_llvm_type(pt)} %param_{p.name}")
 
         fn_name = f"senpai_{fn.name}"
-        self._emit(f'define {llvm_ret} @{fn_name}({", ".join(params)}) {{')
-        self._emit('entry:')
+        self._emit(f"define {llvm_ret} @{fn_name}({', '.join(params)}) {{")
+        self._emit("entry:")
 
         for p in fn.params:
             pt = resolve_type(p.type_name)
             lt = _llvm_type(pt)
             alloca = self._tmp()
-            self._emit(f'  {alloca} = alloca {lt}')
-            self._emit(f'  store {lt} %param_{p.name}, ptr {alloca}')
+            self._emit(f"  {alloca} = alloca {lt}")
+            self._emit(f"  store {lt} %param_{p.name}, ptr {alloca}")
             self._vars[p.name] = (alloca, pt)
 
         self._gen_stmts(fn.body, ret_type)
 
         if ret_type == "Void":
-            self._emit('  ret void')
+            self._emit("  ret void")
         else:
             zero = _zero_value(ret_type)
-            self._emit(f'  ret {llvm_ret} {zero}')
+            self._emit(f"  ret {llvm_ret} {zero}")
 
-        self._emit('}')
-        self._emit('')
+        self._emit("}")
+        self._emit("")
 
     # --- Statement generation ---
 
@@ -737,8 +844,8 @@ class CodeGen:
             lt = _llvm_type(st)
             val_reg = self._coerce(val_reg, val_type, st)
             alloca = self._tmp()
-            self._emit(f'  {alloca} = alloca {lt}')
-            self._emit(f'  store {lt} {val_reg}, ptr {alloca}')
+            self._emit(f"  {alloca} = alloca {lt}")
+            self._emit(f"  store {lt} {val_reg}, ptr {alloca}")
             self._vars[stmt.name] = (alloca, st)
 
         elif isinstance(stmt, AssignStmt):
@@ -746,18 +853,18 @@ class CodeGen:
                 val_reg, val_type = self._gen_expr(stmt.value)
                 alloca, st = self._vars[stmt.target.name]
                 lt = _llvm_type(st)
-                self._emit(f'  store {lt} {val_reg}, ptr {alloca}')
+                self._emit(f"  store {lt} {val_reg}, ptr {alloca}")
             elif isinstance(stmt.target, FieldAccess):
                 self._gen_field_assign(stmt)
 
         elif isinstance(stmt, ReturnStmt):
             if stmt.value is not None:
                 val_reg, val_type = self._gen_expr(stmt.value)
-                self._emit(f'  ret {_llvm_type(val_type)} {val_reg}')
+                self._emit(f"  ret {_llvm_type(val_type)} {val_reg}")
             else:
-                self._emit('  ret void')
+                self._emit("  ret void")
             dead = self._label("dead")
-            self._emit(f'{dead}:')
+            self._emit(f"{dead}:")
 
         elif isinstance(stmt, IfStmt):
             self._gen_if(stmt, fn_ret)
@@ -783,9 +890,11 @@ class CodeGen:
         struct = self._struct_name(obj_type)
 
         ptr = self._tmp()
-        self._emit(f'  {ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 {field_idx}')
+        self._emit(
+            f"  {ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 {field_idx}"
+        )
         val_reg = self._coerce(val_reg, val_type, field_stype)
-        self._emit(f'  store {field_ltype} {val_reg}, ptr {ptr}')
+        self._emit(f"  store {field_ltype} {val_reg}, ptr {ptr}")
 
     def _gen_if(self, stmt: IfStmt, fn_ret: str):
         then_label = self._label("if.then")
@@ -794,39 +903,41 @@ class CodeGen:
         branches = [(stmt.condition, stmt.body)] + list(stmt.elif_clauses)
 
         for i, (cond, body) in enumerate(branches):
-            next_label = self._label("if.elif") if i < len(branches) - 1 else (
-                self._label("if.else") if stmt.else_body else end_label
+            next_label = (
+                self._label("if.elif")
+                if i < len(branches) - 1
+                else (self._label("if.else") if stmt.else_body else end_label)
             )
             cond_reg, _ = self._gen_expr(cond)
             this_label = self._label("if.then")
-            self._emit(f'  br i1 {cond_reg}, label %{this_label}, label %{next_label}')
-            self._emit(f'{this_label}:')
+            self._emit(f"  br i1 {cond_reg}, label %{this_label}, label %{next_label}")
+            self._emit(f"{this_label}:")
             self._gen_stmts(body, fn_ret)
-            self._emit(f'  br label %{end_label}')
+            self._emit(f"  br label %{end_label}")
             if i < len(branches) - 1 or stmt.else_body:
-                self._emit(f'{next_label}:')
+                self._emit(f"{next_label}:")
 
         if stmt.else_body:
             self._gen_stmts(stmt.else_body, fn_ret)
-            self._emit(f'  br label %{end_label}')
+            self._emit(f"  br label %{end_label}")
 
-        self._emit(f'{end_label}:')
+        self._emit(f"{end_label}:")
 
     def _gen_while(self, stmt: WhileStmt, fn_ret: str):
         cond_label = self._label("while.cond")
         body_label = self._label("while.body")
         end_label = self._label("while.end")
 
-        self._emit(f'  br label %{cond_label}')
-        self._emit(f'{cond_label}:')
+        self._emit(f"  br label %{cond_label}")
+        self._emit(f"{cond_label}:")
         cond_reg, _ = self._gen_expr(stmt.condition)
-        self._emit(f'  br i1 {cond_reg}, label %{body_label}, label %{end_label}')
+        self._emit(f"  br i1 {cond_reg}, label %{body_label}, label %{end_label}")
 
-        self._emit(f'{body_label}:')
+        self._emit(f"{body_label}:")
         self._gen_stmts(stmt.body, fn_ret)
-        self._emit(f'  br label %{cond_label}')
+        self._emit(f"  br label %{cond_label}")
 
-        self._emit(f'{end_label}:')
+        self._emit(f"{end_label}:")
 
     def _gen_for(self, stmt: ForStmt, fn_ret: str):
         """Generate for x in range(start, end): as a counted loop."""
@@ -839,33 +950,33 @@ class CodeGen:
 
         # Allocate loop variable
         alloca = self._tmp()
-        self._emit(f'  {alloca} = alloca i64')
-        self._emit(f'  store i64 {start_reg}, ptr {alloca}')
+        self._emit(f"  {alloca} = alloca i64")
+        self._emit(f"  store i64 {start_reg}, ptr {alloca}")
         self._vars[stmt.var_name] = (alloca, "I64")
 
         cond_label = self._label("for.cond")
         body_label = self._label("for.body")
         end_label = self._label("for.end")
 
-        self._emit(f'  br label %{cond_label}')
-        self._emit(f'{cond_label}:')
+        self._emit(f"  br label %{cond_label}")
+        self._emit(f"{cond_label}:")
         cur = self._tmp()
-        self._emit(f'  {cur} = load i64, ptr {alloca}')
+        self._emit(f"  {cur} = load i64, ptr {alloca}")
         cmp = self._tmp()
-        self._emit(f'  {cmp} = icmp slt i64 {cur}, {end_reg}')
-        self._emit(f'  br i1 {cmp}, label %{body_label}, label %{end_label}')
+        self._emit(f"  {cmp} = icmp slt i64 {cur}, {end_reg}")
+        self._emit(f"  br i1 {cmp}, label %{body_label}, label %{end_label}")
 
-        self._emit(f'{body_label}:')
+        self._emit(f"{body_label}:")
         self._gen_stmts(stmt.body, fn_ret)
         # Increment
         cur2 = self._tmp()
-        self._emit(f'  {cur2} = load i64, ptr {alloca}')
+        self._emit(f"  {cur2} = load i64, ptr {alloca}")
         inc = self._tmp()
-        self._emit(f'  {inc} = add i64 {cur2}, 1')
-        self._emit(f'  store i64 {inc}, ptr {alloca}')
-        self._emit(f'  br label %{cond_label}')
+        self._emit(f"  {inc} = add i64 {cur2}, 1")
+        self._emit(f"  store i64 {inc}, ptr {alloca}")
+        self._emit(f"  br label %{cond_label}")
 
-        self._emit(f'{end_label}:')
+        self._emit(f"{end_label}:")
 
     # --- Expression generation ---
 
@@ -876,15 +987,16 @@ class CodeGen:
 
         if isinstance(expr, FloatLit):
             import struct
+
             if expr.is_float32:
                 d = expr.value
-                hex_val = "0x%016X" % struct.unpack('<Q', struct.pack('<d', d))[0]
+                hex_val = "0x%016X" % struct.unpack("<Q", struct.pack("<d", d))[0]
                 result = self._tmp()
-                self._emit(f'  {result} = fptrunc double {hex_val} to float')
+                self._emit(f"  {result} = fptrunc double {hex_val} to float")
                 return result, "Float"
             else:
                 d = expr.value
-                hex_val = "0x%016X" % struct.unpack('<Q', struct.pack('<d', d))[0]
+                hex_val = "0x%016X" % struct.unpack("<Q", struct.pack("<d", d))[0]
                 return hex_val, "Double"
 
         if isinstance(expr, BoolLit):
@@ -897,8 +1009,7 @@ class CodeGen:
             name, byte_len = self._str_const(expr.value)
             reg = self._tmp()
             self._emit(
-                f'  {reg} = getelementptr [{byte_len} x i8], '
-                f'ptr {name}, i64 0, i64 0'
+                f"  {reg} = getelementptr [{byte_len} x i8], ptr {name}, i64 0, i64 0"
             )
             return reg, "Str"
 
@@ -907,13 +1018,13 @@ class CodeGen:
                 # super returns self pointer with parent class type
                 alloca, _ = self._vars["self"]
                 reg = self._tmp()
-                self._emit(f'  {reg} = load ptr, ptr {alloca}')
+                self._emit(f"  {reg} = load ptr, ptr {alloca}")
                 parent = self._class_info[self._current_class].parent_name
                 return reg, parent
             alloca, st = self._vars[expr.name]
             lt = _llvm_type(st)
             reg = self._tmp()
-            self._emit(f'  {reg} = load {lt}, ptr {alloca}')
+            self._emit(f"  {reg} = load {lt}, ptr {alloca}")
             return reg, st
 
         if isinstance(expr, FieldAccess):
@@ -938,9 +1049,9 @@ class CodeGen:
             target = resolve_type(expr.type_name)
             struct = self._struct_name(target)
             size_ptr = self._tmp()
-            self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+            self._emit(f"  {size_ptr} = getelementptr {struct}, ptr null, i32 1")
             size = self._tmp()
-            self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+            self._emit(f"  {size} = ptrtoint ptr {size_ptr} to i64")
             return size, "I64"
 
         if isinstance(expr, TernaryExpr):
@@ -949,7 +1060,9 @@ class CodeGen:
             false_reg, _ = self._gen_expr(expr.false_expr)
             llvm_t = _llvm_type(true_type)
             result = self._tmp()
-            self._emit(f'  {result} = select i1 {cond_reg}, {llvm_t} {true_reg}, {llvm_t} {false_reg}')
+            self._emit(
+                f"  {result} = select i1 {cond_reg}, {llvm_t} {true_reg}, {llvm_t} {false_reg}"
+            )
             return result, true_type
 
         raise RuntimeError(f"unsupported expr: {type(expr).__name__}")
@@ -965,9 +1078,11 @@ class CodeGen:
         struct = self._struct_name(obj_type)
 
         ptr = self._tmp()
-        self._emit(f'  {ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 {field_idx}')
+        self._emit(
+            f"  {ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 {field_idx}"
+        )
         result = self._tmp()
-        self._emit(f'  {result} = load {field_ltype}, ptr {ptr}')
+        self._emit(f"  {result} = load {field_ltype}, ptr {ptr}")
         return result, field_stype
 
     def _gen_method_call(self, expr: MethodCall) -> tuple[str, str]:
@@ -977,6 +1092,10 @@ class CodeGen:
             obj_type = self._peek_type(expr.obj)
             if obj_type and (obj_type in NUMERIC_TYPES or obj_type == "Bool"):
                 return self._gen_to_str(expr.obj, obj_type)
+
+        # Built-in abs() on primitive types - method style
+        if expr.method == "abs" and len(expr.args) == 0:
+            return self._gen_abs_method(expr)
 
         # Array methods
         obj_type = self._peek_type(expr.obj)
@@ -1017,28 +1136,38 @@ class CodeGen:
             impl_class = self._resolve_class(impl_class)
             fn_name = self._method_fn_name(impl_class, method_name)
             if ret_type == "Void":
-                self._emit(f'  call void {fn_name}({", ".join(args_ir)})')
+                self._emit(f"  call void {fn_name}({', '.join(args_ir)})")
                 return "void", "Void"
             else:
                 result = self._tmp()
-                self._emit(f'  {result} = call {llvm_ret} {fn_name}({", ".join(args_ir)})')
+                self._emit(
+                    f"  {result} = call {llvm_ret} {fn_name}({', '.join(args_ir)})"
+                )
                 # For super calls returning self-type, return current class type
-                actual_ret = self._current_class if ret_type == obj_type and self._current_class else ret_type
+                actual_ret = (
+                    self._current_class
+                    if ret_type == obj_type and self._current_class
+                    else ret_type
+                )
                 return result, actual_ret
         else:
             # Vtable dispatch
             vtable_idx = self._vtable_index(obj_type, method_name)
             vtable_ptr_ptr = self._tmp()
             struct = self._struct_name(obj_type)
-            self._emit(f'  {vtable_ptr_ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 0')
+            self._emit(
+                f"  {vtable_ptr_ptr} = getelementptr {struct}, ptr {obj_reg}, i32 0, i32 0"
+            )
             vtable_ptr = self._tmp()
-            self._emit(f'  {vtable_ptr} = load ptr, ptr {vtable_ptr_ptr}')
+            self._emit(f"  {vtable_ptr} = load ptr, ptr {vtable_ptr_ptr}")
 
             method_ptr_ptr = self._tmp()
             n = len(ci.vtable_order)
-            self._emit(f'  {method_ptr_ptr} = getelementptr [{n} x ptr], ptr {vtable_ptr}, i32 0, i32 {vtable_idx}')
+            self._emit(
+                f"  {method_ptr_ptr} = getelementptr [{n} x ptr], ptr {vtable_ptr}, i32 0, i32 {vtable_idx}"
+            )
             method_ptr = self._tmp()
-            self._emit(f'  {method_ptr} = load ptr, ptr {method_ptr_ptr}')
+            self._emit(f"  {method_ptr} = load ptr, ptr {method_ptr_ptr}")
 
             param_types_ir = ["ptr"]
             for pt in sig.param_types:
@@ -1046,11 +1175,13 @@ class CodeGen:
             fn_type = f"{llvm_ret} ({', '.join(param_types_ir)})"
 
             if ret_type == "Void":
-                self._emit(f'  call {fn_type} {method_ptr}({", ".join(args_ir)})')
+                self._emit(f"  call {fn_type} {method_ptr}({', '.join(args_ir)})")
                 return "void", "Void"
             else:
                 result = self._tmp()
-                self._emit(f'  {result} = call {fn_type} {method_ptr}({", ".join(args_ir)})')
+                self._emit(
+                    f"  {result} = call {fn_type} {method_ptr}({', '.join(args_ir)})"
+                )
                 return result, ret_type
 
     # --- Binary/Unary ops ---
@@ -1063,19 +1194,22 @@ class CodeGen:
             left_type = self._resolve_class(left_type)
         if left_type and left_type in self._class_info:
             from .types import BINOP_METHODS
+
             method_name = BINOP_METHODS.get(expr.op)
             if method_name:
                 ci = self._class_info[left_type]
                 actual_method = "__eq__" if expr.op in ("==", "!=") else method_name
                 if actual_method in ci.methods:
                     method_call = MethodCall(
-                        obj=expr.left, method=actual_method,
-                        args=[expr.right], line=expr.line
+                        obj=expr.left,
+                        method=actual_method,
+                        args=[expr.right],
+                        line=expr.line,
                     )
                     call_result, call_type = self._gen_method_call(method_call)
                     if expr.op == "!=":
                         neg = self._tmp()
-                        self._emit(f'  {neg} = xor i1 {call_result}, 1')
+                        self._emit(f"  {neg} = xor i1 {call_result}, 1")
                         return neg, "Bool"
                     return call_result, call_type
 
@@ -1089,107 +1223,111 @@ class CodeGen:
             is_signed = lt in SIGNED_INT_TYPES
 
             if expr.op == "+":
-                self._emit(f'  {result} = add {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = add {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "-":
-                self._emit(f'  {result} = sub {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = sub {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "*":
-                self._emit(f'  {result} = mul {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = mul {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "/":
                 div_op = "sdiv" if is_signed else "udiv"
-                self._emit(f'  {result} = {div_op} {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = {div_op} {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "%":
                 rem_op = "srem" if is_signed else "urem"
-                self._emit(f'  {result} = {rem_op} {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = {rem_op} {llvm_t} {lr}, {rr}")
                 return result, lt
 
             # Bitwise ops
             if expr.op == "&":
-                self._emit(f'  {result} = and {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = and {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "|":
-                self._emit(f'  {result} = or {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = or {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "^":
-                self._emit(f'  {result} = xor {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = xor {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "<<":
                 rr_coerced = self._coerce(rr, rt, lt)
-                self._emit(f'  {result} = shl {llvm_t} {lr}, {rr_coerced}')
+                self._emit(f"  {result} = shl {llvm_t} {lr}, {rr_coerced}")
                 return result, lt
             if expr.op == ">>":
                 rr_coerced = self._coerce(rr, rt, lt)
                 shr_op = "ashr" if is_signed else "lshr"
-                self._emit(f'  {result} = {shr_op} {llvm_t} {lr}, {rr_coerced}')
+                self._emit(f"  {result} = {shr_op} {llvm_t} {lr}, {rr_coerced}")
                 return result, lt
 
             cmp_ops = {
-                "==": "eq", "!=": "ne",
+                "==": "eq",
+                "!=": "ne",
                 "<": "slt" if is_signed else "ult",
                 ">": "sgt" if is_signed else "ugt",
                 "<=": "sle" if is_signed else "ule",
                 ">=": "sge" if is_signed else "uge",
             }
             if expr.op in cmp_ops:
-                self._emit(f'  {result} = icmp {cmp_ops[expr.op]} {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = icmp {cmp_ops[expr.op]} {llvm_t} {lr}, {rr}")
                 return result, "Bool"
 
         # Float/Double arithmetic
         if lt in FLOAT_TYPES and rt in FLOAT_TYPES:
             llvm_t = _llvm_type(lt)
             if expr.op == "+":
-                self._emit(f'  {result} = fadd {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = fadd {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "-":
-                self._emit(f'  {result} = fsub {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = fsub {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "*":
-                self._emit(f'  {result} = fmul {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = fmul {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "/":
-                self._emit(f'  {result} = fdiv {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = fdiv {llvm_t} {lr}, {rr}")
                 return result, lt
             if expr.op == "%":
-                self._emit(f'  {result} = frem {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = frem {llvm_t} {lr}, {rr}")
                 return result, lt
 
             cmp_ops = {
-                "==": "oeq", "!=": "one",
-                "<": "olt", ">": "ogt",
-                "<=": "ole", ">=": "oge",
+                "==": "oeq",
+                "!=": "one",
+                "<": "olt",
+                ">": "ogt",
+                "<=": "ole",
+                ">=": "oge",
             }
             if expr.op in cmp_ops:
-                self._emit(f'  {result} = fcmp {cmp_ops[expr.op]} {llvm_t} {lr}, {rr}')
+                self._emit(f"  {result} = fcmp {cmp_ops[expr.op]} {llvm_t} {lr}, {rr}")
                 return result, "Bool"
 
         # String concatenation
         if lt == "Str" and rt == "Str" and expr.op == "+":
             result = self._tmp()
-            self._emit(f'  {result} = call ptr @_rt_str_concat(ptr {lr}, ptr {rr})')
+            self._emit(f"  {result} = call ptr @_rt_str_concat(ptr {lr}, ptr {rr})")
             return result, "Str"
 
         # Pointer comparison
         if lt == "Ptr" and rt == "Ptr" and expr.op in ("==", "!="):
             cmp = "eq" if expr.op == "==" else "ne"
-            self._emit(f'  {result} = icmp {cmp} ptr {lr}, {rr}')
+            self._emit(f"  {result} = icmp {cmp} ptr {lr}, {rr}")
             return result, "Bool"
 
         # Boolean logic
         if lt == "Bool" and rt == "Bool":
             if expr.op == "and":
-                self._emit(f'  {result} = and i1 {lr}, {rr}')
+                self._emit(f"  {result} = and i1 {lr}, {rr}")
                 return result, "Bool"
             if expr.op == "or":
-                self._emit(f'  {result} = or i1 {lr}, {rr}')
+                self._emit(f"  {result} = or i1 {lr}, {rr}")
                 return result, "Bool"
             if expr.op == "==":
-                self._emit(f'  {result} = icmp eq i1 {lr}, {rr}')
+                self._emit(f"  {result} = icmp eq i1 {lr}, {rr}")
                 return result, "Bool"
             if expr.op == "!=":
-                self._emit(f'  {result} = icmp ne i1 {lr}, {rr}')
+                self._emit(f"  {result} = icmp ne i1 {lr}, {rr}")
                 return result, "Bool"
 
         raise RuntimeError(f"unsupported binop: {expr.op} on {lt}, {rt}")
@@ -1204,8 +1342,7 @@ class CodeGen:
                 ci = self._class_info[op_type]
                 if "__neg__" in ci.methods:
                     method_call = MethodCall(
-                        obj=expr.operand, method="__neg__",
-                        args=[], line=expr.line
+                        obj=expr.operand, method="__neg__", args=[], line=expr.line
                     )
                     return self._gen_method_call(method_call)
 
@@ -1213,19 +1350,19 @@ class CodeGen:
         result = self._tmp()
 
         if expr.op == "-" and ot in ALL_INT_TYPES:
-            self._emit(f'  {result} = sub {_llvm_type(ot)} 0, {or_}')
+            self._emit(f"  {result} = sub {_llvm_type(ot)} 0, {or_}")
             return result, ot
 
         if expr.op == "-" and ot in FLOAT_TYPES:
-            self._emit(f'  {result} = fneg {_llvm_type(ot)} {or_}')
+            self._emit(f"  {result} = fneg {_llvm_type(ot)} {or_}")
             return result, ot
 
         if expr.op == "not" and ot == "Bool":
-            self._emit(f'  {result} = xor i1 {or_}, 1')
+            self._emit(f"  {result} = xor i1 {or_}, 1")
             return result, "Bool"
 
         if expr.op == "~" and ot in ALL_INT_TYPES:
-            self._emit(f'  {result} = xor {_llvm_type(ot)} {or_}, -1')
+            self._emit(f"  {result} = xor {_llvm_type(ot)} {or_}, -1")
             return result, ot
 
         raise RuntimeError(f"unsupported unary: {expr.op} on {ot}")
@@ -1236,6 +1373,10 @@ class CodeGen:
         # Built-in print
         if expr.func == "print" and len(expr.args) == 1:
             return self._gen_print(expr.args[0])
+
+        # Built-in math functions
+        if expr.func in MATH_BUILTINS:
+            return self._gen_math_builtin(expr)
 
         # Array constructor
         if _is_array_type(expr.func):
@@ -1269,11 +1410,11 @@ class CodeGen:
         else:
             ir_name = f"senpai_{resolved_fn.replace('.', '_')}"
         if ret_type == "Void":
-            self._emit(f'  call void @{ir_name}({", ".join(args_ir)})')
+            self._emit(f"  call void @{ir_name}({', '.join(args_ir)})")
             return "void", "Void"
         else:
             result = self._tmp()
-            self._emit(f'  {result} = call {llvm_ret} @{ir_name}({", ".join(args_ir)})')
+            self._emit(f"  {result} = call {llvm_ret} @{ir_name}({', '.join(args_ir)})")
             return result, ret_type
 
     def _gen_struct_constructor(self, expr: Call, struct_name: str) -> tuple[str, str]:
@@ -1282,23 +1423,25 @@ class CodeGen:
 
         # Calculate size via GEP trick
         size_ptr = self._tmp()
-        self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+        self._emit(f"  {size_ptr} = getelementptr {struct}, ptr null, i32 1")
         size = self._tmp()
-        self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+        self._emit(f"  {size} = ptrtoint ptr {size_ptr} to i64")
 
         # Allocate and zero-initialize
         obj = self._tmp()
-        self._emit(f'  {obj} = call ptr @malloc(i64 {size})')
+        self._emit(f"  {obj} = call ptr @malloc(i64 {size})")
         ci = self._class_info[struct_name]
         for i, (fname, ftype) in enumerate(ci.fields.items()):
             flt = _llvm_type(ftype)
             ptr = self._tmp()
-            self._emit(f'  {ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 {i}')
-            self._emit(f'  store {flt} {_zero_value(ftype)}, ptr {ptr}')
+            self._emit(f"  {ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 {i}")
+            self._emit(f"  store {flt} {_zero_value(ftype)}, ptr {ptr}")
 
         return obj, struct_name
 
-    def _gen_constructor(self, expr: Call, class_name: str | None = None) -> tuple[str, str]:
+    def _gen_constructor(
+        self, expr: Call, class_name: str | None = None
+    ) -> tuple[str, str]:
         """Generate constructor: malloc + store vtable + call __init__."""
         if class_name is None:
             class_name = expr.func
@@ -1307,20 +1450,20 @@ class CodeGen:
 
         # Calculate struct size using GEP trick
         size_ptr = self._tmp()
-        self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+        self._emit(f"  {size_ptr} = getelementptr {struct}, ptr null, i32 1")
         size = self._tmp()
-        self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+        self._emit(f"  {size} = ptrtoint ptr {size_ptr} to i64")
 
         # Allocate
         obj = self._tmp()
-        self._emit(f'  {obj} = call ptr @malloc(i64 {size})')
+        self._emit(f"  {obj} = call ptr @malloc(i64 {size})")
 
         # Store vtable pointer at offset 0
         vtable_ptr = self._tmp()
-        self._emit(f'  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0')
+        self._emit(f"  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0")
         n = len(ci.vtable_order)
         safe_name = class_name.replace(".", "_")
-        self._emit(f'  store ptr @vtable.{safe_name}, ptr {vtable_ptr}')
+        self._emit(f"  store ptr @vtable.{safe_name}, ptr {vtable_ptr}")
 
         # Call __init__ if it exists
         if "__init__" in ci.methods:
@@ -1332,7 +1475,9 @@ class CodeGen:
                     ar = self._coerce(ar, at, init_sig.param_types[i])
                     at = init_sig.param_types[i]
                 args_ir.append(f"{_llvm_type(at)} {ar}")
-            self._emit(f'  call void {self._method_fn_name(class_name, "__init__")}({", ".join(args_ir)})')
+            self._emit(
+                f"  call void {self._method_fn_name(class_name, '__init__')}({', '.join(args_ir)})"
+            )
 
         return obj, class_name
 
@@ -1350,19 +1495,21 @@ class CodeGen:
 
             # Calculate struct size
             size_ptr = self._tmp()
-            self._emit(f'  {size_ptr} = getelementptr {struct}, ptr null, i32 1')
+            self._emit(f"  {size_ptr} = getelementptr {struct}, ptr null, i32 1")
             size = self._tmp()
-            self._emit(f'  {size} = ptrtoint ptr {size_ptr} to i64')
+            self._emit(f"  {size} = ptrtoint ptr {size_ptr} to i64")
 
             # Allocate
             obj = self._tmp()
-            self._emit(f'  {obj} = call ptr @malloc(i64 {size})')
+            self._emit(f"  {obj} = call ptr @malloc(i64 {size})")
 
             # Store vtable pointer
             vtable_ptr = self._tmp()
-            self._emit(f'  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0')
+            self._emit(
+                f"  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0"
+            )
             safe_name = qual_cls.replace(".", "_")
-            self._emit(f'  store ptr @vtable.{safe_name}, ptr {vtable_ptr}')
+            self._emit(f"  store ptr @vtable.{safe_name}, ptr {vtable_ptr}")
 
             # Call __init__
             if "__init__" in ci.methods:
@@ -1374,7 +1521,9 @@ class CodeGen:
                         ar = self._coerce(ar, at, init_sig.param_types[i])
                         at = init_sig.param_types[i]
                     args_ir.append(f"{_llvm_type(at)} {ar}")
-                self._emit(f'  call void {self._method_fn_name(qual_cls, "__init__")}({", ".join(args_ir)})')
+                self._emit(
+                    f"  call void {self._method_fn_name(qual_cls, '__init__')}({', '.join(args_ir)})"
+                )
 
             return obj, qual_cls
 
@@ -1394,11 +1543,13 @@ class CodeGen:
 
             fn_ir_name = f"@senpai_{mod_name}_{expr.method}"
             if ret_type == "Void":
-                self._emit(f'  call void {fn_ir_name}({", ".join(args_ir)})')
+                self._emit(f"  call void {fn_ir_name}({', '.join(args_ir)})")
                 return "void", "Void"
             else:
                 result = self._tmp()
-                self._emit(f'  {result} = call {llvm_ret} {fn_ir_name}({", ".join(args_ir)})')
+                self._emit(
+                    f"  {result} = call {llvm_ret} {fn_ir_name}({', '.join(args_ir)})"
+                )
                 return result, ret_type
 
         raise RuntimeError(f"module '{mod_name}' has no '{expr.method}'")
@@ -1407,7 +1558,16 @@ class CodeGen:
 
     def _elem_size(self, elem_type: str) -> int:
         """Get element size in bytes."""
-        sizes = {"i8": 1, "i16": 2, "i32": 4, "i64": 8, "float": 4, "double": 8, "i1": 1, "ptr": 8}
+        sizes = {
+            "i8": 1,
+            "i16": 2,
+            "i32": 4,
+            "i64": 8,
+            "float": 4,
+            "double": 8,
+            "i1": 1,
+            "ptr": 8,
+        }
         return sizes.get(_llvm_type(elem_type), 8)
 
     def _gen_array_constructor(self, array_type: str, expr: Call) -> tuple[str, str]:
@@ -1415,7 +1575,7 @@ class CodeGen:
         elem_type = _array_elem_type(array_type)
         elem_sz = self._elem_size(elem_type)
         arr = self._tmp()
-        self._emit(f'  {arr} = call ptr @_rt_array_new(i64 {elem_sz})')
+        self._emit(f"  {arr} = call ptr @_rt_array_new(i64 {elem_sz})")
         return arr, array_type
 
     def _gen_array_method(self, expr: MethodCall, array_type: str) -> tuple[str, str]:
@@ -1427,9 +1587,11 @@ class CodeGen:
 
         if expr.method == "len":
             len_ptr = self._tmp()
-            self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0')
+            self._emit(
+                f"  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0"
+            )
             result = self._tmp()
-            self._emit(f'  {result} = load i64, ptr {len_ptr}')
+            self._emit(f"  {result} = load i64, ptr {len_ptr}")
             return result, "I64"
 
         if expr.method == "get":
@@ -1437,14 +1599,18 @@ class CodeGen:
             idx_reg = self._coerce(idx_reg, idx_type, "I64")
             # Load data pointer
             data_ptr_ptr = self._tmp()
-            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            self._emit(
+                f"  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2"
+            )
             data_ptr = self._tmp()
-            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
+            self._emit(f"  {data_ptr} = load ptr, ptr {data_ptr_ptr}")
             # GEP to element
             elem_ptr = self._tmp()
-            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}')
+            self._emit(
+                f"  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}"
+            )
             result = self._tmp()
-            self._emit(f'  {result} = load {elem_llvm}, ptr {elem_ptr}')
+            self._emit(f"  {result} = load {elem_llvm}, ptr {elem_ptr}")
             return result, elem_type
 
         if expr.method == "set":
@@ -1454,13 +1620,17 @@ class CodeGen:
             val_reg = self._coerce(val_reg, val_type, elem_type)
             # Load data pointer
             data_ptr_ptr = self._tmp()
-            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            self._emit(
+                f"  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2"
+            )
             data_ptr = self._tmp()
-            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
+            self._emit(f"  {data_ptr} = load ptr, ptr {data_ptr_ptr}")
             # GEP to element
             elem_ptr = self._tmp()
-            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}')
-            self._emit(f'  store {elem_llvm} {val_reg}, ptr {elem_ptr}')
+            self._emit(
+                f"  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {idx_reg}"
+            )
+            self._emit(f"  store {elem_llvm} {val_reg}, ptr {elem_ptr}")
             return "void", "Void"
 
         if expr.method == "push":
@@ -1468,23 +1638,31 @@ class CodeGen:
             val_reg = self._coerce(val_reg, val_type, elem_type)
 
             # Ensure capacity (handles grow/realloc)
-            self._emit(f'  call void @_rt_array_ensure_cap(ptr {obj_reg}, i64 {elem_sz})')
+            self._emit(
+                f"  call void @_rt_array_ensure_cap(ptr {obj_reg}, i64 {elem_sz})"
+            )
 
             # Store element at arr[len], increment len
             len_ptr = self._tmp()
-            self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0')
+            self._emit(
+                f"  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0"
+            )
             cur_len = self._tmp()
-            self._emit(f'  {cur_len} = load i64, ptr {len_ptr}')
+            self._emit(f"  {cur_len} = load i64, ptr {len_ptr}")
             data_ptr_ptr = self._tmp()
-            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            self._emit(
+                f"  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2"
+            )
             data_ptr = self._tmp()
-            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
+            self._emit(f"  {data_ptr} = load ptr, ptr {data_ptr_ptr}")
             elem_ptr = self._tmp()
-            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {cur_len}')
-            self._emit(f'  store {elem_llvm} {val_reg}, ptr {elem_ptr}')
+            self._emit(
+                f"  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {cur_len}"
+            )
+            self._emit(f"  store {elem_llvm} {val_reg}, ptr {elem_ptr}")
             new_len = self._tmp()
-            self._emit(f'  {new_len} = add i64 {cur_len}, 1')
-            self._emit(f'  store i64 {new_len}, ptr {len_ptr}')
+            self._emit(f"  {new_len} = add i64 {cur_len}, 1")
+            self._emit(f"  store i64 {new_len}, ptr {len_ptr}")
 
             return "void", "Void"
 
@@ -1500,27 +1678,27 @@ class CodeGen:
         if obj_type in SIGNED_INT_TYPES:
             if obj_type != "I64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = sext {_llvm_type(obj_type)} {obj_reg} to i64')
+                self._emit(f"  {ext} = sext {_llvm_type(obj_type)} {obj_reg} to i64")
                 obj_reg = ext
-            self._emit(f'  {result} = call ptr @_rt_i64_to_str(i64 {obj_reg})')
+            self._emit(f"  {result} = call ptr @_rt_i64_to_str(i64 {obj_reg})")
 
         elif obj_type in UNSIGNED_INT_TYPES:
             if obj_type != "U64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = zext {_llvm_type(obj_type)} {obj_reg} to i64')
+                self._emit(f"  {ext} = zext {_llvm_type(obj_type)} {obj_reg} to i64")
                 obj_reg = ext
-            self._emit(f'  {result} = call ptr @_rt_u64_to_str(i64 {obj_reg})')
+            self._emit(f"  {result} = call ptr @_rt_u64_to_str(i64 {obj_reg})")
 
         elif obj_type == "Float":
             ext = self._tmp()
-            self._emit(f'  {ext} = fpext float {obj_reg} to double')
-            self._emit(f'  {result} = call ptr @_rt_double_to_str(double {ext})')
+            self._emit(f"  {ext} = fpext float {obj_reg} to double")
+            self._emit(f"  {result} = call ptr @_rt_double_to_str(double {ext})")
 
         elif obj_type == "Double":
-            self._emit(f'  {result} = call ptr @_rt_double_to_str(double {obj_reg})')
+            self._emit(f"  {result} = call ptr @_rt_double_to_str(double {obj_reg})")
 
         elif obj_type == "Bool":
-            self._emit(f'  {result} = call ptr @_rt_bool_to_str(i1 {obj_reg})')
+            self._emit(f"  {result} = call ptr @_rt_bool_to_str(i1 {obj_reg})")
 
         return result, "Str"
 
@@ -1540,32 +1718,32 @@ class CodeGen:
 
         # Bool to integer: zext i1 to target
         if src_type == "Bool" and target in ALL_INT_TYPES:
-            self._emit(f'  {result} = zext i1 {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = zext i1 {src_reg} to {tgt_llvm}")
             return result, target
 
         # Int to float
         if src_type in SIGNED_INT_TYPES and target in FLOAT_TYPES:
-            self._emit(f'  {result} = sitofp {src_llvm} {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = sitofp {src_llvm} {src_reg} to {tgt_llvm}")
             return result, target
         if src_type in UNSIGNED_INT_TYPES and target in FLOAT_TYPES:
-            self._emit(f'  {result} = uitofp {src_llvm} {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = uitofp {src_llvm} {src_reg} to {tgt_llvm}")
             return result, target
 
         # Float to int
         if src_type in FLOAT_TYPES and target in SIGNED_INT_TYPES:
-            self._emit(f'  {result} = fptosi {src_llvm} {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = fptosi {src_llvm} {src_reg} to {tgt_llvm}")
             return result, target
         if src_type in FLOAT_TYPES and target in UNSIGNED_INT_TYPES:
-            self._emit(f'  {result} = fptoui {src_llvm} {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = fptoui {src_llvm} {src_reg} to {tgt_llvm}")
             return result, target
 
         # Ptr to integer
         if src_type == "Ptr" and target in ALL_INT_TYPES:
-            self._emit(f'  {result} = ptrtoint ptr {src_reg} to {tgt_llvm}')
+            self._emit(f"  {result} = ptrtoint ptr {src_reg} to {tgt_llvm}")
             return result, target
         # Integer to Ptr
         if src_type in ALL_INT_TYPES and target == "Ptr":
-            self._emit(f'  {result} = inttoptr {src_llvm} {src_reg} to ptr')
+            self._emit(f"  {result} = inttoptr {src_llvm} {src_reg} to ptr")
             return result, target
 
         # Int width changes and float width changes — use _coerce
@@ -1579,35 +1757,115 @@ class CodeGen:
         if at in SIGNED_INT_TYPES:
             if at != "I64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = sext {_llvm_type(at)} {ar} to i64')
+                self._emit(f"  {ext} = sext {_llvm_type(at)} {ar} to i64")
                 ar = ext
-            self._emit(f'  call void @_rt_print_i64(i64 {ar})')
+            self._emit(f"  call void @_rt_print_i64(i64 {ar})")
 
         elif at in UNSIGNED_INT_TYPES:
             if at != "U64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = zext {_llvm_type(at)} {ar} to i64')
+                self._emit(f"  {ext} = zext {_llvm_type(at)} {ar} to i64")
                 ar = ext
-            self._emit(f'  call void @_rt_print_u64(i64 {ar})')
+            self._emit(f"  call void @_rt_print_u64(i64 {ar})")
 
         elif at == "Float":
             ext = self._tmp()
-            self._emit(f'  {ext} = fpext float {ar} to double')
-            self._emit(f'  call void @_rt_print_double(double {ext})')
+            self._emit(f"  {ext} = fpext float {ar} to double")
+            self._emit(f"  call void @_rt_print_double(double {ext})")
 
         elif at == "Double":
-            self._emit(f'  call void @_rt_print_double(double {ar})')
+            self._emit(f"  call void @_rt_print_double(double {ar})")
 
         elif at == "Bool":
-            self._emit(f'  call void @_rt_print_bool(i1 {ar})')
+            self._emit(f"  call void @_rt_print_bool(i1 {ar})")
 
         elif at == "Str":
-            self._emit(f'  call void @_rt_print_str(ptr {ar})')
+            self._emit(f"  call void @_rt_print_str(ptr {ar})")
 
         elif at == "Ptr":
-            self._emit(f'  call void @_rt_print_ptr(ptr {ar})')
+            self._emit(f"  call void @_rt_print_ptr(ptr {ar})")
 
         else:
             raise RuntimeError(f"print: unsupported type {at}")
 
         return "void", "Void"
+
+    # --- Math builtins ---
+
+    def _gen_math_builtin(self, expr: Call) -> tuple[str, str]:
+        """Generate LLVM intrinsic calls for math builtins."""
+        func = expr.func
+        args = expr.args
+
+        if func == "panic":
+            self._emit("  call void @llvm.trap()")
+            return "void", "Void"
+
+        intrinsic_map = {
+            "sqrt": "llvm.sqrt.f64",
+            "sin": "llvm.sin.f64",
+            "cos": "llvm.cos.f64",
+            "tan": "llvm.tan.f64",
+            "exp": "llvm.exp.f64",
+            "log": "llvm.log.f64",
+            "log2": "llvm.log2.f64",
+            "log10": "llvm.log10.f64",
+            "floor": "llvm.floor.f64",
+            "ceil": "llvm.ceil.f64",
+            "round": "llvm.round.f64",
+            "trunc": "llvm.trunc.f64",
+            "fma": "llvm.fma.f64",
+            "abs": "llvm.fabs.f64",
+            "abs_i64": "llvm.abs.i64",
+            "clz": "llvm.ctlz.i64",
+            "ctz": "llvm.cttz.i64",
+            "popcount": "llvm.ctpop.i64",
+            "bswap": "llvm.bswap.i64",
+        }
+
+        if func == "pow":
+            arg0, _ = self._gen_expr(args[0])
+            arg1, _ = self._gen_expr(args[1])
+            result = self._tmp()
+            self._emit(
+                f"  {result} = call double @llvm.pow.f64(double {arg0}, double {arg1})"
+            )
+            return result, "Double"
+
+        intrinsic = intrinsic_map[func]
+
+        if func in ("abs_i64", "clz", "ctz", "popcount", "bswap"):
+            arg0, _ = self._gen_expr(args[0])
+            result = self._tmp()
+            if func == "abs_i64":
+                self._emit(f"  {result} = call i64 @llvm.abs.i64(i64 {arg0}, i1 true)")
+            elif func in ("clz", "ctz"):
+                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0}, i1 false)")
+            elif func == "popcount":
+                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0})")
+            elif func == "bswap":
+                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0})")
+            return result, "I64"
+        else:
+            arg0, _ = self._gen_expr(args[0])
+            result = self._tmp()
+            self._emit(f"  {result} = call double @{intrinsic}(double {arg0})")
+            return result, "Double"
+
+    # --- Abs method ---
+
+    def _gen_abs_method(self, expr: MethodCall) -> tuple[str, str]:
+        """Generate abs() as method call on numeric types."""
+        obj_reg, obj_type = self._gen_expr(expr.obj)
+
+        if obj_type in FLOAT_TYPES:
+            result = self._tmp()
+            self._emit(f"  {result} = call double @llvm.fabs.f64(double {obj_reg})")
+            return result, obj_type
+
+        if obj_type in ALL_INT_TYPES:
+            result = self._tmp()
+            self._emit(f"  {result} = call i64 @llvm.abs.i64(i64 {obj_reg}, i1 true)")
+            return result, obj_type
+
+        raise RuntimeError(f"abs: unsupported type {obj_type}")
