@@ -133,6 +133,149 @@ class CodeGen:
         )
         return name, byte_len
 
+    # --- Runtime IR helpers (emitted once per module) ---
+
+    def _emit_runtime_functions(self):
+        """Emit LLVM IR define blocks for runtime helpers (str concat, print, to_str, array)."""
+        rt = []
+        rt.append('; --- Senpai runtime helpers ---')
+        rt.append('')
+        # String constants used by runtime
+        rt.append('@_rt_fmt_lld = private unnamed_addr constant [5 x i8] c"%lld\\00"')
+        rt.append('@_rt_fmt_lldn = private unnamed_addr constant [6 x i8] c"%lld\\0A\\00"')
+        rt.append('@_rt_fmt_llu = private unnamed_addr constant [5 x i8] c"%llu\\00"')
+        rt.append('@_rt_fmt_llun = private unnamed_addr constant [6 x i8] c"%llu\\0A\\00"')
+        rt.append('@_rt_fmt_g = private unnamed_addr constant [3 x i8] c"%g\\00"')
+        rt.append('@_rt_fmt_gn = private unnamed_addr constant [4 x i8] c"%g\\0A\\00"')
+        rt.append('@_rt_fmt_pn = private unnamed_addr constant [4 x i8] c"%p\\0A\\00"')
+        rt.append('@_rt_str_true = private unnamed_addr constant [5 x i8] c"true\\00"')
+        rt.append('@_rt_str_false = private unnamed_addr constant [6 x i8] c"false\\00"')
+        rt.append('')
+
+        # str_concat
+        rt.append('define ptr @_rt_str_concat(ptr %a, ptr %b) {')
+        rt.append('  %la = call i64 @strlen(ptr %a)')
+        rt.append('  %lb = call i64 @strlen(ptr %b)')
+        rt.append('  %total = add i64 %la, %lb')
+        rt.append('  %total1 = add i64 %total, 1')
+        rt.append('  %buf = call ptr @malloc(i64 %total1)')
+        rt.append('  call ptr @memcpy(ptr %buf, ptr %a, i64 %la)')
+        rt.append('  %dst = getelementptr i8, ptr %buf, i64 %la')
+        rt.append('  %lb1 = add i64 %lb, 1')
+        rt.append('  call ptr @memcpy(ptr %dst, ptr %b, i64 %lb1)')
+        rt.append('  ret ptr %buf')
+        rt.append('}')
+        rt.append('')
+
+        # print variants
+        rt.append('define void @_rt_print_i64(i64 %v) {')
+        rt.append('  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_lldn, i64 0, i64 0')
+        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+        rt.append('define void @_rt_print_u64(i64 %v) {')
+        rt.append('  %fmt = getelementptr [6 x i8], ptr @_rt_fmt_llun, i64 0, i64 0')
+        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, i64 %v)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+        rt.append('define void @_rt_print_double(double %v) {')
+        rt.append('  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_gn, i64 0, i64 0')
+        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, double %v)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+        rt.append('define void @_rt_print_bool(i1 %v) {')
+        rt.append('  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0')
+        rt.append('  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0')
+        rt.append('  %s = select i1 %v, ptr %t, ptr %f')
+        rt.append('  call i32 @puts(ptr %s)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+        rt.append('define void @_rt_print_str(ptr %v) {')
+        rt.append('  call i32 @puts(ptr %v)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+        rt.append('define void @_rt_print_ptr(ptr %v) {')
+        rt.append('  %fmt = getelementptr [4 x i8], ptr @_rt_fmt_pn, i64 0, i64 0')
+        rt.append('  call i32 (ptr, ...) @printf(ptr %fmt, ptr %v)')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+
+        # to_str variants
+        rt.append('define ptr @_rt_i64_to_str(i64 %v) {')
+        rt.append('  %buf = call ptr @malloc(i64 64)')
+        rt.append('  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_lld, i64 0, i64 0')
+        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)')
+        rt.append('  ret ptr %buf')
+        rt.append('}')
+        rt.append('')
+        rt.append('define ptr @_rt_u64_to_str(i64 %v) {')
+        rt.append('  %buf = call ptr @malloc(i64 64)')
+        rt.append('  %fmt = getelementptr [5 x i8], ptr @_rt_fmt_llu, i64 0, i64 0')
+        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, i64 %v)')
+        rt.append('  ret ptr %buf')
+        rt.append('}')
+        rt.append('')
+        rt.append('define ptr @_rt_double_to_str(double %v) {')
+        rt.append('  %buf = call ptr @malloc(i64 64)')
+        rt.append('  %fmt = getelementptr [3 x i8], ptr @_rt_fmt_g, i64 0, i64 0')
+        rt.append('  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 64, ptr %fmt, double %v)')
+        rt.append('  ret ptr %buf')
+        rt.append('}')
+        rt.append('')
+        rt.append('define ptr @_rt_bool_to_str(i1 %v) {')
+        rt.append('  %t = getelementptr [5 x i8], ptr @_rt_str_true, i64 0, i64 0')
+        rt.append('  %f = getelementptr [6 x i8], ptr @_rt_str_false, i64 0, i64 0')
+        rt.append('  %s = select i1 %v, ptr %t, ptr %f')
+        rt.append('  ret ptr %s')
+        rt.append('}')
+        rt.append('')
+
+        # array_new
+        rt.append('define ptr @_rt_array_new(i64 %elem_sz) {')
+        rt.append('  %arr = call ptr @malloc(i64 24)')
+        rt.append('  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0')
+        rt.append('  store i64 0, ptr %len_ptr')
+        rt.append('  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1')
+        rt.append('  store i64 8, ptr %cap_ptr')
+        rt.append('  %buf_sz = mul i64 %elem_sz, 8')
+        rt.append('  %data = call ptr @malloc(i64 %buf_sz)')
+        rt.append('  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2')
+        rt.append('  store ptr %data, ptr %data_ptr')
+        rt.append('  ret ptr %arr')
+        rt.append('}')
+        rt.append('')
+
+        # array_ensure_cap (handles grow/realloc)
+        rt.append('define void @_rt_array_ensure_cap(ptr %arr, i64 %elem_sz) {')
+        rt.append('  %len_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 0')
+        rt.append('  %len = load i64, ptr %len_ptr')
+        rt.append('  %cap_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 1')
+        rt.append('  %cap = load i64, ptr %cap_ptr')
+        rt.append('  %need = icmp sge i64 %len, %cap')
+        rt.append('  br i1 %need, label %grow, label %done')
+        rt.append('grow:')
+        rt.append('  %new_cap = mul i64 %cap, 2')
+        rt.append('  store i64 %new_cap, ptr %cap_ptr')
+        rt.append('  %new_bytes = mul i64 %new_cap, %elem_sz')
+        rt.append('  %data_ptr = getelementptr %struct.Array, ptr %arr, i32 0, i32 2')
+        rt.append('  %old_data = load ptr, ptr %data_ptr')
+        rt.append('  %new_data = call ptr @realloc(ptr %old_data, i64 %new_bytes)')
+        rt.append('  store ptr %new_data, ptr %data_ptr')
+        rt.append('  br label %done')
+        rt.append('done:')
+        rt.append('  ret void')
+        rt.append('}')
+        rt.append('')
+
+        for line in rt:
+            self._emit_global(line)
+
     # --- Class layout helpers ---
 
     def _resolve_class(self, class_name: str) -> str:
@@ -306,6 +449,9 @@ class CodeGen:
         # Array struct type: { i64 len, i64 cap, ptr data }
         self._emit_global('%struct.Array = type { i64, i64, ptr }')
         self._emit_global('')
+
+        # Emit runtime helper functions
+        self._emit_runtime_functions()
 
         # Collect extern functions from imported modules too
         all_externs = list(prog.extern_fns)
@@ -1021,23 +1167,9 @@ class CodeGen:
 
         # String concatenation
         if lt == "Str" and rt == "Str" and expr.op == "+":
-            len_a = self._tmp()
-            len_b = self._tmp()
-            total = self._tmp()
-            total1 = self._tmp()
-            buf = self._tmp()
-            dst = self._tmp()
-            self._emit(f'  {len_a} = call i64 @strlen(ptr {lr})')
-            self._emit(f'  {len_b} = call i64 @strlen(ptr {rr})')
-            self._emit(f'  {total} = add i64 {len_a}, {len_b}')
-            self._emit(f'  {total1} = add i64 {total}, 1')
-            self._emit(f'  {buf} = call ptr @malloc(i64 {total1})')
-            self._emit(f'  call ptr @memcpy(ptr {buf}, ptr {lr}, i64 {len_a})')
-            self._emit(f'  {dst} = getelementptr i8, ptr {buf}, i64 {len_a}')
-            len_b1 = self._tmp()
-            self._emit(f'  {len_b1} = add i64 {len_b}, 1')
-            self._emit(f'  call ptr @memcpy(ptr {dst}, ptr {rr}, i64 {len_b1})')
-            return buf, "Str"
+            result = self._tmp()
+            self._emit(f'  {result} = call ptr @_rt_str_concat(ptr {lr}, ptr {rr})')
+            return result, "Str"
 
         # Pointer comparison
         if lt == "Ptr" and rt == "Ptr" and expr.op in ("==", "!="):
@@ -1280,31 +1412,10 @@ class CodeGen:
 
     def _gen_array_constructor(self, array_type: str, expr: Call) -> tuple[str, str]:
         """Generate Array[T]() — allocates struct + initial data buffer."""
-        # Allocate the struct {i64 len, i64 cap, ptr data}
-        arr = self._tmp()
-        self._emit(f'  {arr} = call ptr @malloc(i64 24)')  # 3 * i64 = 24 bytes
-
-        # Store len = 0
-        len_ptr = self._tmp()
-        self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 0')
-        self._emit(f'  store i64 0, ptr {len_ptr}')
-
-        # Store cap = 8 (initial capacity)
-        cap_ptr = self._tmp()
-        self._emit(f'  {cap_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 1')
-        self._emit(f'  store i64 8, ptr {cap_ptr}')
-
-        # Allocate initial data buffer
         elem_type = _array_elem_type(array_type)
         elem_sz = self._elem_size(elem_type)
-        data = self._tmp()
-        self._emit(f'  {data} = call ptr @malloc(i64 {elem_sz * 8})')
-
-        # Store data pointer
-        data_ptr = self._tmp()
-        self._emit(f'  {data_ptr} = getelementptr %struct.Array, ptr {arr}, i32 0, i32 2')
-        self._emit(f'  store ptr {data}, ptr {data_ptr}')
-
+        arr = self._tmp()
+        self._emit(f'  {arr} = call ptr @_rt_array_new(i64 {elem_sz})')
         return arr, array_type
 
     def _gen_array_method(self, expr: MethodCall, array_type: str) -> tuple[str, str]:
@@ -1356,57 +1467,23 @@ class CodeGen:
             val_reg, val_type = self._gen_expr(expr.args[0])
             val_reg = self._coerce(val_reg, val_type, elem_type)
 
-            # Load len and cap
+            # Ensure capacity (handles grow/realloc)
+            self._emit(f'  call void @_rt_array_ensure_cap(ptr {obj_reg}, i64 {elem_sz})')
+
+            # Store element at arr[len], increment len
             len_ptr = self._tmp()
             self._emit(f'  {len_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 0')
             cur_len = self._tmp()
             self._emit(f'  {cur_len} = load i64, ptr {len_ptr}')
-
-            cap_ptr = self._tmp()
-            self._emit(f'  {cap_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 1')
-            cur_cap = self._tmp()
-            self._emit(f'  {cur_cap} = load i64, ptr {cap_ptr}')
-
-            # Check if we need to grow
-            need_grow = self._tmp()
-            self._emit(f'  {need_grow} = icmp sge i64 {cur_len}, {cur_cap}')
-
-            grow_label = self._label("arr.grow")
-            store_label = self._label("arr.store")
-
-            self._emit(f'  br i1 {need_grow}, label %{grow_label}, label %{store_label}')
-
-            # Grow path: double capacity, realloc
-            self._emit(f'{grow_label}:')
-            new_cap = self._tmp()
-            self._emit(f'  {new_cap} = mul i64 {cur_cap}, 2')
-            self._emit(f'  store i64 {new_cap}, ptr {cap_ptr}')
-            new_bytes = self._tmp()
-            self._emit(f'  {new_bytes} = mul i64 {new_cap}, {elem_sz}')
-            data_ptr_ptr_g = self._tmp()
-            self._emit(f'  {data_ptr_ptr_g} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
-            old_data_g = self._tmp()
-            self._emit(f'  {old_data_g} = load ptr, ptr {data_ptr_ptr_g}')
-            new_data = self._tmp()
-            self._emit(f'  {new_data} = call ptr @realloc(ptr {old_data_g}, i64 {new_bytes})')
-            self._emit(f'  store ptr {new_data}, ptr {data_ptr_ptr_g}')
-            self._emit(f'  br label %{store_label}')
-
-            # Store path: store element at arr[len], increment len
-            self._emit(f'{store_label}:')
-            data_ptr_ptr_s = self._tmp()
-            self._emit(f'  {data_ptr_ptr_s} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
-            data_ptr_s = self._tmp()
-            self._emit(f'  {data_ptr_s} = load ptr, ptr {data_ptr_ptr_s}')
-            # Reload len (could have been the same, but need to load after phi)
-            cur_len2 = self._tmp()
-            self._emit(f'  {cur_len2} = load i64, ptr {len_ptr}')
+            data_ptr_ptr = self._tmp()
+            self._emit(f'  {data_ptr_ptr} = getelementptr %struct.Array, ptr {obj_reg}, i32 0, i32 2')
+            data_ptr = self._tmp()
+            self._emit(f'  {data_ptr} = load ptr, ptr {data_ptr_ptr}')
             elem_ptr = self._tmp()
-            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr_s}, i64 {cur_len2}')
+            self._emit(f'  {elem_ptr} = getelementptr {elem_llvm}, ptr {data_ptr}, i64 {cur_len}')
             self._emit(f'  store {elem_llvm} {val_reg}, ptr {elem_ptr}')
-            # Increment len
             new_len = self._tmp()
-            self._emit(f'  {new_len} = add i64 {cur_len2}, 1')
+            self._emit(f'  {new_len} = add i64 {cur_len}, 1')
             self._emit(f'  store i64 {new_len}, ptr {len_ptr}')
 
             return "void", "Void"
@@ -1416,67 +1493,36 @@ class CodeGen:
     # --- to_str ---
 
     def _gen_to_str(self, obj_expr: Expr, obj_type: str) -> tuple[str, str]:
-        """Generate to_str() for primitive types using snprintf."""
+        """Generate to_str() for primitive types via runtime helpers."""
         obj_reg, _ = self._gen_expr(obj_expr)
-
-        # Allocate a buffer (64 bytes is plenty for any number)
-        buf = self._tmp()
-        self._emit(f'  {buf} = call ptr @malloc(i64 64)')
+        result = self._tmp()
 
         if obj_type in SIGNED_INT_TYPES:
-            llvm_t = _llvm_type(obj_type)
             if obj_type != "I64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = sext {llvm_t} {obj_reg} to i64')
+                self._emit(f'  {ext} = sext {_llvm_type(obj_type)} {obj_reg} to i64')
                 obj_reg = ext
-            fmt_name, fmt_len = self._str_const("%lld")
-            fmt_reg = self._tmp()
-            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
-            discard = self._tmp()
-            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, i64 {obj_reg})')
+            self._emit(f'  {result} = call ptr @_rt_i64_to_str(i64 {obj_reg})')
 
         elif obj_type in UNSIGNED_INT_TYPES:
-            llvm_t = _llvm_type(obj_type)
             if obj_type != "U64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = zext {llvm_t} {obj_reg} to i64')
+                self._emit(f'  {ext} = zext {_llvm_type(obj_type)} {obj_reg} to i64')
                 obj_reg = ext
-            fmt_name, fmt_len = self._str_const("%llu")
-            fmt_reg = self._tmp()
-            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
-            discard = self._tmp()
-            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, i64 {obj_reg})')
+            self._emit(f'  {result} = call ptr @_rt_u64_to_str(i64 {obj_reg})')
 
         elif obj_type == "Float":
             ext = self._tmp()
             self._emit(f'  {ext} = fpext float {obj_reg} to double')
-            fmt_name, fmt_len = self._str_const("%g")
-            fmt_reg = self._tmp()
-            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
-            discard = self._tmp()
-            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, double {ext})')
+            self._emit(f'  {result} = call ptr @_rt_double_to_str(double {ext})')
 
         elif obj_type == "Double":
-            fmt_name, fmt_len = self._str_const("%g")
-            fmt_reg = self._tmp()
-            self._emit(f'  {fmt_reg} = getelementptr [{fmt_len} x i8], ptr {fmt_name}, i64 0, i64 0')
-            discard = self._tmp()
-            self._emit(f'  {discard} = call i32 (ptr, i64, ptr, ...) @snprintf(ptr {buf}, i64 64, ptr {fmt_reg}, double {obj_reg})')
+            self._emit(f'  {result} = call ptr @_rt_double_to_str(double {obj_reg})')
 
         elif obj_type == "Bool":
-            true_name, true_len = self._str_const("true")
-            false_name, false_len = self._str_const("false")
-            true_reg = self._tmp()
-            self._emit(f'  {true_reg} = getelementptr [{true_len} x i8], ptr {true_name}, i64 0, i64 0')
-            false_reg = self._tmp()
-            self._emit(f'  {false_reg} = getelementptr [{false_len} x i8], ptr {false_name}, i64 0, i64 0')
-            sel = self._tmp()
-            self._emit(f'  {sel} = select i1 {obj_reg}, ptr {true_reg}, ptr {false_reg}')
-            # For Bool, just return the string constant directly (no need for snprintf)
-            # Free the unused buffer... or just return the constant
-            return sel, "Str"
+            self._emit(f'  {result} = call ptr @_rt_bool_to_str(i1 {obj_reg})')
 
-        return buf, "Str"
+        return result, "Str"
 
     # --- Cast ---
 
@@ -1531,88 +1577,35 @@ class CodeGen:
         ar, at = self._gen_expr(arg)
 
         if at in SIGNED_INT_TYPES:
-            llvm_t = _llvm_type(at)
             if at != "I64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = sext {llvm_t} {ar} to i64')
+                self._emit(f'  {ext} = sext {_llvm_type(at)} {ar} to i64')
                 ar = ext
-            fmt_name, fmt_len = self._str_const("%lld\n")
-            fmt_reg = self._tmp()
-            self._emit(
-                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
-                f'ptr {fmt_name}, i64 0, i64 0'
-            )
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, i64 {ar})')
+            self._emit(f'  call void @_rt_print_i64(i64 {ar})')
 
         elif at in UNSIGNED_INT_TYPES:
-            llvm_t = _llvm_type(at)
             if at != "U64":
                 ext = self._tmp()
-                self._emit(f'  {ext} = zext {llvm_t} {ar} to i64')
+                self._emit(f'  {ext} = zext {_llvm_type(at)} {ar} to i64')
                 ar = ext
-            fmt_name, fmt_len = self._str_const("%llu\n")
-            fmt_reg = self._tmp()
-            self._emit(
-                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
-                f'ptr {fmt_name}, i64 0, i64 0'
-            )
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, i64 {ar})')
+            self._emit(f'  call void @_rt_print_u64(i64 {ar})')
 
         elif at == "Float":
             ext = self._tmp()
             self._emit(f'  {ext} = fpext float {ar} to double')
-            fmt_name, fmt_len = self._str_const("%g\n")
-            fmt_reg = self._tmp()
-            self._emit(
-                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
-                f'ptr {fmt_name}, i64 0, i64 0'
-            )
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, double {ext})')
+            self._emit(f'  call void @_rt_print_double(double {ext})')
 
         elif at == "Double":
-            fmt_name, fmt_len = self._str_const("%g\n")
-            fmt_reg = self._tmp()
-            self._emit(
-                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
-                f'ptr {fmt_name}, i64 0, i64 0'
-            )
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, double {ar})')
+            self._emit(f'  call void @_rt_print_double(double {ar})')
 
         elif at == "Bool":
-            true_name, true_len = self._str_const("true")
-            false_name, false_len = self._str_const("false")
-            true_reg = self._tmp()
-            self._emit(
-                f'  {true_reg} = getelementptr [{true_len} x i8], '
-                f'ptr {true_name}, i64 0, i64 0'
-            )
-            false_reg = self._tmp()
-            self._emit(
-                f'  {false_reg} = getelementptr [{false_len} x i8], '
-                f'ptr {false_name}, i64 0, i64 0'
-            )
-            sel = self._tmp()
-            self._emit(f'  {sel} = select i1 {ar}, ptr {true_reg}, ptr {false_reg}')
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 @puts(ptr {sel})')
+            self._emit(f'  call void @_rt_print_bool(i1 {ar})')
 
         elif at == "Str":
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 @puts(ptr {ar})')
+            self._emit(f'  call void @_rt_print_str(ptr {ar})')
 
         elif at == "Ptr":
-            fmt_name, fmt_len = self._str_const("%p\n")
-            fmt_reg = self._tmp()
-            self._emit(
-                f'  {fmt_reg} = getelementptr [{fmt_len} x i8], '
-                f'ptr {fmt_name}, i64 0, i64 0'
-            )
-            result = self._tmp()
-            self._emit(f'  {result} = call i32 (ptr, ...) @printf(ptr {fmt_reg}, ptr {ar})')
+            self._emit(f'  call void @_rt_print_ptr(ptr {ar})')
 
         else:
             raise RuntimeError(f"print: unsupported type {at}")
