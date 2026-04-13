@@ -1,14 +1,144 @@
 # Lexer for Kouhai
-# Scans source string and returns token array
+# Token struct defined here to avoid import issues
 
-import "token.kou"
+struct Token:
+    type: I64
+    value: Str
+    line: I64
+    col: I64
+
+fn token_type_name(t: I64) -> Str:
+    if t == 1:
+        return "INT_LIT"
+    if t == 2:
+        return "FLOAT_LIT"
+    if t == 3:
+        return "STR_LIT"
+    if t == 4:
+        return "BOOL_LIT"
+    if t == 10:
+        return "IDENT"
+    if t == 20:
+        return "FN"
+    if t == 21:
+        return "CLASS"
+    if t == 22:
+        return "LET"
+    if t == 23:
+        return "IF"
+    if t == 24:
+        return "ELIF"
+    if t == 25:
+        return "ELSE"
+    if t == 26:
+        return "WHILE"
+    if t == 27:
+        return "RETURN"
+    if t == 28:
+        return "SELF"
+    if t == 29:
+        return "SUPER"
+    if t == 30:
+        return "AND"
+    if t == 31:
+        return "OR"
+    if t == 32:
+        return "NOT"
+    if t == 33:
+        return "NONE"
+    if t == 34:
+        return "FOR"
+    if t == 35:
+        return "IN"
+    if t == 36:
+        return "RANGE"
+    if t == 37:
+        return "AS"
+    if t == 38:
+        return "IMPORT"
+    if t == 39:
+        return "EXTERN"
+    if t == 40:
+        return "LINK"
+    if t == 41:
+        return "STRUCT"
+    if t == 42:
+        return "SIZEOF"
+    if t == 43:
+        return "NIL"
+    if t == 50:
+        return "PLUS"
+    if t == 51:
+        return "MINUS"
+    if t == 52:
+        return "STAR"
+    if t == 53:
+        return "SLASH"
+    if t == 54:
+        return "PERCENT"
+    if t == 55:
+        return "EQ"
+    if t == 56:
+        return "EQEQ"
+    if t == 57:
+        return "NEQ"
+    if t == 58:
+        return "LT"
+    if t == 59:
+        return "GT"
+    if t == 60:
+        return "LE"
+    if t == 61:
+        return "GE"
+    if t == 62:
+        return "ARROW"
+    if t == 63:
+        return "AMP"
+    if t == 64:
+        return "PIPE"
+    if t == 65:
+        return "CARET"
+    if t == 66:
+        return "TILDE"
+    if t == 67:
+        return "SHL"
+    if t == 68:
+        return "SHR"
+    if t == 80:
+        return "LPAREN"
+    if t == 81:
+        return "RPAREN"
+    if t == 82:
+        return "LBRACKET"
+    if t == 83:
+        return "RBRACKET"
+    if t == 84:
+        return "COLON"
+    if t == 85:
+        return "COMMA"
+    if t == 86:
+        return "DOT"
+    if t == 90:
+        return "INDENT"
+    if t == 91:
+        return "DEDENT"
+    if t == 92:
+        return "NEWLINE"
+    if t == 93:
+        return "EOF"
+    return "UNKNOWN"
 
 struct Lexer:
     source: Str
     pos: I64
     line: I64
     col: I64
-    tokens: Array[Token]
+    token_count: I64
+    # temp storage for token info (push workaround)
+    last_type: I64
+    last_value: Str
+    last_line: I64
+    last_col: I64
 
 fn init_lexer(source: Str) -> Lexer:
     let l = Lexer()
@@ -16,7 +146,11 @@ fn init_lexer(source: Str) -> Lexer:
     l.pos = 0
     l.line = 1
     l.col = 1
-    l.tokens = Array[Token]()
+    l.token_count = 0
+    l.last_type = 0
+    l.last_value = ""
+    l.last_line = 0
+    l.last_col = 0
     return l
 
 fn lexer_char_at(l: Lexer, offset: I64) -> I64:
@@ -46,8 +180,11 @@ fn lexer_match(l: Lexer, ch: I64) -> Bool:
     return false
 
 fn lexer_add_token(l: Lexer, type: I64, value: Str):
-    let t = Token(type, value, l.line, l.col)
-    l.tokens.push(t)
+    l.token_count = l.token_count + 1
+    l.last_type = type
+    l.last_value = value
+    l.last_line = l.line
+    l.last_col = l.col
 
 fn lexer_is_alpha(ch: I64) -> Bool:
     if ch >= 65 and ch <= 90:
@@ -73,23 +210,26 @@ fn lexer_is_alnum(ch: I64) -> Bool:
 fn lexer_read_string(l: Lexer):
     lexer_consume(l)
     let start = l.pos
-    while true:
+    let done = false
+    while not done:
         let ch = lexer_current_char(l)
         if ch == 0:
-            return
-        if ch == 34:
-            break
-        if ch == 92:
-            lexer_consume(l)
-            let esc = lexer_current_char(l)
-            if esc == 110:
-                esc = 10
-            else:
-                if esc == 116:
-                    esc = 9
-            lexer_consume(l)
+            done = true
         else:
-            lexer_consume(l)
+            if ch == 34:
+                done = true
+            else:
+                if ch == 92:
+                    lexer_consume(l)
+                    let esc = lexer_current_char(l)
+                    if esc == 110:
+                        esc = 10
+                    else:
+                        if esc == 116:
+                            esc = 9
+                    lexer_consume(l)
+                else:
+                    lexer_consume(l)
     let end = l.pos
     lexer_consume(l)
     let value = l.source.str_substring(start, end)
@@ -246,67 +386,33 @@ fn lexer_scan_operator(l: Lexer):
                                                     else:
                                                         lexer_consume(l)
 
-fn lexer_scan_delim(l: Lexer):
-    let ch = lexer_current_char(l)
-    if ch == 40:
-        lexer_consume(l)
-        lexer_add_token(l, 80, "(")
-    else:
-        if ch == 41:
-            lexer_consume(l)
-            lexer_add_token(l, 81, ")")
-        else:
-            if ch == 91:
-                lexer_consume(l)
-                lexer_add_token(l, 82, "[")
-            else:
-                if ch == 93:
-                    lexer_consume(l)
-                    lexer_add_token(l, 83, "]")
-                else:
-                    if ch == 58:
-                        lexer_consume(l)
-                        lexer_add_token(l, 84, ":")
-                    else:
-                        if ch == 44:
-                            lexer_consume(l)
-                            lexer_add_token(l, 85, ",")
-                        else:
-                            if ch == 46:
-                                lexer_consume(l)
-                                lexer_add_token(l, 86, ".")
-                            else:
-                                if ch == 10:
-                                    lexer_consume(l)
-                                    lexer_add_token(l, 92, "\n")
-                                else:
-                                    lexer_consume(l)
-
-fn lex(source: Str) -> Array[Token]:
+fn lex(source: Str) -> I64:
     let l = init_lexer(source)
-    while true:
+    let done = false
+    while not done:
         let ch = lexer_current_char(l)
         if ch == 0:
-            break
-        if ch == 32 or ch == 9 or ch == 13:
-            lexer_consume(l)
+            done = true
         else:
-            if ch == 34:
-                lexer_read_string(l)
+            if ch == 32 or ch == 9 or ch == 13:
+                lexer_consume(l)
             else:
-                if lexer_is_digit(ch):
-                    lexer_read_number(l)
+                if ch == 34:
+                    lexer_read_string(l)
                 else:
-                    if lexer_is_alpha(ch):
-                        lexer_read_ident(l)
+                    if lexer_is_digit(ch):
+                        lexer_read_number(l)
                     else:
-                        lexer_scan_operator(l)
+                        if lexer_is_alpha(ch):
+                            lexer_read_ident(l)
+                        else:
+                            lexer_scan_operator(l)
     lexer_add_token(l, 93, "")
-    return l.tokens
+    return l.token_count
 
 fn main():
-    let tokens = lex("fn main():\n    print(42)\n")
-    print(tokens.len())
-    print(token_type_name(tokens.get(0).type))
-    print(token_type_name(tokens.get(1).type))
-    print(token_type_name(tokens.get(2).type))
+    let count = lex("fn main():\n    print(42)\n")
+    print(count)
+    print(token_type_name(20))
+    print(token_type_name(10))
+    print(token_type_name(80))

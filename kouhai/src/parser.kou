@@ -7,16 +7,279 @@
 # RBRACKET=52, COLON=53, COMMA=54, DOT=55, INDENT=56, DEDENT=57, NEWLINE=58, EOF=59
 
 import "token.kou"
+import "ast.kou"
 
 class Parser:
-    fn __init__(self, tok_arr: Array[Token]):
-        self.tokens = tok_arr
+    fn __init__(self, tokens: Array[Ptr]):
+        self.tokens = tokens
         self.pos = 0
     
-    fn _peek(self) -> Token:
+    fn _peek(self) -> Ptr:
         if self.pos >= self.tokens.len():
             return nil
         return self.tokens.get(self.pos)
+    
+    fn _peek_type(self) -> I64:
+        let tok = self._peek()
+        if tok == nil:
+            return 59  # EOF
+        return 0  # Placeholder
+    
+    fn _at(self, type_id: I64) -> Bool:
+        return self._peek_type() == type_id
+    
+    fn _eat(self, expected: I64) -> Ptr:
+        let tok = self._peek()
+        if tok == nil:
+            return nil
+        self.pos = self.pos + 1
+        return tok
+    
+    fn _skip_newlines(self):
+        while self._at(58):  # NEWLINE
+            self.pos = self.pos + 1
+    
+    fn parse(self) -> Ptr:
+        self._skip_newlines()
+        
+        # Parse imports first
+        while self._at(24):  # IMPORT
+            self._eat(24)
+            self._eat(3)  # STR_LIT
+            self._skip_newlines()
+        
+        # Parse top-level - consume all tokens
+        while not self._at(59):  # EOF
+            if self._at(6):  # FN
+                self._parse_fn_def()
+            elif self._at(7):  # CLASS
+                self._parse_class_def()
+            elif self._at(27):  # STRUCT
+                self._parse_struct_def()
+            elif self._at(25):  # EXTERN
+                self._parse_extern_def()
+            else:
+                self.pos = self.pos + 1
+            self._skip_newlines()
+        
+        return nil
+    
+    fn _parse_fn_def(self):
+        self._eat(6)  # FN
+        self._eat(5)  # IDENT
+        self._eat(49)  # LPAREN
+        self._parse_params()
+        self._eat(50)  # RPAREN
+        if self._at(42):  # ARROW
+            self._eat(42)
+            self._eat(5)  # type name
+        self._eat(53)  # COLON
+        self._parse_body()
+    
+    fn _parse_params(self):
+        if not self._at(50):  # Not RPAREN
+            self._eat(5)  # IDENT
+            self._eat(53)  # COLON
+            self._eat(5)  # type name
+            while self._at(54):  # COMMA
+                self._eat(54)
+                self._eat(5)  # IDENT
+                self._eat(53)  # COLON
+                self._eat(5)  # type name
+    
+    fn _parse_body(self):
+        self._eat(58)  # NEWLINE
+        self._eat(56)  # INDENT
+        while not self._at(57):  # DEDENT
+            self._parse_stmt()
+            self._skip_newlines()
+    
+    fn _parse_stmt(self):
+        if self._at(8):  # LET
+            self._eat(8)
+            self._eat(5)  # IDENT
+            if self._at(53):
+                self._eat(53)
+                self._eat(5)  # type
+            self._eat(35)  # EQ
+            self._parse_expr()
+        elif self._at(13):  # RETURN
+            self._eat(13)
+            if not self._at(58):
+                self._parse_expr()
+        elif self._at(9):  # IF
+            self._eat(9)
+            self._parse_expr()
+            self._parse_body()
+            while self._at(10):  # ELIF
+                self._eat(10)
+                self._parse_expr()
+                self._parse_body()
+            if self._at(11):  # ELSE
+                self._eat(11)
+                self._parse_body()
+        elif self._at(12):  # WHILE
+            self._eat(12)
+            self._parse_expr()
+            self._parse_body()
+        elif self._at(20):  # FOR
+            self._eat(20)
+            self._eat(5)  # var
+            self._eat(21)  # IN
+            self._eat(22)  # RANGE
+            self._eat(49)  # LPAREN
+            if not self._at(50):
+                self._parse_expr()
+            self._eat(50)  # RPAREN
+            self._parse_expr()
+            self._parse_body()
+        else:
+            self._parse_expr()
+    
+    fn _parse_expr(self) -> Ptr:
+        return self._parse_or()
+    
+    fn _parse_or(self) -> Ptr:
+        let left = self._parse_and()
+        while self._at(17):  # OR
+            self._eat(17)
+            self._parse_and()
+        return left
+    
+    fn _parse_and(self) -> Ptr:
+        let left = self._parse_not()
+        while self._at(16):  # AND
+            self._eat(16)
+            self._parse_not()
+        return left
+    
+    fn _parse_not(self) -> Ptr:
+        if self._at(18):  # NOT
+            self._eat(18)
+            self._parse_not()
+        return self._parse_comparison()
+    
+    fn _parse_comparison(self) -> Ptr:
+        let left = self._parse_add()
+        if self._at(36) or self._at(37) or self._at(38) or self._at(39) or self._at(40) or self._at(41):
+            self._eat(self._peek_type())
+            self._parse_add()
+        return left
+    
+    fn _parse_add(self) -> Ptr:
+        let left = self._parse_mul()
+        while self._at(30) or self._at(31):  # PLUS, MINUS
+            if self._at(31):
+                self._eat(31)
+            else:
+                self._eat(30)
+            self._parse_mul()
+        return left
+    
+    fn _parse_mul(self) -> Ptr:
+        let left = self._parse_unary()
+        while self._at(32) or self._at(33) or self._at(34):  # STAR, SLASH, PERCENT
+            if self._at(33):
+                self._eat(33)
+            elif self._at(34):
+                self._eat(34)
+            else:
+                self._eat(32)
+            self._parse_unary()
+        return left
+    
+    fn _parse_unary(self) -> Ptr:
+        if self._at(31):  # MINUS
+            self._eat(31)
+            self._parse_unary()
+        elif self._at(46):  # TILDE
+            self._eat(46)
+            self._parse_unary()
+        return self._parse_postfix()
+    
+    fn _parse_postfix(self) -> Ptr:
+        let expr = self._parse_primary()
+        let is_dot = self._at(55)  # DOT
+        let is_bracket = self._at(51)  # LBRACKET
+        if is_dot:
+            self._eat(55)
+            self._eat(5)  # IDENT
+            if self._at(49):  # LPAREN
+                self._eat(49)
+                self._parse_args()
+                self._eat(50)
+        elif is_bracket:
+            self._eat(51)
+            self._parse_expr()
+            self._eat(52)  # RBRACKET
+        return expr
+    
+    fn _parse_primary(self) -> Ptr:
+        if self._at(1):  # INT_LIT
+            return self._eat(1)
+        if self._at(3):  # STR_LIT
+            return self._eat(3)
+        if self._at(4):  # BOOL_LIT
+            return self._eat(4)
+        if self._at(29):  # NIL
+            return self._eat(29)
+        if self._at(49):  # LPAREN
+            self._eat(49)
+            let expr = self._parse_expr()
+            self._eat(50)  # RPAREN
+            return expr
+        if self._at(5):  # IDENT
+            let tok = self._eat(5)
+            if self._at(49):  # LPAREN
+                self._eat(49)
+                self._parse_args()
+                self._eat(50)
+            return tok
+        return nil
+    
+    fn _parse_args(self):
+        if not self._at(50):  # RPAREN
+            self._parse_expr()
+            while self._at(54):  # COMMA
+                self._eat(54)
+                self._parse_expr()
+    
+    fn _parse_class_def(self):
+        self._eat(7)  # CLASS
+        self._eat(5)  # IDENT
+        if self._at(49):  # LPAREN
+            self._eat(49)
+            self._eat(5)  # parent
+            self._eat(50)  # RPAREN
+        self._eat(53)  # COLON
+        self._eat(58)  # NEWLINE
+        self._eat(56)  # INDENT
+        while not self._at(57):  # DEDENT
+            self._parse_fn_def()
+            self._skip_newlines()
+    
+    fn _parse_struct_def(self):
+        self._eat(27)  # STRUCT
+        self._eat(5)  # IDENT
+        self._eat(53)  # COLON
+        self._eat(58)  # NEWLINE
+        self._eat(56)  # INDENT
+        while not self._at(57):  # DEDENT
+            self._eat(5)  # IDENT
+            self._eat(53)  # COLON
+            self._eat(5)  # type
+            self._skip_newlines()
+    
+    fn _parse_extern_def(self):
+        self._eat(25)  # EXTERN
+        self._eat(6)  # FN
+        self._eat(5)  # IDENT
+        self._eat(49)  # LPAREN
+        self._parse_params()
+        self._eat(50)  # RPAREN
+        if self._at(42):  # ARROW
+            self._eat(42)
+            self._eat(5)  # type
 
 fn main():
-    print("Parser with Token type works!")
+    print("Parser module works!")

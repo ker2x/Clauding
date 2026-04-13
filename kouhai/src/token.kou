@@ -1,24 +1,23 @@
 # Token types for Kouhai lexer
 
-class Token:
-    fn __init__(self, type: I64, value: Str, line: I64, col: I64):
-        self.type = type
-        self.value = value
-        self.line = line
-        self.col = col
-    
-    fn is_keyword(self) -> Bool:
-        return self._in_range(self.type, 20, 43)
-    
-    fn is_literal(self) -> Bool:
-        return self._in_range(self.type, 1, 4)
-    
-    fn _in_range(self, v: I64, lo: I64, hi: I64) -> Bool:
-        if v < lo:
-            return false
-        if v > hi:
-            return false
-        return true
+struct Token:
+    type: I64
+    value: Str
+    line: I64
+    col: I64
+
+fn init_token(t: Token, type: I64, value: Str, line: I64, col: I64):
+    t.type = type
+    t.value = value
+    t.line = line
+    t.col = col
+
+
+fn get_token_type(t: Token) -> I64:
+    return t.type
+
+fn get_token_value(t: Token) -> Str:
+    return t.value
 
 fn token_type_name(t: I64) -> Str:
     if t == 1:
@@ -142,7 +141,16 @@ fn token_type_name(t: I64) -> Str:
     return "UNKNOWN"
 
 fn main():
-    let t = Token(1, "42", 1, 0)
-    print(token_type_name(t.type))
-    print(t.is_keyword())
-    print(t.is_literal())
+    # Create token using field access
+    let t = Token()
+    t.type = 20  # FN
+    t.value = "fn"
+    t.line = 1
+    t.col = 0
+    
+    # Access fields directly
+    print(get_token_type(t))
+    print(get_token_value(t))
+    
+    # Access struct fields via helper
+    print(token_type_name(get_token_type(t)))

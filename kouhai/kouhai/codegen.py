@@ -454,11 +454,12 @@ class CodeGen:
     def _resolve_class(self, class_name: str) -> str:
         """Resolve a class name, qualifying with current module if needed."""
         if class_name in self._class_info:
-            return class_name
+            # Return the canonical name from ClassInfo (may differ from key)
+            return self._class_info[class_name].name
         if self._current_module:
             qual = f"{self._current_module}.{class_name}"
             if qual in self._class_info:
-                return qual
+                return self._class_info[qual].name
         return class_name
 
     def _resolve_fn(self, fn_name: str) -> str:
@@ -651,6 +652,19 @@ class CodeGen:
                     full_name = f"{qual_cls}_{mname}"
                     self._fn_sigs[full_name] = sig.ret_type
                     self._fn_params[full_name] = [qual_cls] + list(sig.param_types)
+            # Register structs from module as ClassInfo with is_struct=True
+            for struct_name, si in mi.structs.items():
+                qual_name = f"{mod_name}.{struct_name}"
+                ci = ClassInfo(
+                    name=qual_name,
+                    parent_name="",
+                    fields=dict(si.fields),
+                    methods={},
+                    vtable_order=[],
+                    vtable_impl={},
+                    is_struct=True,
+                )
+                self._class_info[qual_name] = ci
 
         # External declarations — track what's been declared to avoid duplicates
         declared = set()
@@ -763,7 +777,8 @@ class CodeGen:
         for mod_name, mod_prog in prog.module_programs.items():
             # Collect module-level structs
             for st in mod_prog.structs:
-                _struct_types.add(f"{mod_name}.{st.name}")
+                qual_name = f"{mod_name}.{st.name}"
+                _struct_types.add(qual_name)
             # Also emit module class struct types (vtable ptr + fields)
             for cls in mod_prog.classes:
                 self._emit_class_types_module(cls, mod_name)
@@ -775,6 +790,16 @@ class CodeGen:
             struct = self._struct_name(st.name)
             self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
             self._emit_global("")
+
+        # Emit struct types for imported modules
+        for mod_name, mod_prog in prog.module_programs.items():
+            for st in mod_prog.structs:
+                qual_name = f"{mod_name}.{st.name}"
+                ci = self._class_info[qual_name]
+                field_types = [_llvm_type(ft) for ft in ci.fields.values()]
+                struct = self._struct_name(qual_name)
+                self._emit_global(f"{struct} = type {{ {', '.join(field_types)} }}")
+                self._emit_global("")
 
         # Collect extern functions from imported modules too
         all_externs = list(prog.extern_fns)
@@ -1749,7 +1774,7 @@ class CodeGen:
         qual_cls = f"{mod_name}.{expr.method}"
         qual_fn = f"{mod_name}.{expr.method}"
 
-        # Class constructor
+        # Class/struct constructor
         if qual_cls in self._class_info:
             ci = self._class_info[qual_cls]
             struct = self._struct_name(qual_cls)
@@ -1764,15 +1789,16 @@ class CodeGen:
             obj = self._tmp()
             self._emit(f"  {obj} = call ptr @malloc(i64 {size})")
 
-            # Store vtable pointer
-            vtable_ptr = self._tmp()
-            self._emit(
-                f"  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0"
-            )
-            safe_name = qual_cls.replace(".", "_")
-            self._emit(f"  store ptr @vtable.{safe_name}, ptr {vtable_ptr}")
+            # For classes (not structs), store vtable pointer
+            if not ci.is_struct:
+                vtable_ptr = self._tmp()
+                self._emit(
+                    f"  {vtable_ptr} = getelementptr {struct}, ptr {obj}, i32 0, i32 0"
+                )
+                safe_name = qual_cls.replace(".", "_")
+                self._emit(f"  store ptr @vtable.{safe_name}, ptr {vtable_ptr}")
 
-            # Call __init__
+            # Call __init__ if it exists
             if "__init__" in ci.methods:
                 init_sig = ci.methods["__init__"]
                 args_ir = [f"ptr {obj}"]

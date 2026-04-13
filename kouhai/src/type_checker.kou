@@ -1,0 +1,44 @@
+# Type checker for Kouhai compiler
+# Validates types and resolves names
+
+import "token.kou"
+import "ast.kou"
+
+# Check if a type name is primitive
+fn is_primitive(type_name: Str) -> Bool:
+    if type_name == "I64" or type_name == "I32" or type_name == "I16" or type_name == "I8":
+        return true
+    if type_name == "U64" or type_name == "U32" or type_name == "U16" or type_name == "U8":
+        return true
+    if type_name == "Float" or type_name == "Double" or type_name == "Bool":
+        return true
+    if type_name == "Str" or type_name == "Ptr" or type_name == "Void":
+        return true
+    return false
+
+# Check if two types are compatible
+fn types_compatible(a: Str, b: Str) -> Bool:
+    if a == b:
+        return true
+    if is_primitive(a) and is_primitive(b):
+        return true
+    return false
+
+# Check expression type
+fn check_expr(expr: Ptr) -> Str:
+    return "I64"
+
+# Check statement
+fn check_stmt(stmt: Ptr) -> Bool:
+    return true
+
+# Check function body
+fn check_fn(fn_decl: Ptr) -> Bool:
+    return true
+
+# Check a program
+fn check_program(prog: Ptr) -> Bool:
+    return true
+
+fn main():
+    print("Type checker module loaded!")

@@ -225,7 +225,25 @@ def _type_compatible(actual: str, expected: str, expr, env: TypeEnv) -> bool:
         return True
     if _is_subtype(actual, expected, env):
         return True
+    # Handle struct types: "Token" and "token.Token" should be compatible
+    # If both names refer to the same ClassInfo, they're the same type
+    actual_ci = env.lookup_class(actual)
+    expected_ci = env.lookup_class(expected)
+    if actual_ci is not None and expected_ci is not None:
+        if actual_ci.name == expected_ci.name:
+            return True
+        # Both point to same struct definition (same fields, same is_struct)
+        if actual_ci.is_struct and expected_ci.is_struct:
+            if dict(actual_ci.fields) == dict(expected_ci.fields):
+                return True
     return False
+
+
+@dataclass
+class StructInfo:
+    """Stores type information about a struct."""
+    name: str
+    fields: dict[str, str]  # field name -> resolved type
 
 
 @dataclass
@@ -235,6 +253,7 @@ class ModuleInfo:
     name: str
     functions: dict[str, FnSig] = field(default_factory=dict)
     classes: dict[str, ClassInfo] = field(default_factory=dict)
+    structs: dict[str, StructInfo] = field(default_factory=dict)
 
 
 def check_program(prog: Program) -> None:
@@ -305,6 +324,21 @@ def check_program(prog: Program) -> None:
             ret = resolve_type(fn.ret_type)
             params = [resolve_type(p.type_name) for p in fn.params]
             mi.functions[fn.name] = FnSig(param_types=params, ret_type=ret)
+        # Collect structs from this module
+        for st in mod_prog.structs:
+            fields = {}
+            for f in st.fields:
+                ft = resolve_type(f.type_name)
+                fields[f.name] = ft
+            mi.structs[st.name] = StructInfo(name=st.name, fields=fields)
+            # Also register struct in env.classes so lookup_class finds it
+            qual_name = f"{mod_name}.{st.name}"
+            ci = ClassInfo(name=qual_name, parent_name="", fields=dict(fields))
+            ci.is_struct = True
+            env.classes[qual_name] = ci  # qualified name
+            env.classes[st.name] = ci    # also register short name (points to same ci)
+            env.structs.add(qual_name)
+            env.structs.add(st.name)
         # Collect all class names from this module for type qualification
         mod_class_names = {c for c in mod_prog.class_info if c != "Object"}
         for cls_name, ci in mod_prog.class_info.items():
@@ -882,9 +916,14 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 raise TypeError_(expr.line, f"Array constructor takes no arguments")
             return expr.func
 
-        # Check for class constructor
+        # Check for class/struct constructor
         ci = env.lookup_class(expr.func)
         if ci is not None and expr.func != "Object":
+            # For structs, always allow no-arg constructor and return qualified type
+            if ci.is_struct:
+                if len(expr.args) != 0:
+                    raise TypeError_(expr.line, f"{expr.func}() takes no arguments")
+                return expr.func
             if "__init__" in ci.methods:
                 init_sig = ci.methods["__init__"]
                 if len(expr.args) != len(init_sig.param_types):
