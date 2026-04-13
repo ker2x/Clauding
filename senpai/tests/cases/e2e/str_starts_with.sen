@@ -1,0 +1,5 @@
+fn main():
+    let s: Str = "Hello, World!"
+    print(s.str_starts_with("Hello"))
+    print(s.str_starts_with("World"))
+    print(s.str_starts_with(""))

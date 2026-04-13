@@ -42,30 +42,6 @@ from .types import (
     _array_elem_type,
 )
 
-MATH_BUILTINS = {
-    "sqrt",
-    "sin",
-    "cos",
-    "tan",
-    "exp",
-    "log",
-    "log2",
-    "log10",
-    "pow",
-    "floor",
-    "ceil",
-    "round",
-    "trunc",
-    "fma",
-    "abs",
-    "abs_i64",
-    "clz",
-    "ctz",
-    "popcount",
-    "bswap",
-    "panic",
-}
-
 
 # LLVM type mapping
 def _llvm_type(senpai_type: str) -> str:
@@ -346,6 +322,138 @@ class CodeGen:
         rt.append("}")
         rt.append("")
 
+        # --- String methods (UFCS-callable) ---
+
+        # str_len(s: Str) -> I64
+        rt.append("define i64 @senpai_str_len(ptr %s) {")
+        rt.append("  %len = call i64 @strlen(ptr %s)")
+        rt.append("  ret i64 %len")
+        rt.append("}")
+        rt.append("")
+
+        # str_char_at(s: Str, i: I64) -> I64 (returns byte as i64)
+        rt.append("define i64 @senpai_str_char_at(ptr %s, i64 %i) {")
+        rt.append("  %ptr = getelementptr i8, ptr %s, i64 %i")
+        rt.append("  %ch = load i8, ptr %ptr")
+        rt.append("  %val = zext i8 %ch to i64")
+        rt.append("  ret i64 %val")
+        rt.append("}")
+        rt.append("")
+
+        # str_substring(s: Str, start: I64, end: I64) -> Str
+        rt.append("define ptr @senpai_str_substring(ptr %s, i64 %start, i64 %end) {")
+        rt.append("  %len = sub i64 %end, %start")
+        rt.append("  %buf_sz = add i64 %len, 1")
+        rt.append("  %buf = call ptr @malloc(i64 %buf_sz)")
+        rt.append("  %src = getelementptr i8, ptr %s, i64 %start")
+        rt.append("  call ptr @memcpy(ptr %buf, ptr %src, i64 %len)")
+        rt.append("  %null_ptr = getelementptr i8, ptr %buf, i64 %len")
+        rt.append("  store i8 0, ptr %null_ptr")
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
+
+        # str_starts_with(s: Str, prefix: Str) -> Bool
+        rt.append("declare i32 @memcmp(ptr, ptr, i64)")
+        rt.append("define i1 @senpai_str_starts_with(ptr %s, ptr %prefix) {")
+        rt.append("  %slen = call i64 @strlen(ptr %s)")
+        rt.append("  %plen = call i64 @strlen(ptr %prefix)")
+        rt.append("  %too_short = icmp slt i64 %slen, %plen")
+        rt.append("  br i1 %too_short, label %no, label %check")
+        rt.append("check:")
+        rt.append("  %cmp = call i32 @memcmp(ptr %s, ptr %prefix, i64 %plen)")
+        rt.append("  %eq = icmp eq i32 %cmp, 0")
+        rt.append("  ret i1 %eq")
+        rt.append("no:")
+        rt.append("  ret i1 false")
+        rt.append("}")
+        rt.append("")
+
+        # str_index_of(s: Str, needle: Str) -> I64 (-1 if not found)
+        rt.append("declare ptr @strstr(ptr, ptr)")
+        rt.append("define i64 @senpai_str_index_of(ptr %s, ptr %needle) {")
+        rt.append("  %found = call ptr @strstr(ptr %s, ptr %needle)")
+        rt.append("  %is_null = icmp eq ptr %found, null")
+        rt.append("  br i1 %is_null, label %notfound, label %calc")
+        rt.append("calc:")
+        rt.append("  %s_int = ptrtoint ptr %s to i64")
+        rt.append("  %f_int = ptrtoint ptr %found to i64")
+        rt.append("  %idx = sub i64 %f_int, %s_int")
+        rt.append("  ret i64 %idx")
+        rt.append("notfound:")
+        rt.append("  ret i64 -1")
+        rt.append("}")
+        rt.append("")
+
+        # str_from_char(code: I64) -> Str (int to single-char string)
+        rt.append("define ptr @senpai_str_from_char(i64 %code) {")
+        rt.append("  %buf = call ptr @malloc(i64 2)")
+        rt.append("  %ch = trunc i64 %code to i8")
+        rt.append("  store i8 %ch, ptr %buf")
+        rt.append("  %null_ptr = getelementptr i8, ptr %buf, i64 1")
+        rt.append("  store i8 0, ptr %null_ptr")
+        rt.append("  ret ptr %buf")
+        rt.append("}")
+        rt.append("")
+
+        # --- Math wrappers (thin UFCS-callable wrappers around LLVM intrinsics) ---
+
+        # Double -> Double (single arg)
+        for name, intrinsic in [
+            ("sqrt", "llvm.sqrt.f64"), ("sin", "llvm.sin.f64"),
+            ("cos", "llvm.cos.f64"), ("tan", "llvm.tan.f64"),
+            ("exp", "llvm.exp.f64"), ("log", "llvm.log.f64"),
+            ("log2", "llvm.log2.f64"), ("log10", "llvm.log10.f64"),
+            ("floor", "llvm.floor.f64"), ("ceil", "llvm.ceil.f64"),
+            ("round", "llvm.round.f64"), ("trunc", "llvm.trunc.f64"),
+            ("abs", "llvm.fabs.f64"),
+        ]:
+            rt.append(f"define double @senpai_{name}(double %v) {{")
+            rt.append(f"  %r = call double @{intrinsic}(double %v)")
+            rt.append("  ret double %r")
+            rt.append("}")
+            rt.append("")
+
+        # pow(Double, Double) -> Double
+        rt.append("define double @senpai_pow(double %a, double %b) {")
+        rt.append("  %r = call double @llvm.pow.f64(double %a, double %b)")
+        rt.append("  ret double %r")
+        rt.append("}")
+        rt.append("")
+
+        # fma(Double, Double, Double) -> Double
+        rt.append("define double @senpai_fma(double %a, double %b, double %c) {")
+        rt.append("  %r = call double @llvm.fma.f64(double %a, double %b, double %c)")
+        rt.append("  ret double %r")
+        rt.append("}")
+        rt.append("")
+
+        # I64 -> I64
+        rt.append("define i64 @senpai_abs_i64(i64 %v) {")
+        rt.append("  %r = call i64 @llvm.abs.i64(i64 %v, i1 true)")
+        rt.append("  ret i64 %r")
+        rt.append("}")
+        rt.append("")
+
+        for name, intrinsic, extra in [
+            ("clz", "llvm.ctlz.i64", ", i1 false"),
+            ("ctz", "llvm.cttz.i64", ", i1 false"),
+            ("popcount", "llvm.ctpop.i64", ""),
+            ("bswap", "llvm.bswap.i64", ""),
+        ]:
+            rt.append(f"define i64 @senpai_{name}(i64 %v) {{")
+            rt.append(f"  %r = call i64 @{intrinsic}(i64 %v{extra})")
+            rt.append("  ret i64 %r")
+            rt.append("}")
+            rt.append("")
+
+        # panic
+        rt.append("define void @senpai_panic() {")
+        rt.append("  call void @llvm.trap()")
+        rt.append("  unreachable")
+        rt.append("}")
+        rt.append("")
+
         for line in rt:
             self._emit_global(line)
 
@@ -461,6 +569,37 @@ class CodeGen:
         """Generate LLVM IR for an entire program."""
         # Collect class info from type checker
         self._class_info = prog.class_info
+
+        # Register built-in string functions (UFCS-callable)
+        self._fn_sigs["str_len"] = "I64"
+        self._fn_params["str_len"] = ["Str"]
+        self._fn_sigs["str_char_at"] = "I64"
+        self._fn_params["str_char_at"] = ["Str", "I64"]
+        self._fn_sigs["str_substring"] = "Str"
+        self._fn_params["str_substring"] = ["Str", "I64", "I64"]
+        self._fn_sigs["str_starts_with"] = "Bool"
+        self._fn_params["str_starts_with"] = ["Str", "Str"]
+        self._fn_sigs["str_index_of"] = "I64"
+        self._fn_params["str_index_of"] = ["Str", "Str"]
+        self._fn_sigs["str_from_char"] = "Str"
+        self._fn_params["str_from_char"] = ["I64"]
+
+        # Register math builtins (UFCS-callable via wrapper IR functions)
+        for name in ["sqrt", "sin", "cos", "tan", "exp", "log", "log2", "log10",
+                      "floor", "ceil", "round", "trunc", "abs"]:
+            self._fn_sigs[name] = "Double"
+            self._fn_params[name] = ["Double"]
+        self._fn_sigs["pow"] = "Double"
+        self._fn_params["pow"] = ["Double", "Double"]
+        self._fn_sigs["fma"] = "Double"
+        self._fn_params["fma"] = ["Double", "Double", "Double"]
+        self._fn_sigs["abs_i64"] = "I64"
+        self._fn_params["abs_i64"] = ["I64"]
+        for name in ["clz", "ctz", "popcount", "bswap"]:
+            self._fn_sigs[name] = "I64"
+            self._fn_params[name] = ["I64"]
+        self._fn_sigs["panic"] = "Void"
+        self._fn_params["panic"] = []
 
         # Collect function signatures
         for fn in prog.functions:
@@ -1093,10 +1232,6 @@ class CodeGen:
             if obj_type and (obj_type in NUMERIC_TYPES or obj_type == "Bool"):
                 return self._gen_to_str(expr.obj, obj_type)
 
-        # Built-in abs() on primitive types - method style
-        if expr.method == "abs" and len(expr.args) == 0:
-            return self._gen_abs_method(expr)
-
         # Array methods
         obj_type = self._peek_type(expr.obj)
         if obj_type and _is_array_type(obj_type):
@@ -1105,6 +1240,37 @@ class CodeGen:
         # Module-qualified call: module.func() or module.Class()
         if obj_type and obj_type.startswith("Module:"):
             return self._gen_module_call(expr, obj_type[7:])
+
+        # UFCS: a.foo(b) -> foo(a, b) if foo is a known free function
+        fn_name_ufcs = self._resolve_fn(expr.method)
+        ci_check = self._class_info.get(obj_type) if obj_type else None
+        has_class_method = ci_check is not None and expr.method in ci_check.methods
+        if fn_name_ufcs in self._fn_sigs and not has_class_method:
+            obj_reg, obj_type_actual = self._gen_expr(expr.obj)
+            ret_type = self._fn_sigs[fn_name_ufcs]
+            param_types = self._fn_params.get(fn_name_ufcs, [])
+            llvm_ret = _llvm_type(ret_type)
+            # Build args: obj first, then actual args
+            if param_types:
+                obj_reg = self._coerce(obj_reg, obj_type_actual, param_types[0])
+            args_ir = [f"{_llvm_type(param_types[0]) if param_types else _llvm_type(obj_type_actual)} {obj_reg}"]
+            for i, arg in enumerate(expr.args):
+                ar, at = self._gen_expr(arg)
+                pi = i + 1
+                if pi < len(param_types):
+                    ar = self._coerce(ar, at, param_types[pi])
+                    at = param_types[pi]
+                args_ir.append(f"{_llvm_type(at)} {ar}")
+            ir_name = f"@senpai_{fn_name_ufcs}"
+            if fn_name_ufcs in self._extern_fns:
+                ir_name = f"@{fn_name_ufcs}"
+            if ret_type == "Void":
+                self._emit(f"  call void {ir_name}({', '.join(args_ir)})")
+                return "void", "Void"
+            else:
+                result = self._tmp()
+                self._emit(f"  {result} = call {llvm_ret} {ir_name}({', '.join(args_ir)})")
+                return result, ret_type
 
         # Check if this is a super call (direct dispatch, not vtable)
         is_super = isinstance(expr.obj, Var) and expr.obj.name == "super"
@@ -1373,10 +1539,6 @@ class CodeGen:
         # Built-in print
         if expr.func == "print" and len(expr.args) == 1:
             return self._gen_print(expr.args[0])
-
-        # Built-in math functions
-        if expr.func in MATH_BUILTINS:
-            return self._gen_math_builtin(expr)
 
         # Array constructor
         if _is_array_type(expr.func):
@@ -1792,80 +1954,3 @@ class CodeGen:
 
     # --- Math builtins ---
 
-    def _gen_math_builtin(self, expr: Call) -> tuple[str, str]:
-        """Generate LLVM intrinsic calls for math builtins."""
-        func = expr.func
-        args = expr.args
-
-        if func == "panic":
-            self._emit("  call void @llvm.trap()")
-            return "void", "Void"
-
-        intrinsic_map = {
-            "sqrt": "llvm.sqrt.f64",
-            "sin": "llvm.sin.f64",
-            "cos": "llvm.cos.f64",
-            "tan": "llvm.tan.f64",
-            "exp": "llvm.exp.f64",
-            "log": "llvm.log.f64",
-            "log2": "llvm.log2.f64",
-            "log10": "llvm.log10.f64",
-            "floor": "llvm.floor.f64",
-            "ceil": "llvm.ceil.f64",
-            "round": "llvm.round.f64",
-            "trunc": "llvm.trunc.f64",
-            "fma": "llvm.fma.f64",
-            "abs": "llvm.fabs.f64",
-            "abs_i64": "llvm.abs.i64",
-            "clz": "llvm.ctlz.i64",
-            "ctz": "llvm.cttz.i64",
-            "popcount": "llvm.ctpop.i64",
-            "bswap": "llvm.bswap.i64",
-        }
-
-        if func == "pow":
-            arg0, _ = self._gen_expr(args[0])
-            arg1, _ = self._gen_expr(args[1])
-            result = self._tmp()
-            self._emit(
-                f"  {result} = call double @llvm.pow.f64(double {arg0}, double {arg1})"
-            )
-            return result, "Double"
-
-        intrinsic = intrinsic_map[func]
-
-        if func in ("abs_i64", "clz", "ctz", "popcount", "bswap"):
-            arg0, _ = self._gen_expr(args[0])
-            result = self._tmp()
-            if func == "abs_i64":
-                self._emit(f"  {result} = call i64 @llvm.abs.i64(i64 {arg0}, i1 true)")
-            elif func in ("clz", "ctz"):
-                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0}, i1 false)")
-            elif func == "popcount":
-                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0})")
-            elif func == "bswap":
-                self._emit(f"  {result} = call i64 @{intrinsic}(i64 {arg0})")
-            return result, "I64"
-        else:
-            arg0, _ = self._gen_expr(args[0])
-            result = self._tmp()
-            self._emit(f"  {result} = call double @{intrinsic}(double {arg0})")
-            return result, "Double"
-
-    # --- Abs method ---
-
-    def _gen_abs_method(self, expr: MethodCall) -> tuple[str, str]:
-        """Generate abs() as method call on numeric types."""
-        obj_reg, obj_type = self._gen_expr(expr.obj)
-
-        if obj_type in FLOAT_TYPES:
-            result = self._tmp()
-            self._emit(f"  {result} = call double @llvm.fabs.f64(double {obj_reg})")
-            return result, obj_type
-
-        if obj_type in ALL_INT_TYPES:
-            result = self._tmp()
-            self._emit(f"  {result} = call i64 @llvm.abs.i64(i64 {obj_reg}, i1 true)")
-            return result, obj_type
-
-        raise RuntimeError(f"abs: unsupported type {obj_type}")

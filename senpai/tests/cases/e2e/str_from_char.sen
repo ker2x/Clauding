@@ -1,0 +1,4 @@
+fn main():
+    print(str_from_char(65))
+    print(str_from_char(90))
+    print(str_from_char(48))

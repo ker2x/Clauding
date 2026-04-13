@@ -66,8 +66,8 @@ No ambiguous types — every numeric type has an explicit width.
 - **Structs** plain data types (no vtable, no methods), heap-allocated, field access via `.`
 - **sizeof(Type)** returns `I64` byte size of any struct or class (uses LLVM GEP trick)
 - **Ptr** raw pointer type for FFI; castable to/from integers via `as`; `nil` literal for null pointers
-- **print()** is a built-in that handles all numeric types, Bool, Str, and Ptr
-- **to_str()** built-in method on all numeric types and Bool, returns Str
+- **print()** is a polymorphic built-in (special-cased, not UFCS) that handles all numeric types, Bool, Str, and Ptr
+- **to_str()** polymorphic built-in method (special-cased, not UFCS) on all numeric types and Bool, returns Str
 - **Type casting** via `expr as Type` for numeric conversions (int↔float, width changes, Ptr↔int)
 - **for loops** via `for x in range(n):` and `for x in range(start, end):`
 - **Array[T]** generic growable array with `push(val)`, `get(idx)`, `set(idx, val)`, `len()`
@@ -81,6 +81,9 @@ No ambiguous types — every numeric type has an explicit width.
 - **No implicit type conversions** — mismatched types are compile errors
 - **Subtype compatibility** — child class instances accepted where parent type expected
 - **FFI** via `extern fn` declarations; supports numeric, Bool, Str, Ptr, and struct types; `link "lib"` for library linking
+- **UFCS** (Uniform Function Call Syntax) — `a.foo(b)` is equivalent to `foo(a, b)` when `a`'s type has no method `foo`. Any free function can be called as a method on its first argument. Class methods take priority over UFCS.
+- **String methods** (via UFCS): `str_len(s)`, `str_char_at(s, i)`, `str_substring(s, start, end)`, `str_starts_with(s, prefix)`, `str_index_of(s, needle)`, `str_from_char(code)` — all callable as `s.str_len()`, `s.str_char_at(0)`, etc.
+- **Math builtins** (via UFCS — callable as `sqrt(x)` or `x.sqrt()`): `sqrt`, `sin`, `cos`, `tan`, `exp`, `log`, `log2`, `log10`, `pow`, `floor`, `ceil`, `round`, `trunc`, `fma`, `abs` (Double), `abs_i64` (I64), `clz`, `ctz`, `popcount`, `bswap`, `panic` — implemented as thin IR wrappers around LLVM intrinsics
 
 ## Project Structure
 
@@ -104,5 +107,5 @@ senpai/
 └── tests/
     ├── test_compiler.py # 32 unit tests (standalone, no pytest)
     ├── Makefile         # e2e test runner (make -j16 test)
-    └── cases/           # 112 e2e/error/module test cases (.sen + .expected/.error)
+    └── cases/           # 119 e2e/error/module test cases (.sen + .expected/.error)
 ```

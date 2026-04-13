@@ -276,6 +276,14 @@ def check_program(prog: Program) -> None:
     # Debug
     env.functions["panic"] = FnSig(param_types=[], ret_type="Void")
 
+    # String methods (UFCS-callable: s.str_len() or str_len(s))
+    env.functions["str_len"] = FnSig(param_types=["Str"], ret_type="I64")
+    env.functions["str_char_at"] = FnSig(param_types=["Str", "I64"], ret_type="I64")
+    env.functions["str_substring"] = FnSig(param_types=["Str", "I64", "I64"], ret_type="Str")
+    env.functions["str_starts_with"] = FnSig(param_types=["Str", "Str"], ret_type="Bool")
+    env.functions["str_index_of"] = FnSig(param_types=["Str", "Str"], ret_type="I64")
+    env.functions["str_from_char"] = FnSig(param_types=["I64"], ret_type="Str")
+
     # Register built-in root class
     env.classes["Object"] = ClassInfo(name="Object", parent_name="")
 
@@ -671,12 +679,6 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
         if expr.method == "to_str" and len(expr.args) == 0:
             if obj_type in NUMERIC_TYPES or obj_type == "Bool":
                 return "Str"
-        # Built-in abs() on primitive types - method style
-        if expr.method == "abs" and len(expr.args) == 0:
-            if obj_type in ALL_INT_TYPES:
-                return obj_type
-            if obj_type in FLOAT_TYPES:
-                return obj_type
         # Array methods
         if _is_array_type(obj_type):
             elem_type = _array_elem_type(obj_type)
@@ -716,9 +718,33 @@ def _check_expr(expr: Expr, env: TypeEnv) -> str:
                 return "I64"
             raise TypeError_(expr.line, f"Array has no method '{expr.method}'")
         ci = env.lookup_class(obj_type)
-        if ci is None:
-            raise TypeError_(expr.line, f"cannot call method on type {obj_type}")
-        if expr.method not in ci.methods:
+        if ci is None or expr.method not in (ci.methods if ci else {}):
+            # UFCS: a.foo(b) -> foo(a, b)
+            ufcs_sig = env.lookup_fn(expr.method)
+            if ufcs_sig is not None:
+                expected_params = ufcs_sig.param_types
+                if len(expected_params) >= 1 and _type_compatible(
+                    obj_type, expected_params[0], expr.obj, env
+                ):
+                    actual_args = expr.args
+                    remaining_params = expected_params[1:]
+                    if len(actual_args) != len(remaining_params):
+                        raise TypeError_(
+                            expr.line,
+                            f"{expr.method}() expects {len(remaining_params)} args, got {len(actual_args)}",
+                        )
+                    for i, (arg, expected) in enumerate(
+                        zip(actual_args, remaining_params)
+                    ):
+                        at = _check_expr(arg, env)
+                        if not _type_compatible(at, expected, arg, env):
+                            raise TypeError_(
+                                expr.line,
+                                f"{expr.method}() arg {i + 1}: expected {expected}, got {at}",
+                            )
+                    return ufcs_sig.ret_type
+            if ci is None:
+                raise TypeError_(expr.line, f"cannot call method on type {obj_type}")
             raise TypeError_(expr.line, f"'{obj_type}' has no method '{expr.method}'")
         sig = ci.methods[expr.method]
         if len(expr.args) != len(sig.param_types):

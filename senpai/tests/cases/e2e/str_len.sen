@@ -1,0 +1,5 @@
+fn main():
+    let s: Str = "Hello"
+    print(s.str_len())
+    print(str_len(""))
+    print("abcdef".str_len())

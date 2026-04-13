@@ -1,0 +1,5 @@
+fn main():
+    let s: Str = "Hello, World!"
+    print(s.str_index_of("World"))
+    print(s.str_index_of("xyz"))
+    print(s.str_index_of("Hello"))
