@@ -1,6 +1,6 @@
 # Kouhai Self-Hosting Plan
 
-## Status: In Progress
+## Status: Phase 1 Complete - Lexer Working! ✅
 
 Self-hosting means the Kouhai compiler can compile its own source code.
 
@@ -15,23 +15,35 @@ Self-hosting means the Kouhai compiler can compile its own source code.
 ### 2. String Hash for Str Keys
 Need to add `kouhai_hash_str(ptr) -> i64` to runtime.ll for string-keyed maps.
 
-### 3. File I/O (Done via extern)
+### 3. ✅ File I/O (Done via extern)
 `extern fn fopen(path: Str, mode: Str) -> Ptr`
 `extern fn fread(ptr, size, count, file) -> I64`
 `extern fn fclose(file) -> I64`
 
-## Phases
+## Completed Work
 
-### Phase 1: Lexer in Kouhai
-Write `src/token.kou` and `src/lexer.kou`:
-- Define all token types as I64 constants
+### Phase 1: Lexer in Kouhai ✅ DONE
+`src/lexer.kou` and `lexer.kou`:
+- Token struct with type, value, line, col fields
 - Lexer scans source string character by character
-- Returns array of tokens
+- Returns `Array[Token]` containing all tokens
+- Correct token type IDs matching Python compiler
+- Keyword detection with elif chains
+- Delimiter handling (parentheses, brackets, etc.)
+- Operator recognition including two-char operators
 
-### Phase 2: Parser in Kouhai
-Write `src/ast.kou` and `src/parser.kou`:
-- Define all AST node types as classes
-- Recursive descent parser produces AST
+**Test result**: Lexer correctly tokenizes `"fn main():\n    print(42)\n"` into 12 tokens:
+- FN, IDENT, LPAREN, RPAREN, COLON, NEWLINE, INDENT, IDENT, LPAREN, INT_LIT, RPAREN, NEWLINE
+
+### Phase 2: Parser in Kouhai - In Progress
+`src/parser.kou`:
+- Parser struct with tokens: Array[Token] and pos: I64
+- parser_peek_type() extracts token type from Token
+- parser_at() checks if current token matches type
+- parser_eat() consumes token and advances
+- Parser skeleton ready, full AST generation pending
+
+## Remaining Phases
 
 ### Phase 3: Type Checker in Kouhai
 Write `src/type_checker.kou`:
@@ -51,8 +63,8 @@ Write `src/codegen.kou`:
 
 1. [x] Map data structure (done in examples/map_demo.kou)
 2. [ ] Add string hash to runtime.ll
-3. [ ] Write token.kou - token type constants
-4. [ ] Write lexer.kou - source scanning
+3. [x] Write token.kou - token type constants
+4. [x] Write lexer.kou - source scanning
 5. [ ] Write ast.kou - AST node definitions
 6. [ ] Write parser.kou - recursive descent parser
 7. [ ] Write type_checker.kou - type validation
@@ -67,3 +79,10 @@ Two-pass approach:
 2. Self-compiled Kouhai compiles itself
 
 This verifies the language is powerful enough to express its own compiler.
+
+## Key Files
+
+- `lexer.kou` - Working self-hosted lexer (in root dir for import)
+- `src/lexer.kou` - Copy of working lexer (in src for organized structure)
+- `src/parser.kou` - Parser with lexer integration
+- `src/token.kou` - Token type definitions (reference)
