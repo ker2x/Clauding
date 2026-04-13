@@ -1,0 +1,22 @@
+# Recursive descent parser for Kouhai (self-hosted)
+# Token type IDs: INT_LIT=1, STR_LIT=3, BOOL_LIT=4, IDENT=5, FN=6, CLASS=7, 
+# LET=8, IF=9, ELIF=10, ELSE=11, WHILE=12, RETURN=13, FOR=20, IN=21, 
+# RANGE=22, IMPORT=24, EXTERN=25, STRUCT=27, NIL=29, PLUS=30, MINUS=31,
+# STAR=32, SLASH=33, PERCENT=34, EQ=35, EQEQ=36, NEQ=37, LT=38, GT=39,
+# LE=40, GE=41, ARROW=42, TILDE=46, LPAREN=49, RPAREN=50, LBRACKET=51,
+# RBRACKET=52, COLON=53, COMMA=54, DOT=55, INDENT=56, DEDENT=57, NEWLINE=58, EOF=59
+
+import "token.kou"
+
+class Parser:
+    fn __init__(self, tok_arr: Array[Token]):
+        self.tokens = tok_arr
+        self.pos = 0
+    
+    fn _peek(self) -> Token:
+        if self.pos >= self.tokens.len():
+            return nil
+        return self.tokens.get(self.pos)
+
+fn main():
+    print("Parser with Token type works!")
