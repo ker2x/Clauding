@@ -1,3 +1,4 @@
+from typing import Optional
 """Recursive descent parser for Kouhai."""
 
 from .tokens import TT, Token

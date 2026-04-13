@@ -1,3 +1,4 @@
+from typing import Optional
 """LLVM IR text emitter for Kouhai."""
 
 from .ast_nodes import (
@@ -102,9 +103,9 @@ class CodeGen:
         self._fn_sigs: dict[str, str] = {}  # fn name -> return senpai type
         self._fn_params: dict[str, list[str]] = {}  # fn name -> param senpai types
         self._class_info: dict[str, ClassInfo] = {}  # class name -> ClassInfo
-        self._current_class: str | None = None  # set when generating a method
+        self._current_class: Optional[str] = None  # set when generating a method
         self._modules: dict = {}  # module_name -> module_programs entry
-        self._current_module: str | None = None  # set when generating module code
+        self._current_module: Optional[str] = None  # set when generating module code
         self._extern_fns: set[str] = set()  # extern function names (use real C name)
 
     def _tmp(self) -> str:
@@ -505,7 +506,7 @@ class CodeGen:
         self._emit(f"  {result} = load {struct_llvm}, ptr {ptr_reg}")
         return result
 
-    def _peek_type(self, expr: Expr) -> str | None:
+    def _peek_type(self, expr: Expr) -> Optional[str]:
         """Get the Senpai type of an expression without generating code."""
         if isinstance(expr, Var):
             if expr.name == "super" and self._current_class:
@@ -1739,7 +1740,7 @@ class CodeGen:
         return obj, struct_name
 
     def _gen_constructor(
-        self, expr: Call, class_name: str | None = None
+        self, expr: Call, class_name: Optional[str] = None
     ) -> tuple[str, str]:
         """Generate constructor: malloc + store vtable + call __init__."""
         if class_name is None:

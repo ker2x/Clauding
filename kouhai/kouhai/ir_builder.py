@@ -1,3 +1,4 @@
+from typing import Optional
 """Lightweight LLVM IR builder helpers for Kouhai."""
 
 

@@ -1,3 +1,4 @@
+from typing import Optional
 """Compiler orchestrator: source → tokens → AST → type-check → LLVM IR → binary."""
 
 import subprocess
@@ -8,6 +9,7 @@ from .tokens import lex, LexError
 from .parser import Parser, ParseError
 from .types import check_program, TypeError_
 from .codegen import CodeGen
+from .kouhai_interpreter import interpret_program
 
 
 class CompileError(Exception):
@@ -27,7 +29,7 @@ def _parse_source(source: str) -> "Program":
         raise CompileError(f"Parse error: {e}") from e
 
 
-def _resolve_imports(program, source_dir: Path, loaded: dict | None = None):
+def _resolve_imports(program, source_dir: Path, loaded: Optional[dict] = None):
     """Recursively resolve imports, attaching parsed module Programs.
 
     Populates program.module_programs: dict[str, Program] mapping
@@ -60,7 +62,7 @@ def _resolve_imports(program, source_dir: Path, loaded: dict | None = None):
         program.module_programs[imp.module_name] = mod_prog
 
 
-def _collect_links(program, collected: set | None = None) -> set[str]:
+def _collect_links(program, collected: Optional[set] = None) -> set[str]:
     """Collect all link directives from a program and its imported modules."""
     if collected is None:
         collected = set()
@@ -73,10 +75,10 @@ def _collect_links(program, collected: set | None = None) -> set[str]:
 
 def compile_source(
     source: str,
-    output_path: str | None = None,
+    output_path: Optional[str] = None,
     emit_ir: bool = False,
-    source_dir: str | None = None,
-    extra_links: list[str] | None = None,
+    source_dir: Optional[str] = None,
+    extra_links: Optional[list[str]] = None,
 ) -> str:
     """Compile Kouhai source to a native binary.
 
@@ -153,9 +155,9 @@ def compile_source(
 
 def compile_file(
     path: str,
-    output_path: str | None = None,
+    output_path: Optional[str] = None,
     emit_ir: bool = False,
-    extra_links: list[str] | None = None,
+    extra_links: Optional[list[str]] = None,
 ) -> str:
     """Compile a .kou file."""
     p = Path(path)
@@ -169,7 +171,7 @@ def compile_file(
     )
 
 
-def run_file(path: str, extra_links: list[str] | None = None) -> int:
+def run_file(path: str, extra_links: Optional[list[str]] = None) -> int:
     """Compile and run a .kou file. Returns the exit code."""
     binary = compile_file(path, extra_links=extra_links)
     try:
@@ -177,3 +179,12 @@ def run_file(path: str, extra_links: list[str] | None = None) -> int:
         return result.returncode
     finally:
         Path(binary).unlink(missing_ok=True)
+
+
+def run_interpret(path: str) -> None:
+    """Parse and interpret a .kou file using the Kouhai interpreter."""
+    p = Path(path)
+    source = p.read_text()
+    program = _parse_source(source)
+    _resolve_imports(program, p.parent)
+    interpret_program(program)

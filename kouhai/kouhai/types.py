@@ -1,6 +1,7 @@
+from typing import Optional
 """Type system and type checker for Kouhai."""
-
 from dataclasses import dataclass, field
+
 from .ast_nodes import (
     Expr,
     IntLit,
@@ -108,32 +109,32 @@ class TypeEnv:
     classes: dict[str, ClassInfo] = field(default_factory=dict)
     structs: set[str] = field(default_factory=set)  # names of struct types
     modules: dict[str, "ModuleInfo"] = field(default_factory=dict)
-    parent: "TypeEnv | None" = None
+    parent: Optional["TypeEnv"] = None
     current_fn_ret: str = "Void"
-    current_class: str | None = None
+    current_class: Optional[str] = None
 
-    def lookup_var(self, name: str) -> str | None:
+    def lookup_var(self, name: str) -> Optional[str]:
         if name in self.variables:
             return self.variables[name]
         if self.parent:
             return self.parent.lookup_var(name)
         return None
 
-    def lookup_fn(self, name: str) -> FnSig | None:
+    def lookup_fn(self, name: str) -> Optional[FnSig]:
         if name in self.functions:
             return self.functions[name]
         if self.parent:
             return self.parent.lookup_fn(name)
         return None
 
-    def lookup_class(self, name: str) -> ClassInfo | None:
+    def lookup_class(self, name: str) -> Optional[ClassInfo]:
         if name in self.classes:
             return self.classes[name]
         if self.parent:
             return self.parent.lookup_class(name)
         return None
 
-    def lookup_module(self, name: str) -> "ModuleInfo | None":
+    def lookup_module(self, name: str) -> Optional["ModuleInfo"]:
         if name in self.modules:
             return self.modules[name]
         if self.parent:

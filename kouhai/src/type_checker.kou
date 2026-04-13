@@ -1,44 +1,69 @@
-# Type checker for Kouhai compiler
-# Validates types and resolves names
-
-import "token.kou"
 import "ast.kou"
 
-# Check if a type name is primitive
-fn is_primitive(type_name: Str) -> Bool:
-    if type_name == "I64" or type_name == "I32" or type_name == "I16" or type_name == "I8":
+# Type checker for Kouhai (self-hosted)
+
+struct TypeEnv:
+    variables: Ptr
+    functions: Ptr
+    classes: Ptr
+    structs: Ptr
+    parent: Ptr
+
+fn init_type_env() -> TypeEnv:
+    let env = TypeEnv()
+    env.variables = nil
+    env.functions = nil
+    env.classes = nil
+    env.structs = nil
+    env.parent = nil
+    return env
+
+fn is_primitive_type(type_name: Str) -> Bool:
+    if type_name == "I64":
         return true
-    if type_name == "U64" or type_name == "U32" or type_name == "U16" or type_name == "U8":
+    if type_name == "F64":
         return true
-    if type_name == "Float" or type_name == "Double" or type_name == "Bool":
+    if type_name == "Bool":
         return true
-    if type_name == "Str" or type_name == "Ptr" or type_name == "Void":
+    if type_name == "Str":
+        return true
+    if type_name == "Void":
+        return true
+    if type_name == "Ptr":
         return true
     return false
 
-# Check if two types are compatible
-fn types_compatible(a: Str, b: Str) -> Bool:
-    if a == b:
+fn is_valid_type(env: TypeEnv, type_name: Str) -> Bool:
+    if is_primitive_type(type_name):
         return true
-    if is_primitive(a) and is_primitive(b):
+        return true
+        return true
         return true
     return false
 
-# Check expression type
-fn check_expr(expr: Ptr) -> Str:
-    return "I64"
+fn get_expr_type(expr: Ptr) -> Str:
+    if expr == nil:
+        return "Void"
+    return "Ptr"
 
-# Check statement
-fn check_stmt(stmt: Ptr) -> Bool:
+fn check_let_stmt(env: TypeEnv, stmt: Ptr) -> Bool:
     return true
 
-# Check function body
-fn check_fn(fn_decl: Ptr) -> Bool:
+fn check_return_stmt(env: TypeEnv, stmt: Ptr) -> Bool:
     return true
 
-# Check a program
+fn check_if_stmt(env: TypeEnv, stmt: Ptr) -> Bool:
+    return true
+
+fn check_fn_decl(env: TypeEnv, decl: Ptr) -> Bool:
+    return true
+
+fn check_struct_decl(env: TypeEnv, decl: Ptr) -> Bool:
+    return true
+
 fn check_program(prog: Ptr) -> Bool:
+    let env = init_type_env()
     return true
 
 fn main():
-    print("Type checker module loaded!")
+    print("Type checker ready!")

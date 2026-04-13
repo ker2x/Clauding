@@ -1,3 +1,4 @@
+from typing import Optional
 """AST node definitions for Kouhai."""
 
 from dataclasses import dataclass, field
@@ -102,7 +103,7 @@ class Stmt:
 @dataclass
 class LetStmt(Stmt):
     name: str = ""
-    type_name: "str | None" = None
+    type_name: Optional[str] = None
     value: Expr = field(default_factory=Expr)
 
 
@@ -114,7 +115,7 @@ class AssignStmt(Stmt):
 
 @dataclass
 class ReturnStmt(Stmt):
-    value: "Expr | None" = None
+    value: Optional[Expr] = None
 
 
 @dataclass
@@ -134,7 +135,7 @@ class WhileStmt(Stmt):
 @dataclass
 class ForStmt(Stmt):
     var_name: str = ""
-    start: "Expr | None" = None
+    start: Optional[Expr] = None
     end: Expr = field(default_factory=Expr)
     body: "list[Stmt]" = field(default_factory=list)
 

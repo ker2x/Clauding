@@ -1,0 +1,33 @@
+import "ast.kou"
+
+# Code generator for Kouhai (self-hosted)
+
+struct CodegenCtx:
+    output: Str
+    next_var: I64
+    next_label: I64
+
+fn init_codegen() -> CodegenCtx:
+    let ctx = CodegenCtx()
+    ctx.output = ""
+    ctx.next_var = 0
+    ctx.next_label = 0
+    return ctx
+
+fn emitln(ctx: CodegenCtx, s: Str):
+    ctx.output = ctx.output + s + "\n"
+
+fn gen_fn_decl(ctx: CodegenCtx, decl: Ptr) -> Str:
+    emitln(ctx, "define i64 @main() {")
+    emitln(ctx, "ret i64 0")
+    emitln(ctx, "}")
+    return ""
+
+fn gen_program(ctx: CodegenCtx, prog: Ptr) -> Str:
+    emitln(ctx, "; Kouhai compiled program")
+    emitln(ctx, "declare i64 @print(i64)")
+    emitln(ctx, "")
+    return ctx.output
+
+fn main():
+    print("Code generator ready!")

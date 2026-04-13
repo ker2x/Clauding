@@ -1,7 +1,8 @@
 import "lexer.kou"
+import "ast.kou"
 
-# Recursive descent parser for Kouhai (self-hosted)
-# Token type IDs (matching lexer.kou and Python compiler):
+# Simplified parser for Kouhai self-hosting
+# Token type IDs:
 # INT_LIT=1, FLOAT_LIT=2, STR_LIT=3, BOOL_LIT=4,
 # IDENT=10, FN=20, CLASS=21, LET=22, IF=23, ELIF=24, ELSE=25,
 # WHILE=26, RETURN=27, SELF=28, SUPER=29, AND=30, OR=31, NOT=32,
@@ -29,52 +30,184 @@ fn parser_peek_type(p: Parser) -> I64:
     let tok = p.tokens.get(p.pos)
     return tok.type
 
+fn parser_peek(p: Parser) -> Token:
+    if p.pos >= p.tokens.len():
+        return p.tokens.get(p.tokens.len() - 1)
+    return p.tokens.get(p.pos)
+
 fn parser_at(p: Parser, type_id: I64) -> Bool:
     return parser_peek_type(p) == type_id
 
-fn parser_eat(p: Parser, expected: I64) -> Token:
+fn parser_at_any(p: Parser, type1: I64, type2: I64) -> Bool:
+    let t = parser_peek_type(p)
+    return t == type1 or t == type2
+
+fn parser_eat(p: Parser, expected: I64):
     if parser_at(p, expected):
-        let tok = p.tokens.get(p.pos)
         p.pos = p.pos + 1
-        return tok
-    return Token()
 
 fn parser_skip_newlines(p: Parser):
-    while parser_at(p, 92):  # TT_NEWLINE
+    while parser_at(p, 92):
         p.pos = p.pos + 1
 
-fn parse(p: Parser) -> I64:
+fn parse_expr(p: Parser) -> Ptr:
+    return parse_or(p)
+
+fn parse_or(p: Parser) -> Ptr:
+    let left = parse_and(p)
+    while parser_at(p, 31):  # OR
+        parser_eat(p, 31)
+        let right = parse_and(p)
+        left = BinOp("or", left, right, 0)
+    return left
+
+fn parse_and(p: Parser) -> Ptr:
+    let left = parse_not(p)
+    while parser_at(p, 30):  # AND
+        parser_eat(p, 30)
+        let right = parse_not(p)
+        left = BinOp("and", left, right, 0)
+    return left
+
+fn parse_not(p: Parser) -> Ptr:
+    if parser_at(p, 32):  # NOT
+        parser_eat(p, 32)
+        return UnaryOp("not", parse_not(p), 0)
+    return parse_comparison(p)
+
+fn parse_comparison(p: Parser) -> Ptr:
+    let left = parse_add(p)
+    if parser_at_any(p, 56, 57) or parser_at_any(p, 58, 59) or parser_at_any(p, 60, 61):
+        let op_type = parser_peek_type(p)
+        parser_eat(p, op_type)
+        let right = parse_add(p)
+        return BinOp(parser_peek(p).value, left, right, 0)
+    return left
+
+fn parse_add(p: Parser) -> Ptr:
+    let left = parse_mul(p)
+    while parser_at_any(p, 50, 51):  # PLUS, MINUS
+        let op_type = parser_peek_type(p)
+        parser_eat(p, op_type)
+        let right = parse_mul(p)
+        return BinOp(parser_peek(p).value, left, right, 0)
+    return left
+
+fn parse_mul(p: Parser) -> Ptr:
+    let left = parse_unary(p)
+    while parser_at_any(p, 52, 53, 54):  # STAR, SLASH, PERCENT
+        let op_type = parser_peek_type(p)
+        parser_eat(p, op_type)
+        let right = parse_unary(p)
+        return BinOp(parser_peek(p).value, left, right, 0)
+    return left
+
+fn parse_unary(p: Parser) -> Ptr:
+    if parser_at(p, 51):  # MINUS
+        parser_eat(p, 51)
+        return UnaryOp("-", parse_unary(p), 0)
+    if parser_at(p, 66):  # TILDE
+        parser_eat(p, 66)
+        return UnaryOp("~", parse_unary(p), 0)
+    return parse_primary(p)
+
+fn parse_primary(p: Parser) -> Ptr:
+    let tok = parser_peek(p)
+    
+    if parser_at(p, 1):  # INT_LIT
+        parser_eat(p, 1)
+        return IntLit(0, tok.line)
+        
+    if parser_at(p, 3):  # STR_LIT
+        parser_eat(p, 3)
+        return StrLit(tok.value, tok.line)
+        
+    if parser_at(p, 4):  # BOOL_LIT
+        parser_eat(p, 4)
+        return BoolLit(tok.value == "true", tok.line)
+        
+    if parser_at(p, 10):  # IDENT
+        parser_eat(p, 10)
+        return Var(tok.value, tok.line)
+        
+    if parser_at(p, 80):  # LPAREN
+        parser_eat(p, 80)
+        let expr = parse_expr(p)
+        parser_eat(p, 81)  # RPAREN
+        return expr
+    
+    return IntLit(0, tok.line)
+
+fn parse_stmt(p: Parser) -> Ptr:
+    if parser_at(p, 22):  # LET
+        parser_eat(p, 22)  # LET
+        let name_tok = parser_eat(p, 10)
+        parser_eat(p, 55)  # EQ
+        let value = parse_expr(p)
+        return LetStmt(name_tok.value, nil, value, 0)
+    
+    if parser_at(p, 27):  # RETURN
+        parser_eat(p, 27)
+        return ReturnStmt(parse_expr(p), 0)
+    
+    if parser_at(p, 23):  # IF
+        parser_eat(p, 23)
+        let cond = parse_expr(p)
+        parser_eat(p, 84)  # COLON
+        parser_eat(p, 92)  # NEWLINE
+        parser_eat(p, 90)  # INDENT
+        
+        let body = Array[Ptr]()
+        while not parser_at(p, 91):  # DEDENT
+            body.push(parse_stmt(p))
+        
+        parser_eat(p, 91)  # DEDENT
+        
+        let if_stmt = IfStmt(cond, body, 0)
+        if_stmt.elif_clauses = Array[Ptr]()
+        if_stmt.else_body = Array[Ptr]()
+        
+        return if_stmt
+    
+    # Expression statement
+    let expr = parse_expr(p)
+    return ExprStmt(expr, 0)
+
+fn parse_fn_decl(p: Parser) -> Ptr:
+    parser_eat(p, 20)  # FN
+    let name_tok = parser_eat(p, 10)  # IDENT
+    parser_eat(p, 80)  # LPAREN
+    parser_eat(p, 81)  # RPAREN
+    
+    parser_eat(p, 84)  # COLON
+    parser_eat(p, 92)  # NEWLINE
+    parser_eat(p, 90)  # INDENT
+    
+    let body = Array[Ptr]()
+    while not parser_at(p, 91):  # DEDENT
+        body.push(parse_stmt(p))
+    
+    parser_eat(p, 91)  # DEDENT
+    
+    return FnDecl(name_tok.value, Array[Param](), "Void", body, 0)
+
+fn parse_program(p: Parser) -> Ptr:
+    let prog = Program()
+    
     parser_skip_newlines(p)
     
-    # Parse top-level items
-    while not parser_at(p, 93):  # TT_EOF
-        if parser_at(p, 20):  # TT_FN
-            # skip fn for now
-            p.pos = p.pos + 5  # skip "fn", name, "(", ")", ":"
-        elif parser_at(p, 41):  # TT_STRUCT
-            p.pos = p.pos + 1
-        elif parser_at(p, 21):  # TT_CLASS
-            p.pos = p.pos + 1
-        elif parser_at(p, 39):  # TT_EXTERN
-            p.pos = p.pos + 1
-        elif parser_at(p, 38):  # TT_IMPORT
-            p.pos = p.pos + 1
-        else:
-            p.pos = p.pos + 1
+    while not parser_at(p, 93):  # EOF
+        if parser_at(p, 20):  # FN
+            prog.functions.push(parse_fn_decl(p))
         parser_skip_newlines(p)
     
-    return 0
+    return prog
 
 fn main():
-    # Test lexer + parser integration
+    # Test parsing
     let src = "fn main():\n    print(42)\n"
     let tokens = lex(src)
-    print(tokens.len())
-    
-    # Create parser and test peek
     let p = init_parser(tokens)
-    let tt = parser_peek_type(p)
-    print("First token type:")
-    print(tt)
-    print("Expected:")
-    print(20)  # TT_FN
+    let prog = parse_program(p)
+    print("Parsed program with functions: ")
+    print(prog.functions.len())

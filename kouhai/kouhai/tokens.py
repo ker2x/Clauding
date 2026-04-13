@@ -1,3 +1,4 @@
+from typing import Optional
 """Lexer for Kouhai: tokenizes source into a stream including INDENT/DEDENT."""
 
 from enum import Enum, auto
