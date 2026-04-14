@@ -7,28 +7,38 @@ sys.path.insert(0, sys.path[0] + '/..')
 import os
 import time
 import copy
+import collections
 import gymnasium as gym
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecFrameStack
 from config.env_config import EnvConfig
 from config.body_config import JointState
 from env.toribash_env import ToribashEnv
 
+N_STACK = 3
+
 
 class SelfPlayWrapper(gym.Wrapper):
     """Wrapper that uses opponent model for second player."""
-    
-    def __init__(self, env, opponent_ref):
+
+    def __init__(self, env, opponent_ref, vec_normalize_ref=None):
         super().__init__(env)
         self.opponent_ref = opponent_ref
-        
+        self.vec_normalize_ref = vec_normalize_ref  # mutable list [VecNormalize | None]
+        self._opp_obs_dim = env.observation_space.shape[0]
+        self._opp_frames = collections.deque(maxlen=N_STACK)
+
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)
+        # Initialize opponent frame buffer with zeros
+        self._opp_frames.clear()
+        for _ in range(N_STACK):
+            self._opp_frames.append(np.zeros(self._opp_obs_dim, dtype=np.float32))
         return obs, info
-    
+
     def step(self, action):
         # Get opponent action BEFORE step (so it's used in simulation)
         if self.opponent_ref[0] is not None:
@@ -36,14 +46,22 @@ class SelfPlayWrapper(gym.Wrapper):
             opp_action, _ = self.opponent_ref[0].predict(opp_obs, deterministic=True)
             opp_states = [JointState(int(a)) for a in opp_action]
             self.env.match.set_actions(1, opp_states)
-        
+
         # Now step (agent's actions already set before this wrapper)
         obs, reward, done, trunc, info = self.env.step(action)
         return obs, reward, done, trunc, info
-    
+
     def _get_opponent_obs(self):
         from env.observation import build_observation
-        return build_observation(self.env.match, player=1)
+        raw = build_observation(self.env.match, player=1,
+                                prev_actions=self.env._prev_opp_actions)
+        self._opp_frames.append(raw)
+        # Stack frames: oldest first, matching VecFrameStack order
+        stacked = np.concatenate(list(self._opp_frames))
+        # Apply normalization if available
+        if self.vec_normalize_ref and self.vec_normalize_ref[0] is not None:
+            stacked = self.vec_normalize_ref[0].normalize_obs(stacked)
+        return stacked
 
 
 def train_selfplay(
@@ -57,33 +75,66 @@ def train_selfplay(
     
     config = EnvConfig(max_turns=max_turns)
     
-    # Track the opponent model
+    # Track the opponent model and VecNormalize reference
     opponent_ref = [None]
-    
+    vec_normalize_ref = [None]
+
     # Create base environment with hold opponent initially
     base_env = ToribashEnv(config)
-    
+
     # Wrap with self-play wrapper and vectorize
-    env = DummyVecEnv([lambda: Monitor(SelfPlayWrapper(base_env, opponent_ref))])
-    
-    # Normalize observations and rewards for stable training
+    selfplay_env = SelfPlayWrapper(base_env, opponent_ref, vec_normalize_ref)
+    env = DummyVecEnv([lambda: Monitor(selfplay_env)])
+    env = VecFrameStack(env, n_stack=N_STACK)
     env = VecNormalize(env, norm_reward=True, gamma=0.99)
+    vec_normalize_ref[0] = env  # Now opponent can normalize its obs
     
-    # Check for existing model to resume
+    # Check for existing model to resume and set up opponent
     model_path = f"{save_path}.zip"
+    best_path = f"{save_path}_best.zip"
+    
     if resume and os.path.exists(model_path):
         print(f"Resuming from {model_path}...")
         model = PPO.load(model_path, env=env)
+        # Load best model as opponent (if it exists)
+        if os.path.exists(best_path):
+            from stable_baselines3 import PPO as PPOClass
+            opponent_ref[0] = PPOClass.load(best_path)
+            print(f"Playing against best model: {best_path}")
+    elif os.path.exists(best_path):
+        # No current model but have best - start fresh with best as opponent
+        from stable_baselines3 import PPO as PPOClass
+        opponent_ref[0] = PPOClass.load(best_path)
+        print(f"Starting fresh, playing against existing best: {best_path}")
+        model = PPO(
+            "MlpPolicy",
+            env,
+            policy_kwargs=dict(net_arch=[256, 256]),
+            learning_rate=5e-5,
+            n_steps=2048,
+            batch_size=64,
+            n_epochs=10,
+            target_kl=0.05,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            verbose=1,
+            tensorboard_log=f"{save_path}_tensorboard",
+        )
     else:
         # Create PPO model
         model = PPO(
             "MlpPolicy",
             env,
             policy_kwargs=dict(net_arch=[256, 256]),
-            learning_rate=1e-4,
+            learning_rate=5e-5,  # Lower for stability with clip=0.2
             n_steps=2048,
             batch_size=64,
             n_epochs=10,
+            target_kl=0.05,  # Guardrail that only fires on genuine instability
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
@@ -137,16 +188,13 @@ class SelfPlayCallback(BaseCallback):
         
     def _on_step(self) -> bool:
         if self.model.num_timesteps - self.last_opponent_update >= self.update_opponent_every:
-            # Save and reload to create/update opponent copy
-            import tempfile
-            import os
-            tmp_path = tempfile.mktemp(suffix='.zip')
-            self.model.save(tmp_path)
+            # Update opponent to play against the BEST model, not the current one
+            best_path = f"{self.save_path}_best.zip"
             from stable_baselines3 import PPO
-            self.opponent_ref[0] = PPO.load(tmp_path)
-            os.remove(tmp_path)
-            self.last_opponent_update = self.model.num_timesteps
-            print(f"\n  Updated opponent at step {self.model.num_timesteps:,}")
+            if os.path.exists(best_path):
+                self.opponent_ref[0] = PPO.load(best_path)
+                self.last_opponent_update = self.model.num_timesteps
+                print(f"\n  Updated opponent to best model at step {self.model.num_timesteps:,}")
         
         if len(self.model.ep_info_buffer) > 0:
             ep_rew = self.model.ep_info_buffer[-1]["r"]
@@ -167,10 +215,15 @@ def train(
     """Train a PPO agent on Toribash 2D."""
     
     train_config = EnvConfig(max_turns=max_turns, opponent_type=opponent_type)
-    train_env = Monitor(ToribashEnv(train_config))
+    train_env = DummyVecEnv([lambda: Monitor(ToribashEnv(train_config))])
+    train_env = VecFrameStack(train_env, n_stack=N_STACK)
+    train_env = VecNormalize(train_env, norm_reward=True, gamma=0.99)
+
     eval_config = EnvConfig(max_turns=max_turns, opponent_type=opponent_type)
-    eval_env = Monitor(ToribashEnv(eval_config))
-    
+    eval_env = DummyVecEnv([lambda: Monitor(ToribashEnv(eval_config))])
+    eval_env = VecFrameStack(eval_env, n_stack=N_STACK)
+    eval_env = VecNormalize(eval_env, norm_reward=False, training=False, gamma=0.99)
+
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=f"{save_path}_best",
@@ -241,64 +294,80 @@ def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hol
     pygame.init()
     model_a = PPO.load(model_path)
     model_b = PPO.load(opponent_model) if opponent_model else None
-    
+
     config = EnvConfig(max_turns=20, opponent_type=opponent)
     env = ToribashEnv(config, render_mode="human")
-    
+    obs_dim = env.observation_space.shape[0]
+
+    # Frame stack buffers for each player (no VecNormalize — approximate for visualization)
+    frames_a = collections.deque(maxlen=N_STACK)
+    frames_b = collections.deque(maxlen=N_STACK)
+
+    def stack_obs(frames, raw_obs):
+        frames.append(raw_obs)
+        return np.concatenate(list(frames))
+
     print(f"\nWatching AI vs AI: Player A={model_path} vs Player B={opponent_model or opponent}")
-    
+
     for ep in range(episodes):
         obs, _ = env.reset()
+        # Initialize frame buffers with zeros
+        frames_a.clear()
+        frames_b.clear()
+        for _ in range(N_STACK):
+            frames_a.append(np.zeros(obs_dim, dtype=np.float32))
+            frames_b.append(np.zeros(obs_dim, dtype=np.float32))
         total_reward_a = 0
-        total_reward_b = 0
-        
+
         print(f"\nEpisode {ep + 1}/{episodes}")
-        print(f"  Scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f}")
-        
+
         while not env.match.is_done():
-            # Player A action
-            action_a, _ = model_a.predict(obs, deterministic=False)  # Use stochastic for more varied play
+            # Player A action (stacked obs)
+            stacked_a = stack_obs(frames_a, obs)
+            action_a, _ = model_a.predict(stacked_a, deterministic=False)
             joint_states_a = [JointState(int(a)) for a in action_a]
             env.match.set_actions(0, joint_states_a)
-            
+
             # Player B action
             if model_b is not None:
-                obs_b = build_observation(env.match, player=1)
-                action_b, _ = model_b.predict(obs_b, deterministic=False)  # Use stochastic for more varied play
+                raw_b = build_observation(env.match, player=1,
+                                          prev_actions=env._prev_opp_actions)
+                stacked_b = stack_obs(frames_b, raw_b)
+                action_b, _ = model_b.predict(stacked_b, deterministic=False)
                 joint_states_b = [JointState(int(a)) for a in action_b]
                 env.match.set_actions(1, joint_states_b)
             else:
                 opp_action = env._get_opponent_action()
                 env.match.set_actions(1, opp_action)
-            
+
             env.match.world.collision_handler.clear_turn()
-            
+
             for _ in range(config.steps_per_turn):
                 env.render()
                 env.match.world.step()
-                
+
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         env.close()
                         pygame.quit()
                         return
-                
+
                 pygame.time.wait(16)
-            
+
             result = compute_turn_result(env.match.world.collision_handler, config)
             env.match.scores[0] += result.damage_a_to_b
             env.match.scores[1] += result.damage_b_to_a
             env.match.turn_results.append(result)
             env.match.turn += 1
-            
+
             obs, _, _, _, _ = env.step(action_a)
             total_reward_a += result.damage_a_to_b * config.reward_damage_dealt + \
                              result.damage_b_to_a * config.reward_damage_taken
-        
+
         print(f"  Player A reward: {total_reward_a:.2f}")
         print(f"  Final scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f}")
         print(f"  Winner: {'A' if env.match.get_winner() == 0 else 'B' if env.match.get_winner() == 1 else 'Draw'}")
-    
+
     env.close()
     pygame.quit()
 

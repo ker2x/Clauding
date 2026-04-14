@@ -9,6 +9,27 @@ from physics.world import COLLISION_TYPE_A, COLLISION_TYPE_B
 # Segments that are allowed to touch ground without penalty (Toribash rules)
 EXEMPT_GROUND_SEGMENTS = {"foot_l", "foot_r", "hand_l", "hand_r"}
 
+# Ground touch penalties per segment (Toribash rules - head is most critical)
+# Negative = penalty, positive = bonus
+GROUND_PENALTIES = {
+    # Critical (head is most dangerous - instant KO risk)
+    "head": -2.0,
+    # Major body parts
+    "chest": -1.0,
+    "stomach": -0.8,
+    # Limbs (less critical but still penalized)
+    "upper_arm_l": -0.3,
+    "upper_arm_r": -0.3,
+    "lower_arm_l": -0.3,
+    "lower_arm_r": -0.3,
+    "upper_leg_l": -0.3,
+    "upper_leg_r": -0.3,
+    "lower_leg_l": -0.2,
+    "lower_leg_r": -0.2,
+    # Default for any unknown segment
+    "default": -0.5,
+}
+
 
 @dataclass
 class TurnResult:
@@ -79,11 +100,13 @@ def compute_reward(
     reward += damage_dealt * config.reward_damage_dealt
     reward += damage_taken * config.reward_damage_taken
 
-    # Ground contact penalty (excluding feet and hands per Toribash rules)
+    # Ground contact penalty with segment-specific weights (Toribash rules)
     own_bad_ground = own_ground - EXEMPT_GROUND_SEGMENTS
     opp_bad_ground = opp_ground - EXEMPT_GROUND_SEGMENTS
-    reward += len(own_bad_ground) * config.reward_ground_touch      # negative weight (-0.2)
-    reward += len(opp_bad_ground) * config.reward_opponent_ground   # positive weight (+0.1)
+    for seg in own_bad_ground:
+        reward += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
+    for seg in opp_bad_ground:
+        reward -= GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])  # Opponent falling = positive
 
     # Dismemberment
     reward += len(opp_dismembered) * config.reward_dismember

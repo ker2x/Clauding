@@ -11,7 +11,7 @@ def compute_obs_dim(num_joints: int, num_segments: int) -> int:
     per_ragdoll = (
         num_joints        # joint angles (normalized)
         + num_joints      # joint angular velocities
-        + num_joints      # joint states (one-hot would be 4x, but we use normalized int)
+        + num_joints      # joint states (normalized 0-1)
         + num_segments * 2  # segment positions (x, y) relative to own torso
         + num_segments * 2  # segment velocities (vx, vy)
         + num_segments      # segment rotations
@@ -20,11 +20,12 @@ def compute_obs_dim(num_joints: int, num_segments: int) -> int:
         2   # relative position between torsos (dx, dy)
         + 1  # turn progress (0 to 1)
         + 2  # scores [own, opponent]
+        + num_joints  # previous actions (14 joint states)
     )
     return per_ragdoll * 2 + global_state
 
 
-def build_observation(match: Match, player: int) -> np.ndarray:
+def build_observation(match: Match, player: int, prev_actions: list | None = None) -> np.ndarray:
     """Build observation vector from the perspective of `player` (0 or 1).
 
     The observation is ego-centric: own ragdoll data comes first,
@@ -65,6 +66,16 @@ def build_observation(match: Match, player: int) -> np.ndarray:
     # Scores (normalized loosely)
     obs.append(own_score / 100.0)
     obs.append(opp_score / 100.0)
+
+    # Previous actions (14 joint states from last turn)
+    if prev_actions is not None:
+        for state in prev_actions:
+            obs.append(float(state.value) / 3.0)
+    else:
+        # Fallback: read current joint states (inaccurate but backward-compat)
+        for jdef in own_rag.body_config.joints:
+            state = own_rag.joint_states.get(jdef.name, JointState.HOLD)
+            obs.append(float(state.value) / 3.0)
 
     return np.array(obs, dtype=np.float32)
 
