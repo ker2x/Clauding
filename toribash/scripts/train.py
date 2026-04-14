@@ -75,19 +75,20 @@ def train_selfplay(
         print(f"Resuming from {model_path}...")
         model = PPO.load(model_path, env=env)
     else:
-        # Create PPO model with stable hyperparameters
+        # Create PPO model
         model = PPO(
             "MlpPolicy",
             env,
-            learning_rate=1e-4,       # Lower learning rate for stability
-            n_steps=512,              # Larger rollout for more stable updates
+            policy_kwargs=dict(net_arch=[256, 256]),
+            learning_rate=1e-4,
+            n_steps=2048,
             batch_size=64,
             n_epochs=10,
             gamma=0.99,
             gae_lambda=0.95,
-            clip_range=0.1,            # Smaller clip range for stability
-            ent_coef=0.005,            # Small entropy bonus to prevent policy collapse in self-play
-            vf_coef=1.0,              # Higher value function coefficient
+            clip_range=0.2,
+            ent_coef=0.01,
+            vf_coef=0.5,
             max_grad_norm=0.5,
             verbose=1,
             tensorboard_log=f"{save_path}_tensorboard",
@@ -183,8 +184,9 @@ def train(
     model = PPO(
         "MlpPolicy",
         train_env,
+        policy_kwargs=dict(net_arch=[256, 256]),
         learning_rate=3e-4,
-        n_steps=256,
+        n_steps=2048,
         batch_size=64,
         n_epochs=10,
         gamma=0.99,

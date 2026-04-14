@@ -13,7 +13,7 @@ MAX_TURNS = 20  # turns before match ends
 GROUND_Y = 50.0  # ground surface y-coordinate (cm)
 ARENA_WIDTH = 600.0  # arena width (cm)
 ARENA_HEIGHT = 400.0  # arena height (cm)
-SPAWN_OFFSET_X = 100.0  # horizontal offset from center for each fighter
+SPAWN_OFFSET_X = 50.0  # horizontal offset from center for each fighter
 
 # Collision categories
 CAT_GROUND = 0b0001
