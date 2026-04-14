@@ -92,7 +92,7 @@ We use **pymunk 7.2.0** which has a different API from older tutorials:
 
 ### Coordinate system
 
-- **Units**: centimeters (a ragdoll is ~170cm tall)
+- **Units**: centimeters (a ragdoll is ~176cm tall)
 - **Y-axis**: up is positive (pymunk default), ground at y=50
 - **Arena**: 600cm wide × 400cm tall, fighters spawn at x=200 and x=400
 - **Timestep**: 1/60s, 20 solver iterations per step, 30 steps per turn (~0.5s real time)
@@ -118,10 +118,14 @@ We use **pymunk 7.2.0** which has a different API from older tutorials:
                    [foot_l]       [foot_r]
 ```
 
-Joint definitions are in `config/body_config.py` lines 73-144. Each joint has:
+Joint definitions are in `config/body_config.py` lines 74-145. Each joint has:
 - `angle_min`/`angle_max` (radians) — asymmetric to model human anatomy
 - `motor_rate` (rad/s) — how fast contract/extend drives the joint
-- `motor_max_force` — torque limit
+- `motor_max_force` — torque limit (40K–240K depending on joint; high values needed for standing)
+
+### Self-collision
+
+Same-ragdoll segments do NOT collide with each other. Each shape has a `ShapeFilter(group=collision_type)` so only cross-ragdoll and ragdoll-ground collisions occur. Without this, limbs get tangled and the ragdoll can't move freely.
 
 ### Mirroring (facing=-1)
 
@@ -147,7 +151,7 @@ Defined as `JointState(IntEnum)` with values 0-3:
 ### Collision tracking
 
 `CollisionHandler` uses pymunk's `post_solve` callbacks (fires every physics step during contact):
-- **Fighter vs fighter**: records `(impulse_magnitude, segment_name_a, segment_name_b)` into `turn_impulses`
+- **Fighter vs fighter**: records `(impulse_magnitude, seg_a_name, seg_b_name, vel_a, vel_b)` into `turn_impulses`. Velocities are used for directional damage attribution — the faster-moving body is the "striker" and deals proportionally more damage.
 - **Fighter vs ground**: records `(collision_type, segment_name)` into `ground_contacts`
 - Both are cleared at the start of each `simulate_turn()` via `clear_turn()`
 
@@ -207,10 +211,10 @@ Computed per turn in `game/scoring.py:compute_reward()`:
 
 | Component | Weight | Source |
 |-----------|--------|--------|
-| Damage dealt | +1.0 | Impulses above threshold from fighter-fighter collisions |
-| Damage taken | -0.5 | Same impulses, attributed to the hit player |
-| Own non-feet segment on ground | -0.2 per segment | Ground contact tracking (feet excluded) |
-| Opponent non-feet on ground | +0.1 per segment | Ground contact tracking |
+| Damage dealt | +1.0 | Velocity-weighted impulses above threshold from fighter-fighter collisions |
+| Damage taken | -0.5 | Same impulses, attributed proportionally by body velocity |
+| Own non-exempt segment on ground | -0.2 per segment | Ground contact tracking (feet and hands exempt) |
+| Opponent non-exempt on ground | +0.1 per segment | Ground contact tracking |
 | Opponent dismemberment | +5.0 per joint | (not yet triggered — see Known Issues) |
 | KO | +10.0 | (not implemented yet) |
 | Win | +20.0 | Higher score at match end |
@@ -305,23 +309,15 @@ The default spawn distance (200cm apart) means fighters can't reach each other w
 
 ### 2. Dismemberment never triggers
 
-`Match._get_joint_impulses()` returns an empty dict (line 71-75 of `game/match.py`). The dismemberment check in `simulate_turn` iterates over nothing. **To implement**: track per-segment impulses in `CollisionHandler`, map them to adjacent joints, and return them from `_get_joint_impulses()`.
+`Match._get_joint_impulses()` returns an empty dict (line 78-83 of `game/match.py`). The dismemberment check in `simulate_turn` iterates over nothing. **To implement**: track per-segment impulses in `CollisionHandler`, map them to adjacent joints, and return them from `_get_joint_impulses()`.
 
 ### 3. No KO detection
 
-The `ko` parameter in `compute_reward` is never set to True. **To implement**: define KO as torso (chest) touching the ground, or accumulated damage above a threshold, and check in `Match.simulate_turn()`.
+The `ko` parameter in `compute_reward` is never set to True. In real Toribash, touching the ground with non-exempt body parts can disqualify a player. Currently this is a score penalty only. **To implement**: define KO as torso (chest) touching the ground, or accumulated damage above a threshold, and check in `Match.simulate_turn()`.
 
-### 4. Damage attribution is symmetric
+### 4. play_human.py duplicates Match.simulate_turn() logic
 
-In `scoring.py:compute_turn_result()` lines 32-38, both `damage_a_to_b` and `damage_b_to_a` get the same value from every collision impulse. The collision callback doesn't distinguish who struck whom — it just records that shapes touched. **To fix**: use `arbiter.shapes` ordering (shape[0] is always collision_type_a) to attribute damage directionally.
-
-### 5. play_human.py duplicates Match.simulate_turn() logic
-
-Lines 90-101 of `scripts/play_human.py` manually do scoring/turn-increment instead of calling `match.simulate_turn()`. This is because the script animates frame-by-frame (calling `world.step()` each frame for visual playback) rather than bulk-simulating. A cleaner approach: add a `Match.step_physics_once()` method and a `Match.finalize_turn()` to split the bulk simulation into per-frame steps + end-of-turn scoring.
-
-### 6. Player B ragdoll is slightly less stable than Player A
-
-The mirroring works (both stay upright with HOLD), but B's torso settles ~30cm lower than A's after 150 steps. This may be due to asymmetric initial arm positions interacting with the mirrored joint limits differently. Not a blocker but worth investigating if RL training shows player bias.
+`scripts/play_human.py` manually does scoring/turn-increment instead of calling `match.simulate_turn()`. This is because the script animates frame-by-frame (calling `world.step()` each frame for visual playback) rather than bulk-simulating. A cleaner approach: add a `Match.step_physics_once()` method and a `Match.finalize_turn()` to split the bulk simulation into per-frame steps + end-of-turn scoring.
 
 ## Dependencies
 
