@@ -125,7 +125,7 @@ Joint definitions are in `config/body_config.py` lines 74-145. Each joint has:
 
 ### Self-collision
 
-Same-ragdoll segments do NOT collide with each other. Each shape has a `ShapeFilter(group=collision_type)` so only cross-ragdoll and ragdoll-ground collisions occur. Without this, limbs get tangled and the ragdoll can't move freely.
+Same-ragdoll segments collide with each other (except directly connected segments, which have `collide_bodies = False` on their PivotJoint). This prevents limbs from passing through the torso and folding into a ball. Only cross-ragdoll collisions trigger damage tracking.
 
 ### Mirroring (facing=-1)
 
