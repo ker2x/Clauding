@@ -24,6 +24,9 @@ def main():
     SIM_PHASE = False
     sim_step = 0
 
+    # Initialize pygame before event loop
+    pygame.init()
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

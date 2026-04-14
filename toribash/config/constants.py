@@ -26,5 +26,5 @@ DISMEMBER_IMPULSE = 5000.0  # impulse to detach a limb
 
 # Joint motor
 DEFAULT_MOTOR_RATE = 15.0  # rad/s for contract/extend
-DEFAULT_MOTOR_MAX_FORCE = 50000.0  # max force for hold/contract/extend
+DEFAULT_MOTOR_MAX_FORCE = 200000.0  # max force for hold/contract/extend (increased for standing)
 RELAX_MAX_FORCE = 0.0  # force when relaxed

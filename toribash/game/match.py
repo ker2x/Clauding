@@ -3,7 +3,7 @@
 from config.body_config import JointState
 from config.env_config import EnvConfig
 from physics.world import PhysicsWorld, COLLISION_TYPE_A, COLLISION_TYPE_B
-from .scoring import TurnResult, compute_turn_result
+from .scoring import TurnResult, compute_turn_result, EXEMPT_GROUND_SEGMENTS
 
 
 class Match:
@@ -46,9 +46,16 @@ class Match:
                     result.dismembered_b.append(jname)
                     self.dismember_counts[1] += 1
 
-        # Update scores
+        # Update scores: damage dealt is points scored (Toribash rules)
         self.scores[0] += result.damage_a_to_b
         self.scores[1] += result.damage_b_to_a
+
+        # Ground penalties: non-exempt body parts touching ground lose points
+        bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
+        bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS
+        self.scores[0] -= len(bad_a) * self.config.reward_ground_touch * -1  # config value is negative
+        self.scores[1] -= len(bad_b) * self.config.reward_ground_touch * -1
+        
         self.total_damage[0] += result.damage_b_to_a
         self.total_damage[1] += result.damage_a_to_b
 

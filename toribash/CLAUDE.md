@@ -13,6 +13,18 @@ cd toribash
 # Watch random agents fight
 ../.venv/bin/python scripts/watch_random.py
 
+# Train PPO agent vs hold opponent (100k timesteps)
+../.venv/bin/python scripts/train.py --timesteps 100000 --opponent hold
+
+# Train PPO agent with self-play (AI vs AI)
+../.venv/bin/python scripts/train.py --opponent selfplay --timesteps 500000
+
+# Watch trained agent
+../.venv/bin/python scripts/train.py --watch toribash_ppo.zip --episodes 5
+
+# Watch two AI models fight each other
+../.venv/bin/python scripts/train.py --watch toribash_selfplay.zip --opponent selfplay --opponent-model toribash_selfplay_best.zip --episodes 5
+
 # Run all tests
 ../.venv/bin/python tests/test_ragdoll.py
 ../.venv/bin/python tests/test_physics.py
@@ -51,7 +63,8 @@ toribash/
 │   └── pygame_renderer.py  # PygameRenderer: ragdolls, ground, joint panel, UI
 ├── scripts/         # Entry points
 │   ├── play_human.py    # Interactive human play with animated turn simulation
-│   └── watch_random.py  # Auto-play with random joint states
+│   ├── watch_random.py  # Auto-play with random joint states
+│   └── train.py         # PPO training script
 └── tests/           # Standalone assert-based tests (no pytest)
     ├── test_ragdoll.py  # 5 tests: creation, joint states, angles, positions, dismemberment
     ├── test_physics.py  # 6 tests: world creation, gravity, stability, ground contacts
@@ -90,19 +103,19 @@ We use **pymunk 7.2.0** which has a different API from older tutorials:
 
 ```
                   [head]
-                    |  (neck)
-                 [chest]
-          (shoulder_l) | (shoulder_r)
-     [upper_arm_l]  (spine)  [upper_arm_r]
-          |        [stomach]       |
-    (elbow_l)    (hip_l) (hip_r)  (elbow_r)
-     [lower_arm_l] [upper_leg_l] [upper_leg_r] [lower_arm_r]
-          |             |              |              |
-    (wrist_l)     (knee_l)      (knee_r)       (wrist_r)
-      [hand_l]  [lower_leg_l]  [lower_leg_r]    [hand_r]
-                      |              |
-                 (ankle_l)      (ankle_r)
-                  [foot_l]       [foot_r]
+                     |  (neck)
+                  [chest]
+           (shoulder_l) | (shoulder_r)
+      [upper_arm_l]  (spine)  [upper_arm_r]
+           |        [stomach]       |
+     (elbow_l)    (hip_l) (hip_r)  (elbow_r)
+      [lower_arm_l] [upper_leg_l] [upper_leg_r] [lower_arm_r]
+           |             |              |              |
+     (wrist_l)     (knee_l)      (knee_r)       (wrist_r)
+       [hand_l]  [lower_leg_l]  [lower_leg_r]    [hand_r]
+                       |              |
+                  (ankle_l)      (ankle_r)
+                   [foot_l]       [foot_r]
 ```
 
 Joint definitions are in `config/body_config.py` lines 73-144. Each joint has:
@@ -208,6 +221,82 @@ All weights are configurable via `EnvConfig` dataclass fields.
 
 ~950 env steps/sec headless (28K physics frames/sec) on M4 Mac Mini. Each episode is 20 steps (turns), so ~47 episodes/sec.
 
+## RL Training
+
+### PPO Training
+
+```bash
+# Basic training vs "hold" opponent
+../.venv/bin/python scripts/train.py --timesteps 100000 --opponent hold
+
+# Training vs random opponent
+../.venv/bin/python scripts/train.py --timesteps 500000 --opponent random
+
+# Watch trained agent
+../.venv/bin/python scripts/train.py --watch toribash_ppo.zip --episodes 5
+```
+
+### Training Options
+
+- `--timesteps`: Total training steps (default: 100,000)
+- `--opponent`: Opponent type - "hold", "random", "mirror", or "selfplay"
+- `--turns`: Max turns per episode (default: 20)
+- `--save`: Model save path (default: toribash_ppo or toribash_selfplay)
+- `--eval-freq`: Evaluation frequency (default: 10,000)
+- `--update-opponent`: How often to update opponent in selfplay (default: 10,000)
+
+### Self-play Training
+
+Self-play trains the agent against copies of itself:
+```bash
+../.venv/bin/python scripts/train.py --opponent selfplay --timesteps 500000
+```
+
+- Every `--update-opponent` steps, the opponent is updated to a copy of the current agent
+- This creates an "arms race" where both sides improve together
+- Auto-resumes from saved model if `toribash_selfplay.zip` exists
+- Best model saved to `toribash_selfplay_best.zip`
+
+### TensorBoard
+
+Monitor training in real-time:
+```bash
+../.venv/bin/tensorboard --logdir=toribash --port 6006
+```
+
+Then open http://localhost:6006 in your browser.
+
+Key metrics to watch:
+- `rollout/ep_rew_mean` - episode rewards (should increase)
+- `train/loss` - training loss (should be stable, < 100)
+- `train/value_loss` - value function loss (should stay small)
+- `train/explained_variance` - how well value function predicts returns (closer to 1 is better)
+
+### Training Stability
+
+The environment uses `VecNormalize` for stable training:
+- Rewards are normalized to prevent value function explosion
+- Observations are normalized for consistent learning
+- Training loss should stay below 100 (was 2M+ before normalization)
+
+If training is unstable:
+- Lower learning rate (try 1e-4 instead of 3e-4)
+- Reduce clip_range (try 0.1 instead of 0.2)
+- Increase n_steps for more stable updates
+
+### Curriculum Suggestions
+
+1. **Phase 1**: vs `"hold"` opponent, reduced spawn distance — learn to stay upright and approach
+2. **Phase 2**: vs `"random"` — learn to exploit unstable opponents
+3. **Phase 3**: self-play — agent plays both sides alternately (auto-implemented)
+
+### Observation Improvements for RL
+
+- Add **previous turn's joint states** (gives the agent memory of what it did last)
+- Add **distance to opponent per segment** (helps with targeting)
+- Add **contact flags** (binary: is each segment touching ground this turn?)
+- Consider **frame stacking** (2-3 turns of obs concatenated, like 006/ does)
+
 ## Known Issues and Incomplete Features
 
 ### 1. Fighters rarely deal damage (scores stay 0.0)
@@ -234,49 +323,12 @@ Lines 90-101 of `scripts/play_human.py` manually do scoring/turn-increment inste
 
 The mirroring works (both stay upright with HOLD), but B's torso settles ~30cm lower than A's after 150 steps. This may be due to asymmetric initial arm positions interacting with the mirrored joint limits differently. Not a blocker but worth investigating if RL training shows player bias.
 
-## Next Steps (RL Training)
-
-The env is designed for RL. Key considerations:
-
-### Algorithm choice
-- **PPO** is the natural fit for `MultiDiscrete` action spaces. stable-baselines3 supports this directly.
-- **SAC** (used in 001-006) works with continuous actions; would need discretization (bin continuous outputs to 4 values per joint).
-
-### Training script skeleton
-```python
-# scripts/train.py
-from stable_baselines3 import PPO
-from env.toribash_env import ToribashEnv
-from config.env_config import EnvConfig
-
-config = EnvConfig(max_turns=20, opponent_type="hold")
-env = ToribashEnv(config)
-model = PPO("MlpPolicy", env, verbose=1, n_steps=256, batch_size=64)
-model.learn(total_timesteps=1_000_000)
-```
-
-### Curriculum suggestions
-1. **Phase 1**: vs `"hold"` opponent, reduced spawn distance — learn to stay upright and approach
-2. **Phase 2**: vs `"random"` — learn to exploit unstable opponents
-3. **Phase 3**: self-play — agent plays both sides alternately (see PettingZoo wrapper below)
-
-### Self-play extension
-The env currently always controls player 0. For self-play, options:
-- **Simple**: alternate which player the agent controls each episode (set `player` parameter)
-- **PettingZoo**: wrap as a multi-agent env where both players are controlled by policies
-- The observation is already ego-centric (own body first, opponent second) so a single policy can play both sides
-
-### Observation improvements for RL
-- Add **previous turn's joint states** (gives the agent memory of what it did last)
-- Add **distance to opponent per segment** (helps with targeting)
-- Add **contact flags** (binary: is each segment touching ground this turn?)
-- Consider **frame stacking** (2-3 turns of obs concatenated, like 006/ does)
-
 ## Dependencies
 
 - **pymunk 7.2.0** — Chipmunk2D physics (collision, rigid bodies, joints, motors)
 - **pygame 2.6.1** — rendering only, not needed for headless RL
 - **gymnasium 1.2.3** — env interface (spaces, step/reset API)
+- **stable-baselines3 2.8.0** — PPO implementation
 - **numpy** — observation vectors
 
 All in the shared venv at `../.venv/`.

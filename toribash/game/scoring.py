@@ -6,8 +6,8 @@ from physics.collision import CollisionHandler
 from physics.world import COLLISION_TYPE_A, COLLISION_TYPE_B
 
 
-# Segments that are allowed to touch ground without penalty
-FEET_SEGMENTS = {"foot_l", "foot_r"}
+# Segments that are allowed to touch ground without penalty (Toribash rules)
+EXEMPT_GROUND_SEGMENTS = {"foot_l", "foot_r", "hand_l", "hand_r"}
 
 
 @dataclass
@@ -28,14 +28,20 @@ def compute_turn_result(
     """Analyze collision data from a turn and compute damage/contacts."""
     result = TurnResult()
 
-    # Process fighter-fighter impulses
-    for impulse, seg_a, seg_b in collision_handler.turn_impulses:
+    # Process fighter-fighter impulses with velocity-based attribution
+    # The faster-moving body is the "striker" and deals more damage
+    for impulse, seg_a, seg_b, vel_a, vel_b in collision_handler.turn_impulses:
         if impulse > config.damage_impulse_threshold:
             damage = (impulse - config.damage_impulse_threshold) / 1000.0
-            # seg_a belongs to player A's shape, seg_b to player B's shape
-            # Both players take damage from the collision
-            result.damage_a_to_b += damage
-            result.damage_b_to_a += damage
+            total_vel = vel_a + vel_b
+            if total_vel > 0:
+                # A moving fast into B = A strikes B = damage_a_to_b
+                result.damage_a_to_b += damage * (vel_a / total_vel)
+                result.damage_b_to_a += damage * (vel_b / total_vel)
+            else:
+                # Both stationary (e.g. pressed together), split evenly
+                result.damage_a_to_b += damage * 0.5
+                result.damage_b_to_a += damage * 0.5
 
     # Ground contacts
     result.ground_segments_a = collision_handler.get_ground_segments(COLLISION_TYPE_A)
@@ -73,11 +79,11 @@ def compute_reward(
     reward += damage_dealt * config.reward_damage_dealt
     reward += damage_taken * config.reward_damage_taken
 
-    # Ground contact penalty (excluding feet)
-    own_non_feet = own_ground - FEET_SEGMENTS
-    opp_non_feet = opp_ground - FEET_SEGMENTS
-    reward += len(own_non_feet) * config.reward_ground_touch
-    reward += len(opp_non_feet) * config.reward_opponent_ground
+    # Ground contact penalty (excluding feet and hands per Toribash rules)
+    own_bad_ground = own_ground - EXEMPT_GROUND_SEGMENTS
+    opp_bad_ground = opp_ground - EXEMPT_GROUND_SEGMENTS
+    reward += len(own_bad_ground) * config.reward_ground_touch      # negative weight (-0.2)
+    reward += len(opp_bad_ground) * config.reward_opponent_ground   # positive weight (+0.1)
 
     # Dismemberment
     reward += len(opp_dismembered) * config.reward_dismember

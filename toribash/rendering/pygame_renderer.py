@@ -193,7 +193,7 @@ class PygameRenderer:
 
     def get_joint_at_pos(self, pos: tuple[int, int], ragdoll_idx: int) -> str | None:
         """Get joint name from a click position in the panel. Returns None if not on a joint."""
-        panel_y = VIEWPORT_HEIGHT + 5 + 30 + 18  # below header
+        panel_y = VIEWPORT_HEIGHT + 5 + 30 + 18  # below header, matching _draw_joint_controls
         half_w = SCREEN_WIDTH // 2
         x_offset = 0 if ragdoll_idx == 0 else half_w
 

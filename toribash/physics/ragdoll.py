@@ -96,6 +96,10 @@ class Ragdoll:
             # Store segment name on shape for collision callbacks
             shape.segment_name = seg_def.name
 
+            # Prevent self-collision: same-group segments don't collide
+            # Group = collision_type so each ragdoll's segments ignore each other
+            shape.filter = pymunk.ShapeFilter(group=self.collision_type)
+
             self.space.add(body, shape)
             self.segments[seg_def.name] = (body, shape)
 

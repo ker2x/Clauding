@@ -9,8 +9,8 @@ class CollisionHandler:
 
     def __init__(self, space: pymunk.Space, ct_a: int, ct_b: int):
         self.space = space
-        # Accumulated impulses this turn: list of (impulse_mag, shape_a_name, shape_b_name)
-        self.turn_impulses: list[tuple[float, str, str]] = []
+        # Accumulated impulses this turn: (impulse_mag, seg_a_name, seg_b_name, vel_a, vel_b)
+        self.turn_impulses: list[tuple[float, str, str, float, float]] = []
         # Ground contacts this turn: set of (collision_type, segment_name)
         self.ground_contacts: set[tuple[int, str]] = set()
 
@@ -37,7 +37,10 @@ class CollisionHandler:
             shapes = arbiter.shapes
             name_a = getattr(shapes[0], 'segment_name', 'unknown')
             name_b = getattr(shapes[1], 'segment_name', 'unknown')
-            self.turn_impulses.append((impulse, name_a, name_b))
+            # Record body velocities for directional damage attribution
+            vel_a = shapes[0].body.velocity.length
+            vel_b = shapes[1].body.velocity.length
+            self.turn_impulses.append((impulse, name_a, name_b, vel_a, vel_b))
 
     def _on_ground_contact(self, arbiter: pymunk.Arbiter, space, data):
         """Record ground contact."""
@@ -54,8 +57,7 @@ class CollisionHandler:
     def get_total_impulse_on(self, collision_type: int) -> float:
         """Get total impulse received by a specific player this turn."""
         total = 0.0
-        for imp, name_a, name_b in self.turn_impulses:
-            # Both shapes are involved; we attribute impulse to both sides
+        for imp, name_a, name_b, vel_a, vel_b in self.turn_impulses:
             total += imp
         return total
 

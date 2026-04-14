@@ -122,18 +122,6 @@ class MinimaxPlayer(BasePlayer):
     #    24  25  26  27       (row 6)
     #  28  29  30  31         (row 7, white's back row)
 
-    # Advancement bonus for men (higher = closer to promotion)
-    MAN_ADVANCEMENT = [
-        0,  0,  0,  0,   # row 0 - opponent back row (shouldn't have our men here normally)
-        1,  1,  1,  1,   # row 1
-        2,  2,  2,  2,   # row 2
-        3,  4,  4,  3,   # row 3 - approaching center
-        4,  5,  5,  4,   # row 4 - center
-        5,  6,  6,  5,   # row 5 - good advancement
-        6,  7,  7,  6,   # row 6 - close to promotion
-        8,  8,  8,  8,   # row 7 - our back row (shouldn't have opponent men)
-    ]
-
     # Center control bonus (for both men and kings)
     CENTER_CONTROL = [
         0,  0,  0,  0,   # row 0
@@ -229,8 +217,8 @@ class MinimaxPlayer(BasePlayer):
         # Terminal node or depth limit
         if game.is_terminal():
             result = game.get_result()
-            # Scale terminal values to be larger than material scores
-            return result * 1000
+            # Must exceed any possible material evaluation (~1400 max)
+            return result * 10000
 
         if depth == 0:
             return self._evaluate(game)
