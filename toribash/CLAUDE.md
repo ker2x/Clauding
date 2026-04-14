@@ -1,26 +1,19 @@
 # Toribash 2D
 
-Turn-based ragdoll fighting game inspired by Toribash. Two fighters control joint states (contract, extend, hold, relax) then physics simulates each turn.
-
-## Architecture
-
-- `config/` — Dataclass configs: body definition (segments, joints), env settings, constants
-- `physics/` — pymunk-based ragdoll simulation, collision tracking
-- `game/` — Turn-based match orchestration, scoring
-- `env/` — gymnasium.Env for RL training (MultiDiscrete action space, ~239D observation)
-- `rendering/` — Pygame renderer, decoupled from game logic
-- `scripts/` — Human play and random agent visualization
+Turn-based 2D ragdoll fighting game inspired by [Toribash](https://en.wikipedia.org/wiki/Toribash). Two fighters set joint states (contract, extend, hold, relax) then physics simulates each turn. Built for human play and RL training.
 
 ## Commands
 
 ```bash
+cd toribash
+
 # Play (human vs human, use TAB to switch players)
 ../.venv/bin/python scripts/play_human.py
 
 # Watch random agents fight
 ../.venv/bin/python scripts/watch_random.py
 
-# Run tests
+# Run all tests
 ../.venv/bin/python tests/test_ragdoll.py
 ../.venv/bin/python tests/test_physics.py
 ../.venv/bin/python tests/test_match.py
@@ -31,26 +24,259 @@ Turn-based ragdoll fighting game inspired by Toribash. Two fighters control join
 
 - **Click** joint labels in bottom panel to cycle states (left=forward, right=backward)
 - **1/2/3/4** — Set all joints to contract/extend/hold/relax
-- **TAB** — Switch active player
-- **SPACE** — Simulate turn (animated)
+- **TAB** — Switch active player (A or B)
+- **SPACE** — Simulate turn (animated at 60fps)
 - **R** — Reset match
 - **Q/ESC** — Quit
 
+## Architecture Overview
+
+```
+toribash/
+├── config/          # Dataclass configs (no logic)
+│   ├── body_config.py   # SegmentDef, JointDef, BodyConfig, JointState enum, DEFAULT_BODY
+│   ├── constants.py     # Physics/game constants (gravity, timestep, arena dimensions)
+│   └── env_config.py    # EnvConfig: reward weights, opponent type, turn settings
+├── physics/         # pymunk simulation (no game logic, no rendering)
+│   ├── ragdoll.py       # Ragdoll class: creates segments+joints, motor control
+│   ├── world.py         # PhysicsWorld: space, ground, two ragdolls, step/simulate_turn
+│   └── collision.py     # CollisionHandler: impulse tracking, ground contact tracking
+├── game/            # Game rules (no physics internals, no rendering)
+│   ├── match.py         # Match: turn orchestration, scoring accumulation, win detection
+│   └── scoring.py       # TurnResult, compute_turn_result, compute_reward
+├── env/             # gymnasium.Env interface (bridges game → RL)
+│   ├── toribash_env.py  # ToribashEnv: step/reset/render, opponent action generation
+│   └── observation.py   # build_observation: 239D normalized vector from match state
+├── rendering/       # Pygame drawing (pure visualization, no game logic)
+│   └── pygame_renderer.py  # PygameRenderer: ragdolls, ground, joint panel, UI
+├── scripts/         # Entry points
+│   ├── play_human.py    # Interactive human play with animated turn simulation
+│   └── watch_random.py  # Auto-play with random joint states
+└── tests/           # Standalone assert-based tests (no pytest)
+    ├── test_ragdoll.py  # 5 tests: creation, joint states, angles, positions, dismemberment
+    ├── test_physics.py  # 6 tests: world creation, gravity, stability, ground contacts
+    ├── test_match.py    # 4 tests: creation, turn flow, full match, relaxed vs hold
+    └── test_env.py      # 6 tests: spaces, reset, step, rollout, opponent types, determinism
+```
+
+### Dependency direction (strict)
+
+```
+config ← physics ← game ← env
+                  ↖ rendering ← scripts
+```
+
+`config` depends on nothing. `physics` depends only on `config`. `game` depends on `physics` + `config`. `env` depends on `game`. `rendering` depends on `physics` + `game` + `config` (for drawing) but NOT on `env`. `scripts` tie everything together.
+
+## Physics Engine Details
+
+### pymunk 7.x API
+
+We use **pymunk 7.2.0** which has a different API from older tutorials:
+- Collision handlers: `space.on_collision(collision_type_a=, collision_type_b=, post_solve=)` — NOT the old `space.add_collision_handler()` which doesn't exist in v7
+- Arbiter: `arbiter.total_impulse` returns a `Vec2d`, use `.length` for magnitude
+- Constraints: `PivotJoint`, `RotaryLimitJoint`, `SimpleMotor` — unchanged from older versions
+
+### Coordinate system
+
+- **Units**: centimeters (a ragdoll is ~170cm tall)
+- **Y-axis**: up is positive (pymunk default), ground at y=50
+- **Arena**: 600cm wide × 400cm tall, fighters spawn at x=200 and x=400
+- **Timestep**: 1/60s, 20 solver iterations per step, 30 steps per turn (~0.5s real time)
+
+### Ragdoll structure
+
+15 segments connected by 14 joints:
+
+```
+                  [head]
+                    |  (neck)
+                 [chest]
+          (shoulder_l) | (shoulder_r)
+     [upper_arm_l]  (spine)  [upper_arm_r]
+          |        [stomach]       |
+    (elbow_l)    (hip_l) (hip_r)  (elbow_r)
+     [lower_arm_l] [upper_leg_l] [upper_leg_r] [lower_arm_r]
+          |             |              |              |
+    (wrist_l)     (knee_l)      (knee_r)       (wrist_r)
+      [hand_l]  [lower_leg_l]  [lower_leg_r]    [hand_r]
+                      |              |
+                 (ankle_l)      (ankle_r)
+                  [foot_l]       [foot_r]
+```
+
+Joint definitions are in `config/body_config.py` lines 73-144. Each joint has:
+- `angle_min`/`angle_max` (radians) — asymmetric to model human anatomy
+- `motor_rate` (rad/s) — how fast contract/extend drives the joint
+- `motor_max_force` — torque limit
+
+### Mirroring (facing=-1)
+
+Player B faces left (facing=-1). The ragdoll mirrors by:
+1. **Anchor x-coordinates negated** in `ragdoll.py:_create_joints` (lines 110-114)
+2. **Angle limits negated and swapped**: `angle_min = -jdef.angle_max, angle_max = -jdef.angle_min` (lines 121-126)
+3. **Motor rate sign flipped** in `set_joint_state` (line 151): `rate_sign = 1 if facing == 1 else -1`
+4. **Segment positions mirrored** via `hip_offset = 8 * f, shoulder_offset = 12 * f` (lines 66-67)
+
+This means CONTRACT on player A's left shoulder moves it in the same anatomical direction as CONTRACT on player B's left shoulder, even though the physics angles are opposite.
+
+### Joint motor states
+
+Defined as `JointState(IntEnum)` with values 0-3:
+
+| State | motor.rate | motor.max_force | Behavior |
+|-------|-----------|-----------------|----------|
+| CONTRACT (0) | +motor_rate × facing | motor_max_force | Actively closes joint toward angle_min |
+| EXTEND (1) | -motor_rate × facing | motor_max_force | Actively opens joint toward angle_max |
+| HOLD (2) | 0.0 | motor_max_force | Resists movement (stiff) |
+| RELAX (3) | 0.0 | 0.0 | No resistance (limp, gravity takes over) |
+
+### Collision tracking
+
+`CollisionHandler` uses pymunk's `post_solve` callbacks (fires every physics step during contact):
+- **Fighter vs fighter**: records `(impulse_magnitude, segment_name_a, segment_name_b)` into `turn_impulses`
+- **Fighter vs ground**: records `(collision_type, segment_name)` into `ground_contacts`
+- Both are cleared at the start of each `simulate_turn()` via `clear_turn()`
+
+Collision types: ground=0, player_a=1, player_b=2 (defined in `physics/world.py`)
+
 ## Gym Environment
 
+### Spaces
+
+- **Action**: `MultiDiscrete([4] * 14)` — one of {CONTRACT, EXTEND, HOLD, RELAX} per joint
+- **Observation**: `Box(-2, 2, shape=(239,))` — flat float32 vector
+
+### Observation layout (239 floats)
+
+The observation is ego-centric (own data first, positions relative to own torso):
+
+```
+Per ragdoll (×2 = own + opponent):
+  [0:14]   Joint angles (normalized to [-1,1] by angle limits)
+  [14:28]  Joint angular velocities (normalized by 2× motor rate)
+  [28:42]  Joint states (0.0, 0.33, 0.67, 1.0 for the 4 states)
+  [42:72]  Segment positions relative to ref torso (x,y × 15 segments, /ARENA_WIDTH,HEIGHT)
+  [72:102] Segment velocities (vx,vy × 15 segments, /500)
+  [102:117] Segment rotations (sin of absolute angle)
+
+Global:
+  [234] Relative torso dx (opponent - own, /ARENA_WIDTH)
+  [235] Relative torso dy (/ARENA_HEIGHT)
+  [236] Turn progress (turn / max_turns, 0→1)
+  [237] Own score / 100
+  [238] Opponent score / 100
+```
+
+Built by `env/observation.py:build_observation()`. For player 1, own/opponent are swapped so a single policy can play both sides.
+
+### Step semantics
+
+Each `env.step(action)`:
+1. Sets agent's (player 0) joint states from action array
+2. Generates opponent (player 1) action based on `config.opponent_type`
+3. Calls `match.simulate_turn()` → runs 30 physics steps, tracks collisions
+4. Computes reward from turn result
+5. Returns `(obs, reward, terminated, truncated=False, info)`
+
+Episode terminates when `turn >= max_turns`. Info dict contains `turn`, `scores`, `winner`.
+
+### Opponent types
+
+Set via `EnvConfig.opponent_type`:
+- `"hold"` — all joints HOLD (default, easiest)
+- `"random"` — random joint states each turn
+- `"mirror"` — copies agent's action
+
+### Reward function
+
+Computed per turn in `game/scoring.py:compute_reward()`:
+
+| Component | Weight | Source |
+|-----------|--------|--------|
+| Damage dealt | +1.0 | Impulses above threshold from fighter-fighter collisions |
+| Damage taken | -0.5 | Same impulses, attributed to the hit player |
+| Own non-feet segment on ground | -0.2 per segment | Ground contact tracking (feet excluded) |
+| Opponent non-feet on ground | +0.1 per segment | Ground contact tracking |
+| Opponent dismemberment | +5.0 per joint | (not yet triggered — see Known Issues) |
+| KO | +10.0 | (not implemented yet) |
+| Win | +20.0 | Higher score at match end |
+
+All weights are configurable via `EnvConfig` dataclass fields.
+
+### Performance
+
+~950 env steps/sec headless (28K physics frames/sec) on M4 Mac Mini. Each episode is 20 steps (turns), so ~47 episodes/sec.
+
+## Known Issues and Incomplete Features
+
+### 1. Fighters rarely deal damage (scores stay 0.0)
+
+The default spawn distance (200cm apart) means fighters can't reach each other with initial poses. With random or hold opponents, the ragdolls mostly just stand/fall in place. **To fix**: either reduce `SPAWN_OFFSET_X` in constants.py (e.g., 50→30), or add a "walk toward opponent" curriculum phase, or add an approach reward.
+
+### 2. Dismemberment never triggers
+
+`Match._get_joint_impulses()` returns an empty dict (line 71-75 of `game/match.py`). The dismemberment check in `simulate_turn` iterates over nothing. **To implement**: track per-segment impulses in `CollisionHandler`, map them to adjacent joints, and return them from `_get_joint_impulses()`.
+
+### 3. No KO detection
+
+The `ko` parameter in `compute_reward` is never set to True. **To implement**: define KO as torso (chest) touching the ground, or accumulated damage above a threshold, and check in `Match.simulate_turn()`.
+
+### 4. Damage attribution is symmetric
+
+In `scoring.py:compute_turn_result()` lines 32-38, both `damage_a_to_b` and `damage_b_to_a` get the same value from every collision impulse. The collision callback doesn't distinguish who struck whom — it just records that shapes touched. **To fix**: use `arbiter.shapes` ordering (shape[0] is always collision_type_a) to attribute damage directionally.
+
+### 5. play_human.py duplicates Match.simulate_turn() logic
+
+Lines 90-101 of `scripts/play_human.py` manually do scoring/turn-increment instead of calling `match.simulate_turn()`. This is because the script animates frame-by-frame (calling `world.step()` each frame for visual playback) rather than bulk-simulating. A cleaner approach: add a `Match.step_physics_once()` method and a `Match.finalize_turn()` to split the bulk simulation into per-frame steps + end-of-turn scoring.
+
+### 6. Player B ragdoll is slightly less stable than Player A
+
+The mirroring works (both stay upright with HOLD), but B's torso settles ~30cm lower than A's after 150 steps. This may be due to asymmetric initial arm positions interacting with the mirrored joint limits differently. Not a blocker but worth investigating if RL training shows player bias.
+
+## Next Steps (RL Training)
+
+The env is designed for RL. Key considerations:
+
+### Algorithm choice
+- **PPO** is the natural fit for `MultiDiscrete` action spaces. stable-baselines3 supports this directly.
+- **SAC** (used in 001-006) works with continuous actions; would need discretization (bin continuous outputs to 4 values per joint).
+
+### Training script skeleton
 ```python
+# scripts/train.py
+from stable_baselines3 import PPO
 from env.toribash_env import ToribashEnv
 from config.env_config import EnvConfig
 
-env = ToribashEnv(EnvConfig(max_turns=20, opponent_type="random"))
-obs, info = env.reset()
-action = env.action_space.sample()  # [4] * 14 joints
-obs, reward, done, truncated, info = env.step(action)
+config = EnvConfig(max_turns=20, opponent_type="hold")
+env = ToribashEnv(config)
+model = PPO("MlpPolicy", env, verbose=1, n_steps=256, batch_size=64)
+model.learn(total_timesteps=1_000_000)
 ```
+
+### Curriculum suggestions
+1. **Phase 1**: vs `"hold"` opponent, reduced spawn distance — learn to stay upright and approach
+2. **Phase 2**: vs `"random"` — learn to exploit unstable opponents
+3. **Phase 3**: self-play — agent plays both sides alternately (see PettingZoo wrapper below)
+
+### Self-play extension
+The env currently always controls player 0. For self-play, options:
+- **Simple**: alternate which player the agent controls each episode (set `player` parameter)
+- **PettingZoo**: wrap as a multi-agent env where both players are controlled by policies
+- The observation is already ego-centric (own body first, opponent second) so a single policy can play both sides
+
+### Observation improvements for RL
+- Add **previous turn's joint states** (gives the agent memory of what it did last)
+- Add **distance to opponent per segment** (helps with targeting)
+- Add **contact flags** (binary: is each segment touching ground this turn?)
+- Consider **frame stacking** (2-3 turns of obs concatenated, like 006/ does)
 
 ## Dependencies
 
-- pymunk (Chipmunk2D physics)
-- pygame (rendering only, not needed for headless RL)
-- gymnasium (env interface)
-- numpy
+- **pymunk 7.2.0** — Chipmunk2D physics (collision, rigid bodies, joints, motors)
+- **pygame 2.6.1** — rendering only, not needed for headless RL
+- **gymnasium 1.2.3** — env interface (spaces, step/reset API)
+- **numpy** — observation vectors
+
+All in the shared venv at `../.venv/`.
