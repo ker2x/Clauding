@@ -76,72 +76,72 @@ def _make_default_body() -> BodyConfig:
         JointDef("neck", "chest", "head",
                  (0, 14), (0, -8),
                  angle_min=-0.5, angle_max=0.5,
-                 motor_rate=10.0, motor_max_force=120000.0),
+                 motor_rate=10.0, motor_max_force=240000.0),
         # Chest-stomach
         JointDef("spine", "chest", "stomach",
                  (0, -14), (0, 10),
                  angle_min=-0.4, angle_max=0.4,
-                 motor_rate=8.0, motor_max_force=240000.0),
+                 motor_rate=8.0, motor_max_force=480000.0),
         # Left shoulder
         JointDef("shoulder_l", "chest", "upper_arm_l",
                  (-12, 10), (0, 13),
                  angle_min=-3.0, angle_max=1.0,
-                 motor_rate=15.0, motor_max_force=160000.0),
+                 motor_rate=15.0, motor_max_force=320000.0),
         # Left elbow
         JointDef("elbow_l", "upper_arm_l", "lower_arm_l",
                  (0, -13), (0, 12),
                  angle_min=-2.5, angle_max=0.1,
-                 motor_rate=18.0, motor_max_force=120000.0),
+                 motor_rate=18.0, motor_max_force=240000.0),
         # Left wrist
         JointDef("wrist_l", "lower_arm_l", "hand_l",
                  (0, -12), (0, 5),
                  angle_min=-0.8, angle_max=0.8,
-                 motor_rate=12.0, motor_max_force=40000.0),
+                 motor_rate=12.0, motor_max_force=80000.0),
         # Right shoulder
         JointDef("shoulder_r", "chest", "upper_arm_r",
                  (12, 10), (0, 13),
                  angle_min=-1.0, angle_max=3.0,
-                 motor_rate=15.0, motor_max_force=160000.0),
+                 motor_rate=15.0, motor_max_force=320000.0),
         # Right elbow
         JointDef("elbow_r", "upper_arm_r", "lower_arm_r",
                  (0, -13), (0, 12),
                  angle_min=-0.1, angle_max=2.5,
-                 motor_rate=18.0, motor_max_force=120000.0),
+                 motor_rate=18.0, motor_max_force=240000.0),
         # Right wrist
         JointDef("wrist_r", "lower_arm_r", "hand_r",
                  (0, -12), (0, 5),
                  angle_min=-0.8, angle_max=0.8,
-                 motor_rate=12.0, motor_max_force=40000.0),
+                 motor_rate=12.0, motor_max_force=80000.0),
         # Left hip
         JointDef("hip_l", "stomach", "upper_leg_l",
                  (-8, -10), (0, 17),
                  angle_min=-1.5, angle_max=2.0,
-                 motor_rate=12.0, motor_max_force=240000.0),
+                 motor_rate=12.0, motor_max_force=480000.0),
         # Left knee
         JointDef("knee_l", "upper_leg_l", "lower_leg_l",
                  (0, -17), (0, 16),
                  angle_min=-0.1, angle_max=2.5,
-                 motor_rate=15.0, motor_max_force=200000.0),
+                 motor_rate=15.0, motor_max_force=400000.0),
         # Left ankle
         JointDef("ankle_l", "lower_leg_l", "foot_l",
                  (0, -16), (-3, 3),
                  angle_min=-0.8, angle_max=0.8,
-                 motor_rate=10.0, motor_max_force=80000.0),
+                 motor_rate=10.0, motor_max_force=160000.0),
         # Right hip
         JointDef("hip_r", "stomach", "upper_leg_r",
                  (8, -10), (0, 17),
                  angle_min=-2.0, angle_max=1.5,
-                 motor_rate=12.0, motor_max_force=240000.0),
+                 motor_rate=12.0, motor_max_force=480000.0),
         # Right knee
         JointDef("knee_r", "upper_leg_r", "lower_leg_r",
                  (0, -17), (0, 16),
                  angle_min=-2.5, angle_max=0.1,
-                 motor_rate=15.0, motor_max_force=200000.0),
+                 motor_rate=15.0, motor_max_force=400000.0),
         # Right ankle
         JointDef("ankle_r", "lower_leg_r", "foot_r",
                  (0, -16), (3, 3),
                  angle_min=-0.8, angle_max=0.8,
-                 motor_rate=10.0, motor_max_force=80000.0),
+                 motor_rate=10.0, motor_max_force=160000.0),
     ]
 
     return BodyConfig(segments=segments, joints=joints)
