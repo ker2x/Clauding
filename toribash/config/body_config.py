@@ -112,31 +112,31 @@ def _make_default_body() -> BodyConfig:
                  (0, -12), (0, 5),
                  angle_min=-0.8, angle_max=0.8,
                  motor_rate=12.0, motor_max_force=80000.0),
-        # Left hip
+        # Left hip - QUADRUPLED FOR STRONGER LIFTING
         JointDef("hip_l", "stomach", "upper_leg_l",
                  (-8, -10), (0, 17),
                  angle_min=-1.5, angle_max=2.0,
-                 motor_rate=12.0, motor_max_force=480000.0),
+                  motor_rate=12.0, motor_max_force=960000.0),  # Quadrupled
         # Left knee
         JointDef("knee_l", "upper_leg_l", "lower_leg_l",
                  (0, -17), (0, 16),
                  angle_min=-0.1, angle_max=2.5,
-                 motor_rate=15.0, motor_max_force=400000.0),
+                 motor_rate=15.0, motor_max_force=800000.0),  # Quadrupled
         # Left ankle
         JointDef("ankle_l", "lower_leg_l", "foot_l",
                  (0, -16), (-3, 3),
                  angle_min=-0.8, angle_max=0.8,
                  motor_rate=10.0, motor_max_force=160000.0),
-        # Right hip
+        # Right hip - QUADRUPLED FOR STRONGER LIFTING
         JointDef("hip_r", "stomach", "upper_leg_r",
                  (8, -10), (0, 17),
                  angle_min=-2.0, angle_max=1.5,
-                 motor_rate=12.0, motor_max_force=480000.0),
+                  motor_rate=12.0, motor_max_force=960000.0),  # Quadrupled
         # Right knee
         JointDef("knee_r", "upper_leg_r", "lower_leg_r",
                  (0, -17), (0, 16),
                  angle_min=-2.5, angle_max=0.1,
-                 motor_rate=15.0, motor_max_force=400000.0),
+                 motor_rate=15.0, motor_max_force=800000.0),  # Quadrupled
         # Right ankle
         JointDef("ankle_r", "lower_leg_r", "foot_r",
                  (0, -16), (3, 3),
