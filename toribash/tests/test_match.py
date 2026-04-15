@@ -1,4 +1,13 @@
-"""Tests for match flow: turns, scoring, termination."""
+"""Tests for match flow: turns, scoring, termination.
+
+This module contains unit tests for the Match class, verifying:
+- Match initialization
+- Turn flow and scoring
+- Full match execution
+- Relaxed vs held ragdoll behavior
+
+Run with: python tests/test_match.py
+"""
 
 import sys
 sys.path.insert(0, sys.path[0] + '/..')
@@ -9,7 +18,7 @@ from game.match import Match
 
 
 def test_match_creation():
-    """Match initializes with correct state."""
+    """Test match initializes with correct state."""
     match = Match()
     assert match.turn == 0
     assert match.scores == [0.0, 0.0]
@@ -18,7 +27,7 @@ def test_match_creation():
 
 
 def test_match_turn_flow():
-    """Set actions and simulate a turn."""
+    """Test set actions and simulate a turn."""
     match = Match()
     n_joints = DEFAULT_BODY.num_joints
 
@@ -34,7 +43,7 @@ def test_match_turn_flow():
 
 
 def test_full_match():
-    """Run a complete match to termination."""
+    """Test running a complete match to termination."""
     config = EnvConfig(max_turns=10)
     match = Match(config)
     n_joints = DEFAULT_BODY.num_joints
@@ -58,7 +67,7 @@ def test_full_match():
 
 
 def test_relaxed_vs_hold():
-    """Relaxed fighter should collapse; held fighter's torso stays higher."""
+    """Test relaxed fighter collapses while held fighter stays upright."""
     config = EnvConfig(max_turns=5)
     match = Match(config)
     n_joints = DEFAULT_BODY.num_joints

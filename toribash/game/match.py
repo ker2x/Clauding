@@ -1,4 +1,35 @@
-"""Match: orchestrates turn-based gameplay, scoring, win conditions."""
+"""Match: orchestrates turn-based gameplay, scoring accumulation, and win conditions.
+
+This module implements the Match class, which manages a complete Toribash match
+between two fighters. It handles:
+- Setting joint actions for each player
+- Simulating physics turns
+- Accumulating scores from damage and penalties
+- Detecting dismemberment events
+- Determining match winner
+
+Match Flow:
+    1. Create Match with config
+    2. Loop:
+       a. Set player 0 actions via set_actions(0, joint_states)
+       b. Set player 1 actions via set_actions(1, joint_states)
+       c. Call simulate_turn() to run physics and get results
+       d. Check is_done() for match end
+    3. Call get_winner() for final result
+
+Usage:
+    >>> from game.match import Match
+    >>> from config.env_config import EnvConfig
+    >>> from config.body_config import JointState
+    >>> match = Match(EnvConfig(max_turns=10))
+    >>> while not match.is_done():
+    ...     match.set_actions(0, [JointState.CONTRACT] * 14)
+    ...     match.set_actions(1, [JointState.HOLD] * 14)
+    ...     result = match.simulate_turn()
+    ...     print(f"Turn {match.turn}: Score A={match.scores[0]:.1f}")
+    >>> winner = match.get_winner()
+    >>> print(f"Winner: {'A' if winner == 0 else 'B'}")
+"""
 
 from config.body_config import JointState
 from config.env_config import EnvConfig
@@ -7,9 +38,35 @@ from .scoring import TurnResult, compute_turn_result, EXEMPT_GROUND_SEGMENTS, GR
 
 
 class Match:
-    """A full Toribash match between two fighters."""
-
+    """A full Toribash match between two fighters.
+    
+    The Match class orchestrates the game loop, managing:
+    - Physics world with two ragdolls
+    - Turn counter and score tracking
+    - Turn simulation and result computation
+    - Dismemberment detection and application
+    - Win condition checking
+    
+    Attributes:
+        config: Environment configuration (turns, thresholds, etc.).
+        world: PhysicsWorld with ragdolls and collision handling.
+        turn: Current turn number (0-indexed).
+        scores: [player_a_score, player_b_score] accumulated damage dealt.
+        total_damage: [player_a_damage_taken, player_b_damage_taken].
+        dismember_counts: [player_a_limbs_lost, player_b_limbs_lost].
+        turn_results: List of TurnResult for each turn.
+    
+    Note:
+        Player 0 = Player A = ragdoll_a (facing right)
+        Player 1 = Player B = ragdoll_b (facing left)
+    """
+    
     def __init__(self, config: EnvConfig | None = None):
+        """Initialize a new match.
+        
+        Args:
+            config: Environment configuration (uses defaults if None).
+        """
         self.config = config or EnvConfig()
         self.world = PhysicsWorld(self.config)
         self.turn = 0
@@ -18,25 +75,51 @@ class Match:
         self.dismember_counts = [0, 0]  # limbs lost per player
         self.turn_results: list[TurnResult] = []
 
-    def set_actions(self, player: int, joint_states: list[JointState]):
-        """Set joint states for a player (0=A, 1=B)."""
+    def set_actions(self, player: int, joint_states: list[JointState]) -> None:
+        """Set joint states for a player before a turn.
+        
+        This should be called for both players before simulate_turn().
+        The joint states remain in effect until changed.
+        
+        Args:
+            player: Player index (0=A, 1=B).
+            joint_states: List of JointState values, one per joint.
+        
+        Raises:
+            ValueError: If player is not 0 or 1.
+        """
+        if player not in (0, 1):
+            raise ValueError(f"Player must be 0 or 1, got {player}")
+        
         ragdoll = self.world.ragdoll_a if player == 0 else self.world.ragdoll_b
         ragdoll.set_all_joint_states(joint_states)
 
     def simulate_turn(self) -> TurnResult:
-        """Simulate one turn of physics and compute results."""
+        """Simulate one turn of physics and compute results.
+        
+        Runs the physics simulation for steps_per_turn frames, then:
+        1. Computes collision results (damage, ground contacts)
+        2. Checks for dismemberment (joints that exceeded impulse threshold)
+        3. Updates scores with damage dealt and ground penalties
+        4. Increments turn counter
+        
+        Returns:
+            TurnResult with damage and contact information for this turn.
+        """
+        # Run physics simulation (clears collision tracking internally)
         self.world.simulate_turn()
 
+        # Compute turn result from collision data
         result = compute_turn_result(
             self.world.collision_handler,
             self.config,
         )
 
-        # Check for dismemberment
+        # Check for dismemberment events
         for jname, impulses in self._get_joint_impulses().items():
             max_impulse = max(impulses) if impulses else 0
             if max_impulse > self.config.dismember_impulse:
-                # Determine which ragdoll owns this joint
+                # Determine which ragdoll owns this joint and dismember it
                 if jname in self.world.ragdoll_a.joints and jname not in self.world.ragdoll_a.dismembered:
                     self.world.ragdoll_a.dismember_joint(jname)
                     result.dismembered_a.append(jname)
@@ -50,7 +133,8 @@ class Match:
         self.scores[0] += result.damage_a_to_b
         self.scores[1] += result.damage_b_to_a
 
-        # Ground penalties with segment-specific weights (Toribash rules)
+        # Apply ground-touch penalties per Toribash rules
+        # Non-exempt segments touching ground reduce score
         bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
         bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS
         for seg in bad_a:
@@ -58,19 +142,33 @@ class Match:
         for seg in bad_b:
             self.scores[1] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
         
+        # Track total damage taken for each player
         self.total_damage[0] += result.damage_b_to_a
         self.total_damage[1] += result.damage_a_to_b
 
+        # Store result and increment turn
         self.turn_results.append(result)
         self.turn += 1
         return result
 
     def is_done(self) -> bool:
-        """Check if the match is over."""
+        """Check if the match is over.
+        
+        Returns:
+            True if max_turns have been played, False otherwise.
+        """
         return self.turn >= self.config.max_turns
 
     def get_winner(self) -> int | None:
-        """Return winner (0 or 1) or None for draw. Higher score wins."""
+        """Determine the match winner based on scores.
+        
+        In Toribash rules:
+        - Higher score wins (more damage dealt)
+        - Draw if scores are equal
+        
+        Returns:
+            0 if player A wins, 1 if player B wins, None if draw.
+        """
         if self.scores[0] > self.scores[1]:
             return 0
         elif self.scores[1] > self.scores[0]:
@@ -78,7 +176,19 @@ class Match:
         return None
 
     def _get_joint_impulses(self) -> dict[str, list[float]]:
-        """Map joint names to impulses they received this turn (simplified)."""
+        """Map joint names to impulses they received this turn.
+        
+        This is currently a stub that returns an empty dict.
+        To implement dismemberment properly, this should track
+        per-segment impulses and map them to adjacent joints.
+        
+        Returns:
+            Empty dict (dismemberment not yet fully implemented).
+        
+        TODO:
+            Implement per-segment impulse tracking in CollisionHandler
+            and map segments to joints here.
+        """
         # For now, we don't have per-joint impulse tracking;
         # dismemberment will be handled by total impulse on adjacent segments
         return {}

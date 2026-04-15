@@ -1,5 +1,38 @@
 #!/usr/bin/env python3
-"""PPO training script for Toribash 2D with self-play support."""
+"""PPO training script for Toribash 2D with self-play support.
+
+This script provides RL training using Proximal Policy Optimization (PPO).
+It supports:
+- Training against fixed opponents (hold/random/mirror)
+- Self-play training (agent plays against copies of itself)
+- Model watching (visualize trained agents)
+- TensorBoard logging
+
+Usage:
+    # Train against hold opponent (100k steps)
+    ../.venv/bin/python scripts/train.py --timesteps 100000 --opponent hold
+
+    # Self-play training (500k steps)
+    ../.venv/bin/python scripts/train.py --opponent selfplay --timesteps 500000
+
+    # Watch trained agent
+    ../.venv/bin/python scripts/train.py --watch toribash_ppo.zip --episodes 5
+
+    # AI vs AI (two trained models)
+    ../.venv/bin/python scripts/train.py --watch model_a.zip --opponent selfplay \
+           --opponent-model model_b.zip --episodes 5
+
+Command Line Arguments:
+    --timesteps: Total training steps (default: 100,000)
+    --opponent: Opponent type - "hold", "random", "mirror", or "selfplay"
+    --turns: Max turns per episode (default: 20)
+    --save: Model save path (default: toribash_ppo)
+    --eval-freq: Evaluation frequency (default: 10,000)
+    --update-opponent: How often to update opponent in selfplay (default: 10,000)
+    --watch: Path to model to watch (skips training)
+    --opponent-model: Path to opponent model (for AI vs AI watching)
+    --episodes: Number of episodes to watch (default: 5)
+"""
 
 import sys
 sys.path.insert(0, sys.path[0] + '/..')
@@ -18,20 +51,38 @@ from config.env_config import EnvConfig
 from config.body_config import JointState
 from env.toribash_env import ToribashEnv
 
+# Number of stacked observations for temporal memory
 N_STACK = 3
 
 
 class SelfPlayWrapper(gym.Wrapper):
-    """Wrapper that uses opponent model for second player."""
-
+    """Wrapper that uses an opponent model for player 1 in self-play.
+    
+    This wrapper:
+    1. Gets opponent's observation (from player 1's perspective)
+    2. Runs opponent's policy to get opponent's action
+    3. Sets opponent's actions before stepping the environment
+    
+    The opponent model is stored via a reference, allowing it to be
+    updated during training.
+    """
+    
     def __init__(self, env, opponent_ref, vec_normalize_ref=None):
+        """Initialize the self-play wrapper.
+        
+        Args:
+            env: The underlying ToribashEnv.
+            opponent_ref: Mutable list containing the opponent model [PPO or None].
+            vec_normalize_ref: Mutable list containing VecNormalize [VecNormalize or None].
+        """
         super().__init__(env)
         self.opponent_ref = opponent_ref
-        self.vec_normalize_ref = vec_normalize_ref  # mutable list [VecNormalize | None]
+        self.vec_normalize_ref = vec_normalize_ref
         self._opp_obs_dim = env.observation_space.shape[0]
         self._opp_frames = collections.deque(maxlen=N_STACK)
 
     def reset(self, seed=None, options=None):
+        """Reset environment and opponent frame buffer."""
         obs, info = self.env.reset(seed=seed, options=options)
         # Initialize opponent frame buffer with zeros
         self._opp_frames.clear()
@@ -40,6 +91,10 @@ class SelfPlayWrapper(gym.Wrapper):
         return obs, info
 
     def step(self, action):
+        """Execute one step with opponent action generation.
+        
+        Before stepping, gets opponent's action using the opponent model.
+        """
         # Get opponent action BEFORE step (so it's used in simulation)
         if self.opponent_ref[0] is not None:
             opp_obs = self._get_opponent_obs()
@@ -47,14 +102,15 @@ class SelfPlayWrapper(gym.Wrapper):
             opp_states = [JointState(int(a)) for a in opp_action]
             self.env.match.set_actions(1, opp_states)
 
-        # Now step (agent's actions already set before this wrapper)
+        # Step with agent's action (already set before this wrapper call)
         obs, reward, done, trunc, info = self.env.step(action)
         return obs, reward, done, trunc, info
 
     def _get_opponent_obs(self):
+        """Get stacked observation for opponent (player 1 perspective)."""
         from env.observation import build_observation
         raw = build_observation(self.env.match, player=1,
-                                prev_actions=self.env._prev_opp_actions)
+                              prev_actions=self.env._prev_opp_actions)
         self._opp_frames.append(raw)
         # Stack frames: oldest first, matching VecFrameStack order
         stacked = np.concatenate(list(self._opp_frames))
@@ -64,6 +120,28 @@ class SelfPlayWrapper(gym.Wrapper):
         return stacked
 
 
+def make_ppo(env, config: EnvConfig, tensorboard_log: str) -> PPO:
+    """Create a PPO model from config hyperparameters."""
+    return PPO(
+        "MlpPolicy",
+        env,
+        policy_kwargs=dict(net_arch=config.ppo_net_arch),
+        learning_rate=config.ppo_learning_rate,
+        n_steps=config.ppo_n_steps,
+        batch_size=config.ppo_batch_size,
+        n_epochs=config.ppo_n_epochs,
+        target_kl=config.ppo_target_kl,
+        gamma=config.ppo_gamma,
+        gae_lambda=config.ppo_gae_lambda,
+        clip_range=config.ppo_clip_range,
+        ent_coef=config.ppo_ent_coef,
+        vf_coef=config.ppo_vf_coef,
+        max_grad_norm=config.ppo_max_grad_norm,
+        verbose=1,
+        tensorboard_log=tensorboard_log,
+    )
+
+
 def train_selfplay(
     total_timesteps: int = 500_000,
     max_turns: int = 20,
@@ -71,15 +149,30 @@ def train_selfplay(
     update_opponent_every: int = 10000,
     resume: bool = False,
 ):
-    """Train agent using self-play against copies of itself."""
+    """Train agent using self-play against copies of itself.
     
+    Self-play Training:
+    1. Train agent against current opponent model
+    2. Periodically update opponent to best model seen
+    3. Save best model separately
+    
+    Args:
+        total_timesteps: Total training steps.
+        max_turns: Max turns per episode.
+        save_path: Path prefix for saving models.
+        update_opponent_every: Steps between opponent updates.
+        resume: Whether to resume from existing model.
+    
+    Returns:
+        Trained PPO model.
+    """
     config = EnvConfig(max_turns=max_turns)
     
     # Track the opponent model and VecNormalize reference
     opponent_ref = [None]
     vec_normalize_ref = [None]
 
-    # Create base environment with hold opponent initially
+    # Create base environment
     base_env = ToribashEnv(config)
 
     # Wrap with self-play wrapper and vectorize
@@ -87,16 +180,16 @@ def train_selfplay(
     env = DummyVecEnv([lambda: Monitor(selfplay_env)])
     env = VecFrameStack(env, n_stack=N_STACK)
     env = VecNormalize(env, norm_reward=True, gamma=0.99)
-    vec_normalize_ref[0] = env  # Now opponent can normalize its obs
+    vec_normalize_ref[0] = env  # Allow opponent to normalize observations
     
-    # Check for existing model to resume and set up opponent
+    # Model paths
     model_path = f"{save_path}.zip"
     best_path = f"{save_path}_best.zip"
     
+    # Check for existing models to resume or continue
     if resume and os.path.exists(model_path):
         print(f"Resuming from {model_path}...")
         model = PPO.load(model_path, env=env)
-        # Load best model as opponent (if it exists)
         if os.path.exists(best_path):
             from stable_baselines3 import PPO as PPOClass
             opponent_ref[0] = PPOClass.load(best_path)
@@ -106,44 +199,10 @@ def train_selfplay(
         from stable_baselines3 import PPO as PPOClass
         opponent_ref[0] = PPOClass.load(best_path)
         print(f"Starting fresh, playing against existing best: {best_path}")
-        model = PPO(
-            "MlpPolicy",
-            env,
-            policy_kwargs=dict(net_arch=[256, 256]),
-            learning_rate=5e-5,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            target_kl=0.05,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
-            vf_coef=0.5,
-            max_grad_norm=0.5,
-            verbose=1,
-            tensorboard_log=f"{save_path}_tensorboard",
-        )
+        model = make_ppo(env, config, f"{save_path}_tensorboard")
     else:
-        # Create PPO model
-        model = PPO(
-            "MlpPolicy",
-            env,
-            policy_kwargs=dict(net_arch=[256, 256]),
-            learning_rate=5e-5,  # Lower for stability with clip=0.2
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            target_kl=0.05,  # Guardrail that only fires on genuine instability
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
-            vf_coef=0.5,
-            max_grad_norm=0.5,
-            verbose=1,
-            tensorboard_log=f"{save_path}_tensorboard",
-        )
+        # Fresh start
+        model = make_ppo(env, config, f"{save_path}_tensorboard")
     
     print(f"Training PPO with self-play...")
     print(f"  Max turns per episode: {max_turns}")
@@ -151,7 +210,6 @@ def train_selfplay(
     print(f"  Update opponent every: {update_opponent_every:,} steps")
     
     start_time = time.time()
-    best_reward = float('-inf')
     
     model.learn(
         total_timesteps=total_timesteps,
@@ -175,9 +233,17 @@ def train_selfplay(
 
 
 class SelfPlayCallback(BaseCallback):
-    """Callback to update opponent model during self-play training."""
+    """Callback to update opponent model and save best during self-play training."""
     
     def __init__(self, save_path, update_opponent_every, opponent_ref, model, verbose=0):
+        """Initialize callback.
+        
+        Args:
+            save_path: Path prefix for saved models.
+            update_opponent_every: Steps between opponent updates.
+            opponent_ref: Mutable list containing opponent model.
+            model: The training PPO model.
+        """
         super().__init__(verbose)
         self.save_path = save_path
         self.update_opponent_every = update_opponent_every
@@ -187,15 +253,17 @@ class SelfPlayCallback(BaseCallback):
         self.best_reward = float('-inf')
         
     def _on_step(self) -> bool:
+        """Called each training step."""
+        # Update opponent to best model periodically
         if self.model.num_timesteps - self.last_opponent_update >= self.update_opponent_every:
-            # Update opponent to play against the BEST model, not the current one
             best_path = f"{self.save_path}_best.zip"
-            from stable_baselines3 import PPO
             if os.path.exists(best_path):
+                from stable_baselines3 import PPO
                 self.opponent_ref[0] = PPO.load(best_path)
                 self.last_opponent_update = self.model.num_timesteps
                 print(f"\n  Updated opponent to best model at step {self.model.num_timesteps:,}")
         
+        # Save best model based on reward
         if len(self.model.ep_info_buffer) > 0:
             ep_rew = self.model.ep_info_buffer[-1]["r"]
             if ep_rew > self.best_reward:
@@ -212,8 +280,18 @@ def train(
     save_path: str = "toribash_ppo",
     eval_freq: int = 10000,
 ):
-    """Train a PPO agent on Toribash 2D."""
+    """Train a PPO agent against a fixed opponent.
     
+    Args:
+        total_timesteps: Total training steps.
+        opponent_type: Type of opponent ("hold", "random", "mirror").
+        max_turns: Max turns per episode.
+        save_path: Path prefix for saving models.
+        eval_freq: Steps between evaluation episodes.
+    
+    Returns:
+        Trained PPO model.
+    """
     train_config = EnvConfig(max_turns=max_turns, opponent_type=opponent_type)
     train_env = DummyVecEnv([lambda: Monitor(ToribashEnv(train_config))])
     train_env = VecFrameStack(train_env, n_stack=N_STACK)
@@ -234,23 +312,7 @@ def train(
         n_eval_episodes=10,
     )
     
-    model = PPO(
-        "MlpPolicy",
-        train_env,
-        policy_kwargs=dict(net_arch=[256, 256]),
-        learning_rate=3e-4,
-        n_steps=2048,
-        batch_size=64,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        verbose=1,
-        tensorboard_log=f"{save_path}_tensorboard",
-    )
+    model = make_ppo(train_env, train_config, f"{save_path}_tensorboard")
     
     print(f"Training PPO agent...")
     print(f"  Opponent: {opponent_type}")
@@ -274,21 +336,26 @@ def train(
     return model
 
 
-def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hold", opponent_model: str = None):
+def watch_trained_agent(
+    model_path: str,
+    episodes: int = 5,
+    opponent: str = "hold",
+    opponent_model: str = None,
+):
     """Watch a trained agent play with animated physics.
     
     Args:
-        model_path: Path to player A's model
-        episodes: Number of episodes to watch
-        opponent: Opponent type ("hold", "random", "mirror")
-        opponent_model: Path to opponent model (for selfplay mode)
+        model_path: Path to player A's model.
+        episodes: Number of episodes to watch.
+        opponent: Opponent type ("hold", "random", "mirror").
+        opponent_model: Path to opponent model (for AI vs AI).
     """
     import pygame
     from config.env_config import EnvConfig
     from config.body_config import JointState
     from env.toribash_env import ToribashEnv
     from stable_baselines3 import PPO
-    from game.scoring import compute_turn_result
+    from game.scoring import compute_turn_result, compute_reward, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES
     from env.observation import build_observation
     
     pygame.init()
@@ -299,7 +366,7 @@ def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hol
     env = ToribashEnv(config, render_mode="human")
     obs_dim = env.observation_space.shape[0]
 
-    # Frame stack buffers for each player (no VecNormalize — approximate for visualization)
+    # Frame stack buffers for each player
     frames_a = collections.deque(maxlen=N_STACK)
     frames_b = collections.deque(maxlen=N_STACK)
 
@@ -322,7 +389,7 @@ def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hol
         print(f"\nEpisode {ep + 1}/{episodes}")
 
         while not env.match.is_done():
-            # Player A action (stacked obs)
+            # Player A action
             stacked_a = stack_obs(frames_a, obs)
             action_a, _ = model_a.predict(stacked_a, deterministic=False)
             joint_states_a = [JointState(int(a)) for a in action_a]
@@ -342,6 +409,7 @@ def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hol
 
             env.match.world.collision_handler.clear_turn()
 
+            # Animated playback
             for _ in range(config.steps_per_turn):
                 env.render()
                 env.match.world.step()
@@ -354,15 +422,32 @@ def watch_trained_agent(model_path: str, episodes: int = 5, opponent: str = "hol
 
                 pygame.time.wait(16)
 
+            # Score the turn (same logic as Match.simulate_turn)
             result = compute_turn_result(env.match.world.collision_handler, config)
             env.match.scores[0] += result.damage_a_to_b
             env.match.scores[1] += result.damage_b_to_a
+            bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
+            bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS
+            for seg in bad_a:
+                env.match.scores[0] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
+            for seg in bad_b:
+                env.match.scores[1] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
             env.match.turn_results.append(result)
             env.match.turn += 1
 
-            obs, _, _, _, _ = env.step(action_a)
-            total_reward_a += result.damage_a_to_b * config.reward_damage_dealt + \
-                             result.damage_b_to_a * config.reward_damage_taken
+            # Compute reward using the same function as training
+            done = env.match.is_done()
+            won = done and env.match.get_winner() == 0
+            reward = compute_reward(result, player=0, config=config, won=won)
+            total_reward_a += reward
+
+            # Update action memory and build next observation
+            env._prev_actions = joint_states_a
+            if model_b is not None:
+                env._prev_opp_actions = joint_states_b
+            else:
+                env._prev_opp_actions = opp_action
+            obs = build_observation(env.match, player=0, prev_actions=env._prev_actions)
 
         print(f"  Player A reward: {total_reward_a:.2f}")
         print(f"  Final scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f}")
@@ -377,22 +462,26 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Train PPO agent for Toribash 2D")
     parser.add_argument("--timesteps", type=int, default=100000)
-    parser.add_argument("--opponent", type=str, default="hold", choices=["hold", "random", "mirror", "selfplay"])
+    parser.add_argument("--opponent", type=str, default="hold",
+                       choices=["hold", "random", "mirror", "selfplay"])
     parser.add_argument("--turns", type=int, default=20)
     parser.add_argument("--save", type=str, default="toribash_ppo")
     parser.add_argument("--eval-freq", type=int, default=10000)
     parser.add_argument("--update-opponent", type=int, default=10000)
-    parser.add_argument("--watch", type=str, default=None)
-    parser.add_argument("--opponent-model", type=str, default=None, help="Path to opponent model for AI vs AI watching")
+    parser.add_argument("--watch", type=str, default=None,
+                       help="Path to model to watch (skips training)")
+    parser.add_argument("--opponent-model", type=str, default=None,
+                       help="Path to opponent model for AI vs AI watching")
     parser.add_argument("--episodes", type=int, default=5)
     
     args = parser.parse_args()
     
     if args.watch:
+        # Watch mode
         watch_trained_agent(args.watch, args.episodes, args.opponent, args.opponent_model)
     elif args.opponent == "selfplay":
+        # Self-play training
         save_path = args.save if args.save != "toribash_ppo" else "toribash_selfplay"
-        # Check if model exists and auto-resume
         resume = os.path.exists(f"{save_path}.zip")
         train_selfplay(
             total_timesteps=args.timesteps,
@@ -402,6 +491,7 @@ if __name__ == "__main__":
             resume=resume,
         )
     else:
+        # Standard training against fixed opponent
         train(
             total_timesteps=args.timesteps,
             opponent_type=args.opponent,

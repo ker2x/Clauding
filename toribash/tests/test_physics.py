@@ -1,4 +1,15 @@
-"""Tests for physics world: gravity, collisions, stability."""
+"""Tests for physics world: gravity, collisions, stability.
+
+This module contains unit tests for the PhysicsWorld class, verifying:
+- World creation with two ragdolls
+- Gravity affects ragdolls correctly
+- HOLD state provides stability
+- simulate_turn runs correct number of steps
+- Long-term stability (no explosion)
+- Ground contact tracking
+
+Run with: python tests/test_physics.py
+"""
 
 import sys
 sys.path.insert(0, sys.path[0] + '/..')
@@ -9,7 +20,7 @@ from physics.world import PhysicsWorld, COLLISION_TYPE_A, COLLISION_TYPE_B
 
 
 def test_world_creation():
-    """PhysicsWorld creates with two ragdolls."""
+    """Test that PhysicsWorld creates with two ragdolls."""
     world = PhysicsWorld()
     assert world.ragdoll_a is not None
     assert world.ragdoll_b is not None
@@ -19,7 +30,7 @@ def test_world_creation():
 
 
 def test_gravity():
-    """Ragdolls fall under gravity when relaxed."""
+    """Test that ragdolls fall under gravity when joints are relaxed."""
     world = PhysicsWorld()
 
     # Record initial chest height
@@ -45,7 +56,7 @@ def test_gravity():
 
 
 def test_hold_stability():
-    """Ragdolls holding all joints should remain roughly upright."""
+    """Test that ragdolls remain upright when holding all joints."""
     world = PhysicsWorld()
 
     # All joints HOLD (default)
@@ -64,7 +75,7 @@ def test_hold_stability():
 
 
 def test_simulate_turn():
-    """simulate_turn runs the correct number of steps."""
+    """Test that simulate_turn runs the correct number of steps."""
     config = EnvConfig(steps_per_turn=30)
     world = PhysicsWorld(config)
 
@@ -78,7 +89,7 @@ def test_simulate_turn():
 
 
 def test_long_stability():
-    """Physics doesn't explode over many steps."""
+    """Test physics doesn't explode over many steps."""
     world = PhysicsWorld()
 
     # Hold all joints, simulate 1000 steps
@@ -95,7 +106,7 @@ def test_long_stability():
 
 
 def test_ground_contact_tracking():
-    """Ground contacts are tracked by collision handler."""
+    """Test ground contacts are tracked by collision handler."""
     world = PhysicsWorld()
 
     # Relax everything so body falls

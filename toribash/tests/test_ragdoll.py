@@ -1,4 +1,14 @@
-"""Tests for ragdoll creation and joint control."""
+"""Tests for ragdoll creation and joint control.
+
+This module contains unit tests for the Ragdoll class, verifying:
+- Ragdoll creation with all segments and joints
+- Joint state transitions (CONTRACT/EXTEND/HOLD/RELAX)
+- Joint angle changes under simulation
+- Segment position calculations
+- Dismemberment (joint removal)
+
+Run with: python tests/test_ragdoll.py
+"""
 
 import sys
 sys.path.insert(0, sys.path[0] + '/..')
@@ -9,7 +19,7 @@ from physics.ragdoll import Ragdoll
 
 
 def test_ragdoll_creation():
-    """Ragdoll creates all segments and joints."""
+    """Test that ragdoll creates all segments and joints correctly."""
     space = pymunk.Space()
     space.gravity = (0, -900)
     rag = Ragdoll(space, position=(300, 50), facing=1)
@@ -22,7 +32,7 @@ def test_ragdoll_creation():
 
 
 def test_joint_states():
-    """Joint states change motor behavior correctly."""
+    """Test joint state transitions and motor behavior."""
     space = pymunk.Space()
     space.gravity = (0, -900)
     rag = Ragdoll(space, position=(300, 50), facing=1)
@@ -48,7 +58,7 @@ def test_joint_states():
 
 
 def test_joint_angles():
-    """Joint angles are readable and change under simulation."""
+    """Test joint angle reading and simulation effects."""
     space = pymunk.Space()
     space.gravity = (0, -900)
     space.iterations = 20
@@ -70,7 +80,7 @@ def test_joint_angles():
 
 
 def test_segment_positions():
-    """Segment positions are readable."""
+    """Test segment position calculations and body structure."""
     space = pymunk.Space()
     space.gravity = (0, -900)
     rag = Ragdoll(space, position=(300, 50), facing=1)
@@ -86,7 +96,7 @@ def test_segment_positions():
 
 
 def test_dismemberment():
-    """Dismembering a joint removes it from the space."""
+    """Test joint dismemberment removes constraints from space."""
     space = pymunk.Space()
     space.gravity = (0, -900)
     rag = Ragdoll(space, position=(300, 50), facing=1)
