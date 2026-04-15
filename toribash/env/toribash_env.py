@@ -160,8 +160,16 @@ class ToribashEnv(gym.Env):
         self.match.set_actions(0, joint_states)
 
         # Set player 1 (opponent) actions based on opponent_type
-        opp_action = self._get_opponent_action()
-        self.match.set_actions(1, opp_action)
+        # "selfplay" means actions are set externally (by SelfPlayWrapper)
+        if self.config.opponent_type == "selfplay":
+            # Read back actions set by wrapper
+            opp_action = [
+                self.match.world.ragdoll_b.joint_states[jdef.name]
+                for jdef in self.config.body_config.joints
+            ]
+        else:
+            opp_action = self._get_opponent_action()
+            self.match.set_actions(1, opp_action)
 
         # Simulate the turn (runs physics and returns result)
         result = self.match.simulate_turn()

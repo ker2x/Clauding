@@ -84,11 +84,10 @@ class EnvConfig:
     # -------------------------------------------------------------------------
     # Reward Weights for RL
     # -------------------------------------------------------------------------
-    # Damage rewards (disabled — KO-based gameplay, restore if needed)
-    # reward_damage_dealt: float = 1.0    # Agent gets +1 per damage unit dealt
-    # reward_damage_taken: float = -0.5   # Agent gets -0.5 per damage unit taken
-    reward_damage_dealt: float = 0.0
-    reward_damage_taken: float = 0.0
+    # Damage rewards (small — KO is primary, damage is secondary signal)
+    # Original values: dealt=1.0, taken=-0.5
+    reward_damage_dealt: float = 0.1
+    reward_damage_taken: float = -0.05
     
     # Ground contact rewards
     reward_ground_touch: float = -0.2     # Penalty for own segment on ground

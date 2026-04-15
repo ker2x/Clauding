@@ -166,8 +166,8 @@ def train_selfplay(
     Returns:
         Trained PPO model.
     """
-    config = EnvConfig(max_turns=max_turns)
-    
+    config = EnvConfig(max_turns=max_turns, opponent_type="selfplay")
+
     # Track the opponent model and VecNormalize reference
     opponent_ref = [None]
     vec_normalize_ref = [None]
