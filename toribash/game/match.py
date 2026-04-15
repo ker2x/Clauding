@@ -137,10 +137,14 @@ class Match:
         self.scores[0] += result.damage_a_to_b
         self.scores[1] += result.damage_b_to_a
 
+        # Detached segments don't count for ground penalties
+        detached_a = self._get_detached_segments(self.world.ragdoll_a)
+        detached_b = self._get_detached_segments(self.world.ragdoll_b)
+
         # Apply ground-touch penalties per Toribash rules
-        # Non-exempt segments touching ground reduce score
-        bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
-        bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS
+        # Non-exempt and non-detached segments touching ground reduce score
+        bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS - detached_a
+        bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS - detached_b
         for seg in bad_a:
             self.scores[0] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
         for seg in bad_b:
@@ -150,10 +154,12 @@ class Match:
         self.total_damage[0] += result.damage_b_to_a
         self.total_damage[1] += result.damage_a_to_b
 
-        # Check for KO (head or chest on ground)
+        # Check for KO: head or chest on ground, or head dismembered (instant KO)
         if self.ko is None:
-            ko_a = bool(result.ground_segments_a & KO_GROUND_SEGMENTS)
-            ko_b = bool(result.ground_segments_b & KO_GROUND_SEGMENTS)
+            ko_a = ("neck" in self.world.ragdoll_a.dismembered or
+                    bool((result.ground_segments_a - detached_a) & KO_GROUND_SEGMENTS))
+            ko_b = ("neck" in self.world.ragdoll_b.dismembered or
+                    bool((result.ground_segments_b - detached_b) & KO_GROUND_SEGMENTS))
             if ko_a and not ko_b:
                 self.ko = 0
             elif ko_b and not ko_a:
@@ -164,6 +170,10 @@ class Match:
                     self.ko = 1
                 elif self.scores[1] > self.scores[0]:
                     self.ko = 0
+            # KO'd player can't benefit from accumulated damage
+            if self.ko is not None:
+                if self.scores[self.ko] > 0:
+                    self.scores[self.ko] = 0.0
 
         # Store result and increment turn
         self.turn_results.append(result)
@@ -186,6 +196,14 @@ class Match:
         elif self.scores[1] > self.scores[0]:
             return 1
         return None
+
+    def _get_detached_segments(self, ragdoll) -> set[str]:
+        """Get all segments that are detached from a ragdoll due to dismemberment."""
+        detached = set()
+        mapping = self.config.body_config.joint_to_child_segments
+        for jname in ragdoll.dismembered:
+            detached |= mapping[jname]
+        return detached
 
     def _get_joint_impulses(self) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
         """Map joint names to impulse magnitudes, separated by player.

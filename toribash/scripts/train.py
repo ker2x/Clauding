@@ -187,8 +187,13 @@ def train_selfplay(
     best_path = f"{save_path}_best.zip"
     
     # Check for existing models to resume or continue
+    vec_normalize_path = f"{save_path}_vecnormalize.pkl"
     if resume and os.path.exists(model_path):
         print(f"Resuming from {model_path}...")
+        if os.path.exists(vec_normalize_path):
+            env = VecNormalize.load(vec_normalize_path, env.venv)
+            vec_normalize_ref[0] = env
+            print(f"Loaded normalization stats from {vec_normalize_path}")
         model = PPO.load(model_path, env=env)
         if os.path.exists(best_path):
             from stable_baselines3 import PPO as PPOClass
@@ -226,8 +231,9 @@ def train_selfplay(
     print(f"\nTraining completed in {elapsed:.1f} seconds")
     
     model.save(save_path)
+    env.save(f"{save_path}_vecnormalize.pkl")
     print(f"Model saved to {save_path}.zip")
-    
+
     env.close()
     return model
 
@@ -332,8 +338,9 @@ def train(
     elapsed = time.time() - start_time
     print(f"\nTraining completed in {elapsed:.1f} seconds")
     model.save(save_path)
+    train_env.save(f"{save_path}_vecnormalize.pkl")
     print(f"Model saved to {save_path}.zip")
-    
+
     train_env.close()
     eval_env.close()
     return model
@@ -469,9 +476,14 @@ def watch_trained_agent(
 
             # Compute reward using the same function as training
             done = env.match.is_done()
-            won = done and env.match.get_winner() == 0
-            ko = env.match.ko == 1
-            reward = compute_reward(result, player=0, config=config, ko=ko, won=won)
+            winner = env.match.get_winner() if done else None
+            reward = compute_reward(
+                result, player=0, config=config,
+                ko=env.match.ko == 1,
+                ko_self=env.match.ko == 0,
+                won=winner == 0,
+                lost=winner == 1,
+            )
             total_reward_a += reward
 
             # Update action memory and build next observation
@@ -482,9 +494,14 @@ def watch_trained_agent(
                 env._prev_opp_actions = opp_action
             obs = build_observation(env.match, player=0, prev_actions=env._prev_actions)
 
-        print(f"  Player A reward: {total_reward_a:.2f}")
-        print(f"  Final scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f}")
-        print(f"  Winner: {'A' if env.match.get_winner() == 0 else 'B' if env.match.get_winner() == 1 else 'Draw'}")
+        ko_str = ""
+        if env.match.ko is not None:
+            ko_str = f" | KO: {'A' if env.match.ko == 0 else 'B'}"
+        winner = env.match.get_winner()
+        winner_str = 'A' if winner == 0 else 'B' if winner == 1 else 'Draw'
+        print(f"  Scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f} | "
+              f"Winner: {winner_str}{ko_str} | Reward A: {total_reward_a:.2f} | "
+              f"Turns: {env.match.turn}")
 
     env.close()
     pygame.quit()

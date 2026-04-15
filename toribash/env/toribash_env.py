@@ -175,9 +175,14 @@ class ToribashEnv(gym.Env):
 
         # Compute reward for player 0
         done = self.match.is_done()
-        won = done and self.match.get_winner() == 0
-        ko = self.match.ko == 1  # True if opponent was KO'd
-        reward = compute_reward(result, player=0, config=self.config, ko=ko, won=won)
+        winner = self.match.get_winner() if done else None
+        reward = compute_reward(
+            result, player=0, config=self.config,
+            ko=self.match.ko == 1,
+            ko_self=self.match.ko == 0,
+            won=winner == 0,
+            lost=winner == 1,
+        )
 
         # Info dict with game state
         info = {

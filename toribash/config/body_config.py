@@ -126,6 +126,30 @@ class BodyConfig:
             mapping.setdefault(jdef.child, []).append(jdef.name)
         return mapping
 
+    @cached_property
+    def joint_to_child_segments(self) -> dict[str, set[str]]:
+        """Map each joint name to all segments that detach when it breaks.
+
+        Includes the direct child and all segments further downstream.
+        """
+        # Build parent→children joint tree
+        child_joints: dict[str, list[str]] = {}
+        joint_child_seg: dict[str, str] = {}
+        for jdef in self.joints:
+            joint_child_seg[jdef.name] = jdef.child
+            # Find joints whose parent segment is this joint's child
+            for other in self.joints:
+                if other.parent == jdef.child and other.name != jdef.name:
+                    child_joints.setdefault(jdef.name, []).append(other.name)
+
+        def _collect(jname: str) -> set[str]:
+            result = {joint_child_seg[jname]}
+            for downstream in child_joints.get(jname, []):
+                result |= _collect(downstream)
+            return result
+
+        return {jdef.name: _collect(jdef.name) for jdef in self.joints}
+
 
 def _make_default_body() -> BodyConfig:
     """Create the default humanoid ragdoll body configuration.

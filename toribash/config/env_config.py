@@ -79,13 +79,16 @@ class EnvConfig:
     # -------------------------------------------------------------------------
     damage_impulse_threshold: float = DAMAGE_IMPULSE_THRESHOLD
     dismember_impulse: float = DISMEMBER_IMPULSE
+    head_damage_multiplier: float = 2.0
 
     # -------------------------------------------------------------------------
     # Reward Weights for RL
     # -------------------------------------------------------------------------
-    # Damage rewards
-    reward_damage_dealt: float = 1.0      # Agent gets +1 per damage unit dealt
-    reward_damage_taken: float = -0.5     # Agent gets -0.5 per damage unit taken
+    # Damage rewards (disabled — KO-based gameplay, restore if needed)
+    # reward_damage_dealt: float = 1.0    # Agent gets +1 per damage unit dealt
+    # reward_damage_taken: float = -0.5   # Agent gets -0.5 per damage unit taken
+    reward_damage_dealt: float = 0.0
+    reward_damage_taken: float = 0.0
     
     # Ground contact rewards
     reward_ground_touch: float = -0.2     # Penalty for own segment on ground
@@ -93,8 +96,10 @@ class EnvConfig:
     
     # Special event rewards
     reward_dismember: float = 5.0         # Bonus per opponent joint dismembered
-    reward_ko: float = 10.0               # Bonus for knockout
+    reward_ko: float = 10.0               # Bonus for KO'ing opponent
+    reward_ko_penalty: float = -10.0      # Penalty for being KO'd
     reward_win: float = 20.0              # Bonus for winning match
+    reward_loss: float = -20.0            # Penalty for losing match
 
     # -------------------------------------------------------------------------
     # Opponent Behavior

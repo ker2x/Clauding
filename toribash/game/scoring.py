@@ -112,6 +112,10 @@ def compute_turn_result(
         if impulse > config.damage_impulse_threshold:
             # Calculate damage above the threshold
             damage = (impulse - config.damage_impulse_threshold) / 1000.0
+
+            if seg_a == "head" or seg_b == "head":
+                damage *= config.head_damage_multiplier
+
             total_vel = vel_a + vel_b
             
             if total_vel > 0:
@@ -136,29 +140,21 @@ def compute_reward(
     player: int,
     config: EnvConfig,
     ko: bool = False,
+    ko_self: bool = False,
     won: bool = False,
+    lost: bool = False,
 ) -> float:
     """Compute RL reward for a player from a turn result.
-    
-    This function converts a TurnResult into a scalar reward for reinforcement
-    learning. It applies weights from the config to various game events.
-    
-    Reward Components:
-        1. Damage dealt (positive weight)
-        2. Damage taken (negative weight)
-        3. Own ground touches (negative penalty)
-        4. Opponent ground touches (positive bonus)
-        5. Opponent dismemberment (positive bonus)
-        6. KO bonus (optional)
-        7. Win bonus (optional)
-    
+
     Args:
         result: The turn result from simulate_turn().
         player: Which player to compute reward for (0 or 1).
         config: Environment config with reward weights.
         ko: Whether the opponent was knocked out this turn.
+        ko_self: Whether this player was knocked out this turn.
         won: Whether this player won the match.
-    
+        lost: Whether this player lost the match.
+
     Returns:
         Scalar reward for this turn.
     """
@@ -199,10 +195,16 @@ def compute_reward(
     # Dismemberment reward
     reward += len(opp_dismembered) * config.reward_dismember
 
-    # KO and win bonuses
+    # KO bonuses/penalties
     if ko:
         reward += config.reward_ko
+    if ko_self:
+        reward += config.reward_ko_penalty
+
+    # Win/loss bonuses
     if won:
         reward += config.reward_win
+    if lost:
+        reward += config.reward_loss
 
     return reward

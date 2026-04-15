@@ -194,15 +194,30 @@ Computed per turn in `game/scoring.py:compute_reward()`:
 
 | Component | Weight | Source |
 |-----------|--------|--------|
-| Damage dealt | +1.0 | Velocity-weighted impulses above threshold from fighter-fighter collisions |
-| Damage taken | -0.5 | Same impulses, attributed proportionally by body velocity |
-| Own non-exempt segment on ground | -0.2 per segment | Ground contact tracking (feet and hands exempt) |
-| Opponent non-exempt on ground | +0.1 per segment | Ground contact tracking |
-| Opponent dismemberment | +5.0 per joint | (not yet triggered — see Known Issues) |
-| KO | +10.0 | (not implemented yet) |
-| Win | +20.0 | Higher score at match end |
+| Damage dealt | 0.0 (disabled) | Velocity-weighted impulses; hands/feet exempt; 2x head multiplier |
+| Damage taken | 0.0 (disabled) | Same impulses, attributed proportionally by body velocity |
+| Own non-exempt segment on ground | per-segment penalty | Ground contact (feet/hands exempt, detached limbs exempt) |
+| Opponent non-exempt on ground | per-segment bonus | Ground contact tracking |
+| Opponent dismemberment | +5.0 per joint | Head dismemberment = instant KO |
+| KO opponent | +10.0 | Head/chest on ground (detached limbs don't count) |
+| KO self | -10.0 | Being KO'd; score zeroed if positive |
+| Win | +20.0 | Higher score at match end, or opponent KO'd |
+| Loss | -20.0 | Lower score at match end, or self KO'd |
 
+Damage rewards are disabled (KO-based gameplay). Old values (dealt=1.0, taken=-0.5) kept in config comments.
 All weights are configurable via `EnvConfig` dataclass fields.
+
+### KO Rules
+
+- **Head or chest** touching ground = KO (match ends immediately)
+- **Detached limbs** on ground don't count for penalties or KO
+- **Head dismemberment** (neck joint breaks) = instant KO
+- **Mutual KO**: higher score survives; if tied, no KO
+- **KO'd player**: score zeroed if positive, gets KO penalty + loss penalty
+
+### Resume
+
+Self-play training auto-resumes from saved model. `VecNormalize` stats (observation/reward normalization) are saved to `{save_path}_vecnormalize.pkl` and restored on resume.
 
 ### Performance
 
