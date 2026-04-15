@@ -29,6 +29,9 @@ from physics.world import COLLISION_TYPE_A, COLLISION_TYPE_B
 # Toribash rules: feet and hands are expected to be on the ground.
 EXEMPT_GROUND_SEGMENTS: set[str] = {"foot_l", "foot_r", "hand_l", "hand_r"}
 
+# Segments that trigger KO when touching the ground.
+KO_GROUND_SEGMENTS: set[str] = {"head", "chest"}
+
 # Ground touch penalties per segment (Toribash rules).
 # Negative values are penalties, applied to the player's score.
 # Head is most critical (instant KO risk), limbs are less severe.
@@ -103,6 +106,9 @@ def compute_turn_result(
 
     # Process fighter-fighter impulses with velocity-based attribution
     for impulse, seg_a, seg_b, vel_a, vel_b in collision_handler.turn_impulses:
+        # Hands and feet don't deal or take hit damage
+        if seg_a in EXEMPT_GROUND_SEGMENTS or seg_b in EXEMPT_GROUND_SEGMENTS:
+            continue
         if impulse > config.damage_impulse_threshold:
             # Calculate damage above the threshold
             damage = (impulse - config.damage_impulse_threshold) / 1000.0

@@ -75,7 +75,7 @@ def test_full_rollout():
         if terminated or truncated:
             break
 
-    assert steps == 10  # max_turns
+    assert steps <= 10  # max_turns or KO
     print(f"  Episode: {steps} steps, total_reward={total_reward:.3f}")
     print(f"  Final scores: {info['scores']}, winner: {info['winner']}")
 

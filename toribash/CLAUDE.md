@@ -7,12 +7,6 @@ Turn-based 2D ragdoll fighting game inspired by [Toribash](https://en.wikipedia.
 ```bash
 cd toribash
 
-# Play (human vs human, use TAB to switch players)
-../.venv/bin/python scripts/play_human.py
-
-# Watch random agents fight
-../.venv/bin/python scripts/watch_random.py
-
 # Train PPO agent vs hold opponent (100k timesteps)
 ../.venv/bin/python scripts/train.py --timesteps 100000 --opponent hold
 
@@ -31,15 +25,6 @@ cd toribash
 ../.venv/bin/python tests/test_match.py
 ../.venv/bin/python tests/test_env.py
 ```
-
-## Human Play Controls
-
-- **Click** joint labels in bottom panel to cycle states (left=forward, right=backward)
-- **1/2/3/4** — Set all joints to contract/extend/hold/relax
-- **TAB** — Switch active player (A or B)
-- **SPACE** — Simulate turn (animated at 60fps)
-- **R** — Reset match
-- **Q/ESC** — Quit
 
 ## Architecture Overview
 
@@ -62,9 +47,7 @@ toribash/
 ├── rendering/       # Pygame drawing (pure visualization, no game logic)
 │   └── pygame_renderer.py  # PygameRenderer: ragdolls, ground, joint panel, UI
 ├── scripts/         # Entry points
-│   ├── play_human.py    # Interactive human play with animated turn simulation
-│   ├── watch_random.py  # Auto-play with random joint states
-│   └── train.py         # PPO training script
+│   └── train.py         # PPO training + watching script
 └── tests/           # Standalone assert-based tests (no pytest)
     ├── test_ragdoll.py  # 5 tests: creation, joint states, angles, positions, dismemberment
     ├── test_physics.py  # 6 tests: world creation, gravity, stability, ground contacts
@@ -162,9 +145,9 @@ Collision types: ground=0, player_a=1, player_b=2 (defined in `physics/world.py`
 ### Spaces
 
 - **Action**: `MultiDiscrete([4] * 14)` — one of {CONTRACT, EXTEND, HOLD, RELAX} per joint
-- **Observation**: `Box(-2, 2, shape=(239,))` — flat float32 vector
+- **Observation**: `Box(-2, 2, shape=(253,))` — flat float32 vector
 
-### Observation layout (239 floats)
+### Observation layout (253 floats)
 
 The observation is ego-centric (own data first, positions relative to own torso):
 
@@ -178,11 +161,11 @@ Per ragdoll (×2 = own + opponent):
   [102:117] Segment rotations (sin of absolute angle)
 
 Global:
-  [234] Relative torso dx (opponent - own, /ARENA_WIDTH)
-  [235] Relative torso dy (/ARENA_HEIGHT)
+  [234:236] Relative torso dx, dy (2 values)
   [236] Turn progress (turn / max_turns, 0→1)
   [237] Own score / 100
   [238] Opponent score / 100
+  [239:253] Previous actions (14 floats, normalized joint states from last turn)
 ```
 
 Built by `env/observation.py:build_observation()`. For player 1, own/opponent are swapped so a single policy can play both sides.
@@ -305,19 +288,11 @@ If training is unstable:
 
 ### 1. Fighters rarely deal damage (scores stay 0.0)
 
-The default spawn distance (200cm apart) means fighters can't reach each other with initial poses. With random or hold opponents, the ragdolls mostly just stand/fall in place. **To fix**: either reduce `SPAWN_OFFSET_X` in constants.py (e.g., 50→30), or add a "walk toward opponent" curriculum phase, or add an approach reward.
+The default spawn distance (100cm apart) may still be too far for effective engagement. Consider reducing SPAWN_OFFSET_X further (e.g., 30-40) or adding an approach reward to incentivize closing distance.
 
-### 2. Dismemberment never triggers
+### 2. Body parts clip into ground or opponent
 
-`Match._get_joint_impulses()` returns an empty dict (line 78-83 of `game/match.py`). The dismemberment check in `simulate_turn` iterates over nothing. **To implement**: track per-segment impulses in `CollisionHandler`, map them to adjacent joints, and return them from `_get_joint_impulses()`.
-
-### 3. No KO detection
-
-The `ko` parameter in `compute_reward` is never set to True. In real Toribash, touching the ground with non-exempt body parts can disqualify a player. Currently this is a score penalty only. **To implement**: define KO as torso (chest) touching the ground, or accumulated damage above a threshold, and check in `Match.simulate_turn()`.
-
-### 4. play_human.py duplicates Match.simulate_turn() logic
-
-`scripts/play_human.py` manually does scoring/turn-increment instead of calling `match.simulate_turn()`. This is because the script animates frame-by-frame (calling `world.step()` each frame for visual playback) rather than bulk-simulating. A cleaner approach: add a `Match.step_physics_once()` method and a `Match.finalize_turn()` to split the bulk simulation into per-frame steps + end-of-turn scoring.
+Segments sometimes get stuck inside the ground plane or embedded in opponent's body. Likely needs higher solver iterations, collision margin tuning, or position correction.
 
 ## Dependencies
 

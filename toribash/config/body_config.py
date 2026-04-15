@@ -26,6 +26,7 @@ Usage:
 """
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from enum import IntEnum
 
 
@@ -115,6 +116,15 @@ class BodyConfig:
     def num_joints(self) -> int:
         """Return the number of joints in this body configuration."""
         return len(self.joints)
+
+    @cached_property
+    def segment_to_joints(self) -> dict[str, list[str]]:
+        """Map each segment name to the joint names that connect to it."""
+        mapping: dict[str, list[str]] = {}
+        for jdef in self.joints:
+            mapping.setdefault(jdef.parent, []).append(jdef.name)
+            mapping.setdefault(jdef.child, []).append(jdef.name)
+        return mapping
 
 
 def _make_default_body() -> BodyConfig:

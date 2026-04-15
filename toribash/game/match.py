@@ -34,7 +34,7 @@ Usage:
 from config.body_config import JointState
 from config.env_config import EnvConfig
 from physics.world import PhysicsWorld, COLLISION_TYPE_A, COLLISION_TYPE_B
-from .scoring import TurnResult, compute_turn_result, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES
+from .scoring import TurnResult, compute_turn_result, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES, KO_GROUND_SEGMENTS
 
 
 class Match:
@@ -73,6 +73,7 @@ class Match:
         self.scores = [0.0, 0.0]  # accumulated damage dealt by each player
         self.total_damage = [0.0, 0.0]  # total damage taken by each player
         self.dismember_counts = [0, 0]  # limbs lost per player
+        self.ko: int | None = None  # player index who was KO'd, None if no KO
         self.turn_results: list[TurnResult] = []
 
     def set_actions(self, player: int, joint_states: list[JointState]) -> None:
@@ -116,15 +117,18 @@ class Match:
         )
 
         # Check for dismemberment events
-        for jname, impulses in self._get_joint_impulses().items():
-            max_impulse = max(impulses) if impulses else 0
-            if max_impulse > self.config.dismember_impulse:
-                # Determine which ragdoll owns this joint and dismember it
-                if jname in self.world.ragdoll_a.joints and jname not in self.world.ragdoll_a.dismembered:
+        impulses_a, impulses_b = self._get_joint_impulses()
+
+        for jname, imp_list in impulses_a.items():
+            if max(imp_list) > self.config.dismember_impulse:
+                if jname not in self.world.ragdoll_a.dismembered:
                     self.world.ragdoll_a.dismember_joint(jname)
                     result.dismembered_a.append(jname)
                     self.dismember_counts[0] += 1
-                if jname in self.world.ragdoll_b.joints and jname not in self.world.ragdoll_b.dismembered:
+
+        for jname, imp_list in impulses_b.items():
+            if max(imp_list) > self.config.dismember_impulse:
+                if jname not in self.world.ragdoll_b.dismembered:
                     self.world.ragdoll_b.dismember_joint(jname)
                     result.dismembered_b.append(jname)
                     self.dismember_counts[1] += 1
@@ -146,49 +150,61 @@ class Match:
         self.total_damage[0] += result.damage_b_to_a
         self.total_damage[1] += result.damage_a_to_b
 
+        # Check for KO (head or chest on ground)
+        if self.ko is None:
+            ko_a = bool(result.ground_segments_a & KO_GROUND_SEGMENTS)
+            ko_b = bool(result.ground_segments_b & KO_GROUND_SEGMENTS)
+            if ko_a and not ko_b:
+                self.ko = 0
+            elif ko_b and not ko_a:
+                self.ko = 1
+            elif ko_a and ko_b:
+                # Both down: higher score survives, tie = no KO
+                if self.scores[0] > self.scores[1]:
+                    self.ko = 1
+                elif self.scores[1] > self.scores[0]:
+                    self.ko = 0
+
         # Store result and increment turn
         self.turn_results.append(result)
         self.turn += 1
         return result
 
     def is_done(self) -> bool:
-        """Check if the match is over.
-        
-        Returns:
-            True if max_turns have been played, False otherwise.
-        """
-        return self.turn >= self.config.max_turns
+        """Check if the match is over (max turns or KO)."""
+        return self.turn >= self.config.max_turns or self.ko is not None
 
     def get_winner(self) -> int | None:
-        """Determine the match winner based on scores.
-        
-        In Toribash rules:
-        - Higher score wins (more damage dealt)
-        - Draw if scores are equal
-        
-        Returns:
-            0 if player A wins, 1 if player B wins, None if draw.
+        """Determine the match winner.
+
+        KO'd player loses. Otherwise higher score wins, equal = draw.
         """
+        if self.ko is not None:
+            return 1 if self.ko == 0 else 0
         if self.scores[0] > self.scores[1]:
             return 0
         elif self.scores[1] > self.scores[0]:
             return 1
         return None
 
-    def _get_joint_impulses(self) -> dict[str, list[float]]:
-        """Map joint names to impulses they received this turn.
-        
-        This is currently a stub that returns an empty dict.
-        To implement dismemberment properly, this should track
-        per-segment impulses and map them to adjacent joints.
-        
+    def _get_joint_impulses(self) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+        """Map joint names to impulse magnitudes, separated by player.
+
+        For each collision impulse, attributes it to all joints adjacent
+        to the involved segments. pymunk guarantees shapes[0] is player A
+        and shapes[1] is player B (matching collision handler registration order).
+
         Returns:
-            Empty dict (dismemberment not yet fully implemented).
-        
-        TODO:
-            Implement per-segment impulse tracking in CollisionHandler
-            and map segments to joints here.
+            (impulses_a, impulses_b) where each maps joint_name -> [impulse magnitudes]
         """
-        # For now, we don't have per-joint impulse tracking;
-        # dismemberment will be handled by total impulse on adjacent segments
-        return {}
+        seg_to_joints = self.config.body_config.segment_to_joints
+        impulses_a: dict[str, list[float]] = {}
+        impulses_b: dict[str, list[float]] = {}
+
+        for impulse, seg_a, seg_b, vel_a, vel_b in self.world.collision_handler.turn_impulses:
+            for jname in seg_to_joints.get(seg_a, []):
+                impulses_a.setdefault(jname, []).append(impulse)
+            for jname in seg_to_joints.get(seg_b, []):
+                impulses_b.setdefault(jname, []).append(impulse)
+
+        return impulses_a, impulses_b

@@ -251,25 +251,28 @@ class SelfPlayCallback(BaseCallback):
         self.model = model
         self.last_opponent_update = 0
         self.best_reward = float('-inf')
-        
+        self.best_reward_at_last_update = float('-inf')
+
     def _on_step(self) -> bool:
         """Called each training step."""
-        # Update opponent to best model periodically
-        if self.model.num_timesteps - self.last_opponent_update >= self.update_opponent_every:
-            best_path = f"{self.save_path}_best.zip"
-            if os.path.exists(best_path):
-                from stable_baselines3 import PPO
-                self.opponent_ref[0] = PPO.load(best_path)
-                self.last_opponent_update = self.model.num_timesteps
-                print(f"\n  Updated opponent to best model at step {self.model.num_timesteps:,}")
-        
         # Save best model based on reward
         if len(self.model.ep_info_buffer) > 0:
             ep_rew = self.model.ep_info_buffer[-1]["r"]
             if ep_rew > self.best_reward:
                 self.best_reward = ep_rew
                 self.model.save(f"{self.save_path}_best")
-        
+
+        # Update opponent only if best model has improved since last update
+        if self.model.num_timesteps - self.last_opponent_update >= self.update_opponent_every:
+            self.last_opponent_update = self.model.num_timesteps
+            if self.best_reward > self.best_reward_at_last_update:
+                best_path = f"{self.save_path}_best.zip"
+                if os.path.exists(best_path):
+                    from stable_baselines3 import PPO
+                    self.opponent_ref[0] = PPO.load(best_path)
+                    self.best_reward_at_last_update = self.best_reward
+                    print(f"\n  Updated opponent to best model at step {self.model.num_timesteps:,}")
+
         return True
 
 
@@ -355,7 +358,7 @@ def watch_trained_agent(
     from config.body_config import JointState
     from env.toribash_env import ToribashEnv
     from stable_baselines3 import PPO
-    from game.scoring import compute_turn_result, compute_reward, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES
+    from game.scoring import compute_turn_result, compute_reward, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES, KO_GROUND_SEGMENTS
     from env.observation import build_observation
     
     pygame.init()
@@ -424,6 +427,20 @@ def watch_trained_agent(
 
             # Score the turn (same logic as Match.simulate_turn)
             result = compute_turn_result(env.match.world.collision_handler, config)
+
+            # Dismemberment
+            impulses_a, impulses_b = env.match._get_joint_impulses()
+            for jname, imp_list in impulses_a.items():
+                if max(imp_list) > config.dismember_impulse:
+                    if jname not in env.match.world.ragdoll_a.dismembered:
+                        env.match.world.ragdoll_a.dismember_joint(jname)
+                        result.dismembered_a.append(jname)
+            for jname, imp_list in impulses_b.items():
+                if max(imp_list) > config.dismember_impulse:
+                    if jname not in env.match.world.ragdoll_b.dismembered:
+                        env.match.world.ragdoll_b.dismember_joint(jname)
+                        result.dismembered_b.append(jname)
+
             env.match.scores[0] += result.damage_a_to_b
             env.match.scores[1] += result.damage_b_to_a
             bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
@@ -432,13 +449,29 @@ def watch_trained_agent(
                 env.match.scores[0] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
             for seg in bad_b:
                 env.match.scores[1] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
+
+            # KO detection
+            if env.match.ko is None:
+                ko_a = bool(result.ground_segments_a & KO_GROUND_SEGMENTS)
+                ko_b = bool(result.ground_segments_b & KO_GROUND_SEGMENTS)
+                if ko_a and not ko_b:
+                    env.match.ko = 0
+                elif ko_b and not ko_a:
+                    env.match.ko = 1
+                elif ko_a and ko_b:
+                    if env.match.scores[0] > env.match.scores[1]:
+                        env.match.ko = 1
+                    elif env.match.scores[1] > env.match.scores[0]:
+                        env.match.ko = 0
+
             env.match.turn_results.append(result)
             env.match.turn += 1
 
             # Compute reward using the same function as training
             done = env.match.is_done()
             won = done and env.match.get_winner() == 0
-            reward = compute_reward(result, player=0, config=config, won=won)
+            ko = env.match.ko == 1
+            reward = compute_reward(result, player=0, config=config, ko=ko, won=won)
             total_reward_a += reward
 
             # Update action memory and build next observation

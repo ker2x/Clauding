@@ -136,25 +136,6 @@ class CollisionHandler:
         self.turn_impulses.clear()
         self.ground_contacts.clear()
 
-    def get_total_impulse_on(self, collision_type: int) -> float:
-        """Get total impulse received by a specific player this turn.
-        
-        Args:
-            collision_type: The collision type of the player (A or B).
-        
-        Returns:
-            Sum of all impulse magnitudes from fighter-fighter collisions
-            involving segments of the specified player.
-        
-        Note:
-            This currently sums ALL impulses regardless of collision_type.
-            The parameter is accepted but not used.
-        """
-        total = 0.0
-        for imp, name_a, name_b, vel_a, vel_b in self.turn_impulses:
-            total += imp
-        return total
-
     def get_ground_segments(self, collision_type: int) -> set[str]:
         """Get set of segment names touching the ground for a player.
         
