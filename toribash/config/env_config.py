@@ -10,7 +10,7 @@ needed to configure a Toribash environment. It includes:
 Usage:
     >>> from config.env_config import EnvConfig
     >>> config = EnvConfig(
-    ...     max_turns=30,
+    ...     max_turns=40,
     ...     opponent_type="random",
     ...     reward_damage_dealt=2.0,
     ... )
@@ -20,22 +20,23 @@ from dataclasses import dataclass, field
 from .body_config import BodyConfig, DEFAULT_BODY
 from .constants import (
     STEPS_PER_TURN, MAX_TURNS, DAMAGE_IMPULSE_THRESHOLD,
-    DISMEMBER_IMPULSE, SPAWN_OFFSET_X,
+    DISMEMBER_IMPULSE, DISMEMBER_MIN_VELOCITY, DAMAGE_DIVISOR,
+    SPAWN_OFFSET_X,
 )
 
 
 @dataclass
 class EnvConfig:
     """Configuration for a Toribash RL environment.
-    
+
     This dataclass contains all tunable parameters for the game,
     including physics simulation settings, damage thresholds, and
     reward function weights for reinforcement learning.
-    
+
     Attributes:
         body_config: Ragdoll body definition (segments and joints).
-        steps_per_turn: Physics steps per game turn (default: 30).
-        max_turns: Maximum turns before match ends (default: 20).
+        steps_per_turn: Physics steps per game turn (default: 15).
+        max_turns: Maximum turns before match ends (default: 40).
         spawn_offset_x: Horizontal offset from center for each fighter.
         damage_impulse_threshold: Minimum impulse to register damage.
         dismember_impulse: Impulse needed to dismember a limb.
@@ -56,7 +57,7 @@ class EnvConfig:
         Create a config for training against random opponents:
         
         >>> config = EnvConfig(
-        ...     max_turns=30,
+        ...     max_turns=40,
         ...     opponent_type="random",
         ...     reward_damage_dealt=2.0,  # Double reward for damage
         ...     reward_damage_taken=-1.0,  # Stronger penalty for being hit
@@ -79,6 +80,8 @@ class EnvConfig:
     # -------------------------------------------------------------------------
     damage_impulse_threshold: float = DAMAGE_IMPULSE_THRESHOLD
     dismember_impulse: float = DISMEMBER_IMPULSE
+    dismember_min_velocity: float = DISMEMBER_MIN_VELOCITY
+    damage_divisor: float = DAMAGE_DIVISOR
     head_damage_multiplier: float = 2.0
 
     # -------------------------------------------------------------------------
@@ -111,6 +114,13 @@ class EnvConfig:
     opponent_type: str = "hold"
 
     # -------------------------------------------------------------------------
+    # Training Infrastructure
+    # -------------------------------------------------------------------------
+    n_stack: int = 3                      # Frame stack for temporal memory
+    n_eval_episodes: int = 10             # Episodes per evaluation
+    playback_delay_ms: int = 16           # Milliseconds between frames in watch mode
+
+    # -------------------------------------------------------------------------
     # PPO Training Hyperparameters
     # -------------------------------------------------------------------------
     ppo_learning_rate: float = 5e-5
@@ -124,4 +134,4 @@ class EnvConfig:
     ppo_ent_coef: float = 0.01
     ppo_vf_coef: float = 0.5
     ppo_max_grad_norm: float = 0.5
-    ppo_net_arch: list[int] = field(default_factory=lambda: [256, 256])
+    ppo_net_arch: list[int] = field(default_factory=lambda: [512, 256])

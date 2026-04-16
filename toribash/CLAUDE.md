@@ -78,7 +78,7 @@ We use **pymunk 7.2.0** which has a different API from older tutorials:
 - **Units**: centimeters (a ragdoll is ~176cm tall)
 - **Y-axis**: up is positive (pymunk default), ground at y=50
 - **Arena**: 600cm wide × 400cm tall, fighters spawn at x=200 and x=400
-- **Timestep**: 1/60s, 20 solver iterations per step, 30 steps per turn (~0.5s real time)
+- **Timestep**: 1/60s, 20 solver iterations per step, 15 steps per turn (~0.25s real time), 40 turns per match
 
 ### Ragdoll structure
 
@@ -145,27 +145,30 @@ Collision types: ground=0, player_a=1, player_b=2 (defined in `physics/world.py`
 ### Spaces
 
 - **Action**: `MultiDiscrete([4] * 14)` — one of {CONTRACT, EXTEND, HOLD, RELAX} per joint
-- **Observation**: `Box(-2, 2, shape=(253,))` — flat float32 vector
+- **Observation**: `Box(-2, 2, shape=(343,))` — flat float32 vector
 
-### Observation layout (253 floats)
+### Observation layout (343 floats)
 
 The observation is ego-centric (own data first, positions relative to own torso):
 
 ```
-Per ragdoll (×2 = own + opponent):
+Per ragdoll (×2 = own + opponent, 162 each):
   [0:14]   Joint angles (normalized to [-1,1] by angle limits)
   [14:28]  Joint angular velocities (normalized by 2× motor rate)
   [28:42]  Joint states (0.0, 0.33, 0.67, 1.0 for the 4 states)
-  [42:72]  Segment positions relative to ref torso (x,y × 15 segments, /ARENA_WIDTH,HEIGHT)
-  [72:102] Segment velocities (vx,vy × 15 segments, /500)
+  [42:72]  Segment positions relative to ref torso (x,y × 15 segments)
+  [72:102] Segment velocities (vx,vy × 15 segments)
   [102:117] Segment rotations (sin of absolute angle)
+  [117:132] Self-collision flags (1.0 if segment touching own body, else 0.0)
+  [132:147] Cross-collision flags (1.0 if segment touching opponent, else 0.0)
+  [147:162] Ground contact flags (1.0 if segment touching ground, else 0.0)
 
 Global:
-  [234:236] Relative torso dx, dy (2 values)
-  [236] Turn progress (turn / max_turns, 0→1)
-  [237] Own score / 100
-  [238] Opponent score / 100
-  [239:253] Previous actions (14 floats, normalized joint states from last turn)
+  [324:326] Relative torso dx, dy (2 values)
+  [326] Turn progress (turn / max_turns, 0→1)
+  [327] Own score / SCORE_NORM
+  [328] Opponent score / SCORE_NORM
+  [329:343] Previous actions (14 floats, normalized joint states from last turn)
 ```
 
 Built by `env/observation.py:build_observation()`. For player 1, own/opponent are swapped so a single policy can play both sides.
@@ -175,7 +178,7 @@ Built by `env/observation.py:build_observation()`. For player 1, own/opponent ar
 Each `env.step(action)`:
 1. Sets agent's (player 0) joint states from action array
 2. Generates opponent (player 1) action based on `config.opponent_type`
-3. Calls `match.simulate_turn()` → runs 30 physics steps, tracks collisions
+3. Calls `match.simulate_turn()` → runs 15 physics steps, tracks collisions
 4. Computes reward from turn result
 5. Returns `(obs, reward, terminated, truncated=False, info)`
 
@@ -221,7 +224,7 @@ Self-play training auto-resumes from saved model. `VecNormalize` stats (observat
 
 ### Performance
 
-~950 env steps/sec headless (28K physics frames/sec) on M4 Mac Mini. Each episode is 20 steps (turns), so ~47 episodes/sec.
+~950 env steps/sec headless (28K physics frames/sec) on M4 Mac Mini. Each episode is 40 steps (turns), so ~24 episodes/sec.
 
 ## RL Training
 
@@ -242,7 +245,7 @@ Self-play training auto-resumes from saved model. `VecNormalize` stats (observat
 
 - `--timesteps`: Total training steps (default: 100,000)
 - `--opponent`: Opponent type - "hold", "random", "mirror", or "selfplay"
-- `--turns`: Max turns per episode (default: 20)
+- `--turns`: Max turns per episode (default: 40)
 - `--save`: Model save path (default: toribash_ppo or toribash_selfplay)
 - `--eval-freq`: Evaluation frequency (default: 10,000)
 - `--update-opponent`: How often to update opponent in selfplay (default: 10,000)

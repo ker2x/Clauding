@@ -12,7 +12,7 @@ Usage:
     >>> from config.env_config import EnvConfig
     >>> world = PhysicsWorld(EnvConfig())
     >>> world.step()  # Advance by one physics timestep
-    >>> world.simulate_turn()  # Run one full game turn (30 steps)
+    >>> world.simulate_turn()  # Run one full game turn (15 steps)
 """
 
 import pymunk
@@ -20,7 +20,7 @@ from config.body_config import BodyConfig, DEFAULT_BODY
 from config.constants import (
     GRAVITY, DT, SPACE_ITERATIONS,
     GROUND_Y, ARENA_WIDTH, ARENA_HEIGHT,
-    SPAWN_OFFSET_X,
+    SPAWN_OFFSET_X, GROUND_BUFFER, GROUND_THICKNESS,
 )
 from config.env_config import EnvConfig
 from .ragdoll import Ragdoll
@@ -109,10 +109,10 @@ class PhysicsWorld:
         body = self.space.static_body
         # Wide segment extending beyond arena to catch edge cases
         ground = pymunk.Segment(
-            body, 
-            (-100, GROUND_Y),  # Left of arena
-            (ARENA_WIDTH + 100, GROUND_Y),  # Right of arena
-            5  # Thickness
+            body,
+            (-GROUND_BUFFER, GROUND_Y),
+            (ARENA_WIDTH + GROUND_BUFFER, GROUND_Y),
+            GROUND_THICKNESS,
         )
         ground.friction = 1.0
         ground.elasticity = 0.0
@@ -122,8 +122,8 @@ class PhysicsWorld:
     def step(self, dt: float = DT) -> None:
         """Advance physics simulation by one timestep.
         
-        This is the fundamental physics update. Call this 30 times to
-        simulate one game turn.
+        This is the fundamental physics update. Call this STEPS_PER_TURN times
+        to simulate one game turn.
         
         Args:
             dt: Timestep in seconds (default: 1/60).
@@ -138,7 +138,7 @@ class PhysicsWorld:
         
         Args:
             n_steps: Number of physics steps (default: config.steps_per_turn).
-                Typically 30 steps = 0.5 seconds of simulated time.
+                Typically 15 steps = 0.25 seconds of simulated time.
         
         Note:
             Clears collision tracking at the start of the turn.

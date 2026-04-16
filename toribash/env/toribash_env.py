@@ -11,7 +11,7 @@ Environment Semantics:
     Each env.step():
     1. Set agent's (player 0) joint states from action
     2. Generate opponent (player 1) action based on opponent_type
-    3. Simulate one turn (30 physics steps)
+    3. Simulate one turn (15 physics steps)
     4. Return observation, reward, done status
 
 Usage:
@@ -52,7 +52,7 @@ class ToribashEnv(gym.Env):
         MultiDiscrete([4] * 14) - one of {CONTRACT, EXTEND, HOLD, RELAX} per joint
     
     Observation Space:
-        Box(-2, 2, shape=(239,)) - flat float32 vector with normalized values
+        Box(-2, 2, shape=(343,)) - flat float32 vector with normalized values
     
     Attributes:
         action_space: MultiDiscrete([4] * 14)

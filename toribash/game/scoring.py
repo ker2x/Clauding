@@ -37,21 +37,21 @@ KO_GROUND_SEGMENTS: set[str] = {"head", "chest"}
 # Head is most critical (instant KO risk), limbs are less severe.
 GROUND_PENALTIES: dict[str, float] = {
     # Critical: head touching ground is very dangerous
-    "head": -2.0,
+    "head": -4.0,
     # Major body parts
-    "chest": -1.0,
-    "stomach": -0.8,
+    "chest": -2.0,
+    "stomach": -1.6,
     # Limbs (less critical but still penalized)
-    "upper_arm_l": -0.3,
-    "upper_arm_r": -0.3,
-    "lower_arm_l": -0.3,
-    "lower_arm_r": -0.3,
-    "upper_leg_l": -0.3,
-    "upper_leg_r": -0.3,
-    "lower_leg_l": -0.2,
-    "lower_leg_r": -0.2,
+    "upper_arm_l": -0.6,
+    "upper_arm_r": -0.6,
+    "lower_arm_l": -0.6,
+    "lower_arm_r": -0.6,
+    "upper_leg_l": -0.6,
+    "upper_leg_r": -0.6,
+    "lower_leg_l": -0.4,
+    "lower_leg_r": -0.4,
     # Default for any unknown segment
-    "default": -0.5,
+    "default": -1.0,
 }
 
 
@@ -111,7 +111,7 @@ def compute_turn_result(
             continue
         if impulse > config.damage_impulse_threshold:
             # Calculate damage above the threshold
-            damage = (impulse - config.damage_impulse_threshold) / 1000.0
+            damage = (impulse - config.damage_impulse_threshold) / config.damage_divisor
 
             if seg_a == "head" or seg_b == "head":
                 damage *= config.head_damage_multiplier

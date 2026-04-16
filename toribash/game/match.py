@@ -74,6 +74,7 @@ class Match:
         self.total_damage = [0.0, 0.0]  # total damage taken by each player
         self.dismember_counts = [0, 0]  # limbs lost per player
         self.ko: int | None = None  # player index who was KO'd, None if no KO
+        self.ko_reason: str | None = None  # "beheading", "ground_ko", or "mutual"
         self.turn_results: list[TurnResult] = []
 
     def set_actions(self, player: int, joint_states: list[JointState]) -> None:
@@ -97,19 +98,31 @@ class Match:
 
     def simulate_turn(self) -> TurnResult:
         """Simulate one turn of physics and compute results.
-        
-        Runs the physics simulation for steps_per_turn frames, then:
-        1. Computes collision results (damage, ground contacts)
-        2. Checks for dismemberment (joints that exceeded impulse threshold)
-        3. Updates scores with damage dealt and ground penalties
-        4. Increments turn counter
-        
+
+        Runs the physics simulation for steps_per_turn frames, then
+        processes scoring, dismemberment, and KO detection.
+
         Returns:
             TurnResult with damage and contact information for this turn.
         """
         # Run physics simulation (clears collision tracking internally)
         self.world.simulate_turn()
+        return self.process_turn()
 
+    def process_turn(self) -> TurnResult:
+        """Process collision data after physics stepping.
+
+        Call this after manually stepping physics (e.g. animated playback).
+        Handles all post-physics logic:
+        1. Computes collision results (damage, ground contacts)
+        2. Checks for dismemberment (joints that exceeded impulse threshold)
+        3. Updates scores with damage dealt and ground penalties
+        4. Detects KO conditions
+        5. Increments turn counter
+
+        Returns:
+            TurnResult with damage and contact information for this turn.
+        """
         # Compute turn result from collision data
         result = compute_turn_result(
             self.world.collision_handler,
@@ -149,22 +162,27 @@ class Match:
             self.scores[0] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
         for seg in bad_b:
             self.scores[1] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
-        
+
         # Track total damage taken for each player
         self.total_damage[0] += result.damage_b_to_a
         self.total_damage[1] += result.damage_a_to_b
 
         # Check for KO: head or chest on ground, or head dismembered (instant KO)
         if self.ko is None:
-            ko_a = ("neck" in self.world.ragdoll_a.dismembered or
-                    bool((result.ground_segments_a - detached_a) & KO_GROUND_SEGMENTS))
-            ko_b = ("neck" in self.world.ragdoll_b.dismembered or
-                    bool((result.ground_segments_b - detached_b) & KO_GROUND_SEGMENTS))
+            neck_a = "neck" in self.world.ragdoll_a.dismembered
+            neck_b = "neck" in self.world.ragdoll_b.dismembered
+            ground_a = bool((result.ground_segments_a - detached_a) & KO_GROUND_SEGMENTS)
+            ground_b = bool((result.ground_segments_b - detached_b) & KO_GROUND_SEGMENTS)
+            ko_a = neck_a or ground_a
+            ko_b = neck_b or ground_b
             if ko_a and not ko_b:
                 self.ko = 0
+                self.ko_reason = "beheading" if neck_a else "ground_ko"
             elif ko_b and not ko_a:
                 self.ko = 1
+                self.ko_reason = "beheading" if neck_b else "ground_ko"
             elif ko_a and ko_b:
+                self.ko_reason = "mutual"
                 # Both down: higher score survives, tie = no KO
                 if self.scores[0] > self.scores[1]:
                     self.ko = 1
@@ -209,20 +227,27 @@ class Match:
         """Map joint names to impulse magnitudes, separated by player.
 
         For each collision impulse, attributes it to all joints adjacent
-        to the involved segments. pymunk guarantees shapes[0] is player A
-        and shapes[1] is player B (matching collision handler registration order).
+        to the involved segments. Only impulses where the opposing body
+        has sufficient velocity are included — this filters out clipping
+        artifacts where embedded segments generate high impulses despite
+        neither body actually striking.
 
         Returns:
             (impulses_a, impulses_b) where each maps joint_name -> [impulse magnitudes]
         """
         seg_to_joints = self.config.body_config.segment_to_joints
+        min_vel = self.config.dismember_min_velocity
         impulses_a: dict[str, list[float]] = {}
         impulses_b: dict[str, list[float]] = {}
 
         for impulse, seg_a, seg_b, vel_a, vel_b in self.world.collision_handler.turn_impulses:
-            for jname in seg_to_joints.get(seg_a, []):
-                impulses_a.setdefault(jname, []).append(impulse)
-            for jname in seg_to_joints.get(seg_b, []):
-                impulses_b.setdefault(jname, []).append(impulse)
+            # A's joints take damage from B's strike — require B is moving
+            if vel_b >= min_vel:
+                for jname in seg_to_joints.get(seg_a, []):
+                    impulses_a.setdefault(jname, []).append(impulse)
+            # B's joints take damage from A's strike — require A is moving
+            if vel_a >= min_vel:
+                for jname in seg_to_joints.get(seg_b, []):
+                    impulses_b.setdefault(jname, []).append(impulse)
 
         return impulses_a, impulses_b

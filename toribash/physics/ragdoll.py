@@ -27,6 +27,7 @@ import pymunk
 from config.body_config import BodyConfig, JointDef, JointState, DEFAULT_BODY
 from config.constants import (
     DEFAULT_MOTOR_RATE, DEFAULT_MOTOR_MAX_FORCE, RELAX_MAX_FORCE,
+    SEGMENT_FRICTION, SEGMENT_ELASTICITY,
 )
 
 
@@ -165,8 +166,8 @@ class Ragdoll:
 
             # Create box shape attached to body
             shape = pymunk.Poly.create_box(body, (seg_def.width, seg_def.height))
-            shape.friction = 0.8       # High friction for standing
-            shape.elasticity = 0.1      # Slight bounce
+            shape.friction = SEGMENT_FRICTION
+            shape.elasticity = SEGMENT_ELASTICITY
             shape.collision_type = self.collision_type
             
             # Store segment name on shape for collision callbacks

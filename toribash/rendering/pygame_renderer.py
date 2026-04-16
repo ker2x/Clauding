@@ -34,7 +34,7 @@ import math
 import pygame
 import pymunk
 from config.body_config import BodyConfig, JointState, DEFAULT_BODY
-from config.constants import ARENA_WIDTH, ARENA_HEIGHT, GROUND_Y
+from config.constants import ARENA_WIDTH, ARENA_HEIGHT, GROUND_Y, VIEWPORT_Y_OFFSET, GRID_SPACING
 from physics.ragdoll import Ragdoll
 from game.match import Match
 
@@ -104,7 +104,7 @@ def world_to_screen(x: float, y: float) -> tuple[int, int]:
     """
     sx = int(x * SCALE)
     # Flip Y and offset by viewport height
-    sy = int(VIEWPORT_HEIGHT - (y - GROUND_Y + 30) * SCALE)
+    sy = int(VIEWPORT_HEIGHT - (y - GROUND_Y + VIEWPORT_Y_OFFSET) * SCALE)
     return (sx, sy)
 
 
@@ -199,10 +199,10 @@ class PygameRenderer:
         )
 
         # Draw grid lines
-        for x in range(0, int(ARENA_WIDTH), 50):
+        for x in range(0, int(ARENA_WIDTH), int(GRID_SPACING)):
             sx = int(x * SCALE)
             pygame.draw.line(self.screen, GRID_COLOR, (sx, 0), (sx, gy), 1)
-        for y in range(int(GROUND_Y), int(GROUND_Y + ARENA_HEIGHT), 50):
+        for y in range(int(GROUND_Y), int(GROUND_Y + ARENA_HEIGHT), int(GRID_SPACING)):
             sy = world_to_screen(0, y)[1]
             if 0 <= sy <= gy:
                 pygame.draw.line(self.screen, GRID_COLOR, (0, sy), (SCREEN_WIDTH, sy), 1)

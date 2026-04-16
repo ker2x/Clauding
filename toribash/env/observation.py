@@ -29,7 +29,7 @@ Usage:
 
 import numpy as np
 from config.body_config import DEFAULT_BODY, JointState
-from config.constants import ARENA_WIDTH, ARENA_HEIGHT, GROUND_Y
+from config.constants import ARENA_WIDTH, ARENA_HEIGHT, GROUND_Y, SCORE_NORM, VELOCITY_NORM
 from game.match import Match
 
 
@@ -70,6 +70,9 @@ def compute_obs_dim(num_joints: int, num_segments: int) -> int:
         + num_segments * 2  # segment positions (x, y)
         + num_segments * 2  # segment velocities (vx, vy)
         + num_segments      # segment rotations
+        + num_segments      # self-collision flags (0/1)
+        + num_segments      # cross-collision flags (0/1)
+        + num_segments      # ground contact flags (0/1)
     )
     global_state = (
         2   # relative position between torsos (dx, dy)
@@ -119,12 +122,13 @@ def build_observation(match: Match, player: int, prev_actions: list | None = Non
         opp_score = match.scores[0]
 
     obs = []
+    ch = match.world.collision_handler
 
     # --- Own ragdoll state ---
-    obs.extend(_ragdoll_obs(own_rag, own_rag))
+    obs.extend(_ragdoll_obs(own_rag, own_rag, ch))
 
     # --- Opponent ragdoll state ---
-    obs.extend(_ragdoll_obs(opp_rag, own_rag))
+    obs.extend(_ragdoll_obs(opp_rag, own_rag, ch))
 
     # --- Global state ---
     own_torso = own_rag.get_torso_position()
@@ -141,8 +145,8 @@ def build_observation(match: Match, player: int, prev_actions: list | None = Non
     obs.append(turn_progress)
 
     # Scores (normalized loosely by 100)
-    obs.append(own_score / 100.0)
-    obs.append(opp_score / 100.0)
+    obs.append(own_score / SCORE_NORM)
+    obs.append(opp_score / SCORE_NORM)
 
     # Previous actions (temporal memory, one per joint)
     if prev_actions is not None:
@@ -157,20 +161,21 @@ def build_observation(match: Match, player: int, prev_actions: list | None = Non
     return np.array(obs, dtype=np.float32)
 
 
-def _ragdoll_obs(ragdoll, ref_ragdoll) -> list[float]:
+def _ragdoll_obs(ragdoll, ref_ragdoll, collision_handler) -> list[float]:
     """Build observation features for one ragdoll, relative to ref_ragdoll's torso.
-    
+
     This helper function extracts state features for a single ragdoll:
     - Joint states (angles, angular velocities, motor states)
     - Segment states (positions, velocities, rotations)
-    
+    - Contact flags (self-collision, cross-collision, ground)
+
     All values are normalized to roughly [-1, 1] for stable neural network learning.
-    
+
     Args:
         ragdoll: The Ragdoll instance to extract features from.
         ref_ragdoll: Reference ragdoll for computing relative positions.
-            Typically the "own" ragdoll when extracting opponent features.
-    
+        collision_handler: CollisionHandler for contact flag lookups.
+
     Returns:
         List of normalized float values for this ragdoll.
     """
@@ -214,13 +219,25 @@ def _ragdoll_obs(ragdoll, ref_ragdoll) -> list[float]:
     # ~500 cm/s is a reasonable max velocity for ragdoll segments
     velocities = ragdoll.get_segment_velocities()
     for vel in velocities:
-        obs.append(vel.x / 500.0)
-        obs.append(vel.y / 500.0)
+        obs.append(vel.x / VELOCITY_NORM)
+        obs.append(vel.y / VELOCITY_NORM)
 
     # --- Segment rotations (via sin for angle normalization) ---
     # sin(angle) naturally maps angle to [-1, 1]
     seg_angles = ragdoll.get_segment_angles()
     for angle in seg_angles:
         obs.append(np.sin(angle))
+
+    # --- Contact flags (binary 0/1 per segment) ---
+    ct = ragdoll.collision_type
+    self_contacts = collision_handler.get_self_contact_segments(ct)
+    cross_contacts = collision_handler.get_cross_contact_segments(ct)
+    ground_contacts = collision_handler.get_ground_segments(ct)
+    for seg_def in config.segments:
+        obs.append(1.0 if seg_def.name in self_contacts else 0.0)
+    for seg_def in config.segments:
+        obs.append(1.0 if seg_def.name in cross_contacts else 0.0)
+    for seg_def in config.segments:
+        obs.append(1.0 if seg_def.name in ground_contacts else 0.0)
 
     return obs

@@ -42,13 +42,13 @@ SPACE_ITERATIONS: int = 20
 # =============================================================================
 
 # Number of physics steps to simulate per game turn.
-# 30 steps × 1/60s = 0.5 seconds per turn (simulated time).
+# 15 steps × 1/60s = 0.25 seconds per turn (simulated time).
 # This is the "thinking" time players have to set joint states.
-STEPS_PER_TURN: int = 30
+STEPS_PER_TURN: int = 15
 
 # Maximum number of turns before a match ends.
-# 20 turns × 0.5s = 10 seconds total simulated time per match.
-MAX_TURNS: int = 20
+# 40 turns × 0.25s = 10 seconds total simulated time per match.
+MAX_TURNS: int = 40
 
 
 # =============================================================================
@@ -106,6 +106,45 @@ DAMAGE_IMPULSE_THRESHOLD: float = 500.0
 # 5000 is ~10× the damage threshold for significant impacts only.
 DISMEMBER_IMPULSE: float = 5000.0
 
+# Maximum impulse recorded per physics step.
+# Clipping artifacts (overlapping segments) produce escalating impulses
+# (10,000–30,000+) as pymunk tries to separate embedded bodies.
+# Real strikes produce impulses in the 500–3,000 range.
+# Must be below DISMEMBER_IMPULSE to prevent clipping from triggering
+# false dismemberment. This effectively disables dismemberment until
+# the clipping issue is resolved at the physics level.
+IMPULSE_CAP: float = 4000.0
+
+# Minimum velocity (cm/s) of the striker for an impulse to count toward
+# dismemberment. Additional filter against clipping artifacts — clipping
+# correction forces create artificial velocity (50-100 cm/s) that looks
+# like real strikes. Real dismemberment-worthy strikes exceed 200 cm/s.
+DISMEMBER_MIN_VELOCITY: float = 200.0
+
+# Converts pymunk impulse units to damage points.
+# Higher = less damage per impulse.
+DAMAGE_DIVISOR: float = 1000.0
+
+
+# =============================================================================
+# Material Properties
+# =============================================================================
+
+# Friction coefficient for ragdoll segments.
+# High friction helps standing and grappling.
+SEGMENT_FRICTION: float = 0.8
+
+# Elasticity (bounciness) of ragdoll segments.
+# Low elasticity prevents unrealistic bouncing.
+SEGMENT_ELASTICITY: float = 0.1
+
+# Ground plane extends this far beyond arena edges (cm).
+# Prevents fighters from falling off the edge.
+GROUND_BUFFER: float = 100.0
+
+# Thickness of the ground segment (cm).
+GROUND_THICKNESS: float = 5.0
+
 
 # =============================================================================
 # Joint Motor Parameters
@@ -124,3 +163,28 @@ DEFAULT_MOTOR_MAX_FORCE: float = 200000.0
 # Maximum torque when in RELAX state (0 = no resistance).
 # Relaxed joints let gravity move the limb freely.
 RELAX_MAX_FORCE: float = 0.0
+
+
+# =============================================================================
+# Observation Normalization
+# =============================================================================
+
+# Divisor for normalizing scores in the observation vector.
+# Scores rarely exceed ±100, so this keeps them in ~[-1, 1].
+SCORE_NORM: float = 100.0
+
+# Assumed max velocity (cm/s) for normalizing segment velocities.
+# Ragdoll segments rarely exceed ~500 cm/s.
+VELOCITY_NORM: float = 500.0
+
+
+# =============================================================================
+# Rendering Constants
+# =============================================================================
+
+# Vertical offset (cm) for screen coordinate conversion.
+# Shifts the view so the ground isn't at the very bottom of the viewport.
+VIEWPORT_Y_OFFSET: float = 30.0
+
+# Grid line spacing in centimeters for the arena background grid.
+GRID_SPACING: float = 50.0

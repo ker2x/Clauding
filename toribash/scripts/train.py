@@ -25,7 +25,7 @@ Usage:
 Command Line Arguments:
     --timesteps: Total training steps (default: 100,000)
     --opponent: Opponent type - "hold", "random", "mirror", or "selfplay"
-    --turns: Max turns per episode (default: 20)
+    --turns: Max turns per episode (default: 40)
     --save: Model save path (default: toribash_ppo)
     --eval-freq: Evaluation frequency (default: 10,000)
     --update-opponent: How often to update opponent in selfplay (default: 10,000)
@@ -51,8 +51,6 @@ from config.env_config import EnvConfig
 from config.body_config import JointState
 from env.toribash_env import ToribashEnv
 
-# Number of stacked observations for temporal memory
-N_STACK = 3
 
 
 class SelfPlayWrapper(gym.Wrapper):
@@ -78,15 +76,16 @@ class SelfPlayWrapper(gym.Wrapper):
         super().__init__(env)
         self.opponent_ref = opponent_ref
         self.vec_normalize_ref = vec_normalize_ref
+        self._n_stack = env.config.n_stack
         self._opp_obs_dim = env.observation_space.shape[0]
-        self._opp_frames = collections.deque(maxlen=N_STACK)
+        self._opp_frames = collections.deque(maxlen=self._n_stack)
 
     def reset(self, seed=None, options=None):
         """Reset environment and opponent frame buffer."""
         obs, info = self.env.reset(seed=seed, options=options)
         # Initialize opponent frame buffer with zeros
         self._opp_frames.clear()
-        for _ in range(N_STACK):
+        for _ in range(self._n_stack):
             self._opp_frames.append(np.zeros(self._opp_obs_dim, dtype=np.float32))
         return obs, info
 
@@ -144,7 +143,7 @@ def make_ppo(env, config: EnvConfig, tensorboard_log: str) -> PPO:
 
 def train_selfplay(
     total_timesteps: int = 500_000,
-    max_turns: int = 20,
+    max_turns: int = 40,
     save_path: str = "toribash_selfplay",
     update_opponent_every: int = 10000,
     resume: bool = False,
@@ -178,8 +177,8 @@ def train_selfplay(
     # Wrap with self-play wrapper and vectorize
     selfplay_env = SelfPlayWrapper(base_env, opponent_ref, vec_normalize_ref)
     env = DummyVecEnv([lambda: Monitor(selfplay_env)])
-    env = VecFrameStack(env, n_stack=N_STACK)
-    env = VecNormalize(env, norm_reward=True, gamma=0.99)
+    env = VecFrameStack(env, n_stack=config.n_stack)
+    env = VecNormalize(env, norm_reward=True, gamma=config.ppo_gamma)
     vec_normalize_ref[0] = env  # Allow opponent to normalize observations
     
     # Model paths
@@ -285,7 +284,7 @@ class SelfPlayCallback(BaseCallback):
 def train(
     total_timesteps: int = 1_000_000,
     opponent_type: str = "hold",
-    max_turns: int = 20,
+    max_turns: int = 40,
     save_path: str = "toribash_ppo",
     eval_freq: int = 10000,
 ):
@@ -303,13 +302,13 @@ def train(
     """
     train_config = EnvConfig(max_turns=max_turns, opponent_type=opponent_type)
     train_env = DummyVecEnv([lambda: Monitor(ToribashEnv(train_config))])
-    train_env = VecFrameStack(train_env, n_stack=N_STACK)
-    train_env = VecNormalize(train_env, norm_reward=True, gamma=0.99)
+    train_env = VecFrameStack(train_env, n_stack=train_config.n_stack)
+    train_env = VecNormalize(train_env, norm_reward=True, gamma=train_config.ppo_gamma)
 
     eval_config = EnvConfig(max_turns=max_turns, opponent_type=opponent_type)
     eval_env = DummyVecEnv([lambda: Monitor(ToribashEnv(eval_config))])
-    eval_env = VecFrameStack(eval_env, n_stack=N_STACK)
-    eval_env = VecNormalize(eval_env, norm_reward=False, training=False, gamma=0.99)
+    eval_env = VecFrameStack(eval_env, n_stack=eval_config.n_stack)
+    eval_env = VecNormalize(eval_env, norm_reward=False, training=False, gamma=eval_config.ppo_gamma)
 
     eval_callback = EvalCallback(
         eval_env,
@@ -318,7 +317,7 @@ def train(
         eval_freq=eval_freq,
         deterministic=True,
         render=False,
-        n_eval_episodes=10,
+        n_eval_episodes=train_config.n_eval_episodes,
     )
     
     model = make_ppo(train_env, train_config, f"{save_path}_tensorboard")
@@ -351,6 +350,7 @@ def watch_trained_agent(
     episodes: int = 5,
     opponent: str = "hold",
     opponent_model: str = None,
+    max_turns: int = 40,
 ):
     """Watch a trained agent play with animated physics.
     
@@ -365,20 +365,20 @@ def watch_trained_agent(
     from config.body_config import JointState
     from env.toribash_env import ToribashEnv
     from stable_baselines3 import PPO
-    from game.scoring import compute_turn_result, compute_reward, EXEMPT_GROUND_SEGMENTS, GROUND_PENALTIES, KO_GROUND_SEGMENTS
+    from game.scoring import compute_reward
     from env.observation import build_observation
     
     pygame.init()
     model_a = PPO.load(model_path)
     model_b = PPO.load(opponent_model) if opponent_model else None
 
-    config = EnvConfig(max_turns=20, opponent_type=opponent)
+    config = EnvConfig(max_turns=max_turns, opponent_type=opponent)
     env = ToribashEnv(config, render_mode="human")
     obs_dim = env.observation_space.shape[0]
 
     # Frame stack buffers for each player
-    frames_a = collections.deque(maxlen=N_STACK)
-    frames_b = collections.deque(maxlen=N_STACK)
+    frames_a = collections.deque(maxlen=config.n_stack)
+    frames_b = collections.deque(maxlen=config.n_stack)
 
     def stack_obs(frames, raw_obs):
         frames.append(raw_obs)
@@ -391,7 +391,7 @@ def watch_trained_agent(
         # Initialize frame buffers with zeros
         frames_a.clear()
         frames_b.clear()
-        for _ in range(N_STACK):
+        for _ in range(config.n_stack):
             frames_a.append(np.zeros(obs_dim, dtype=np.float32))
             frames_b.append(np.zeros(obs_dim, dtype=np.float32))
         total_reward_a = 0
@@ -417,9 +417,8 @@ def watch_trained_agent(
                 opp_action = env._get_opponent_action()
                 env.match.set_actions(1, opp_action)
 
+            # Animated physics stepping
             env.match.world.collision_handler.clear_turn()
-
-            # Animated playback
             for _ in range(config.steps_per_turn):
                 env.render()
                 env.match.world.step()
@@ -430,49 +429,10 @@ def watch_trained_agent(
                         pygame.quit()
                         return
 
-                pygame.time.wait(16)
+                pygame.time.wait(config.playback_delay_ms)
 
-            # Score the turn (same logic as Match.simulate_turn)
-            result = compute_turn_result(env.match.world.collision_handler, config)
-
-            # Dismemberment
-            impulses_a, impulses_b = env.match._get_joint_impulses()
-            for jname, imp_list in impulses_a.items():
-                if max(imp_list) > config.dismember_impulse:
-                    if jname not in env.match.world.ragdoll_a.dismembered:
-                        env.match.world.ragdoll_a.dismember_joint(jname)
-                        result.dismembered_a.append(jname)
-            for jname, imp_list in impulses_b.items():
-                if max(imp_list) > config.dismember_impulse:
-                    if jname not in env.match.world.ragdoll_b.dismembered:
-                        env.match.world.ragdoll_b.dismember_joint(jname)
-                        result.dismembered_b.append(jname)
-
-            env.match.scores[0] += result.damage_a_to_b
-            env.match.scores[1] += result.damage_b_to_a
-            bad_a = result.ground_segments_a - EXEMPT_GROUND_SEGMENTS
-            bad_b = result.ground_segments_b - EXEMPT_GROUND_SEGMENTS
-            for seg in bad_a:
-                env.match.scores[0] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
-            for seg in bad_b:
-                env.match.scores[1] += GROUND_PENALTIES.get(seg, GROUND_PENALTIES["default"])
-
-            # KO detection
-            if env.match.ko is None:
-                ko_a = bool(result.ground_segments_a & KO_GROUND_SEGMENTS)
-                ko_b = bool(result.ground_segments_b & KO_GROUND_SEGMENTS)
-                if ko_a and not ko_b:
-                    env.match.ko = 0
-                elif ko_b and not ko_a:
-                    env.match.ko = 1
-                elif ko_a and ko_b:
-                    if env.match.scores[0] > env.match.scores[1]:
-                        env.match.ko = 1
-                    elif env.match.scores[1] > env.match.scores[0]:
-                        env.match.ko = 0
-
-            env.match.turn_results.append(result)
-            env.match.turn += 1
+            # Process scoring, dismemberment, KO (single source of truth)
+            result = env.match.process_turn()
 
             # Compute reward using the same function as training
             done = env.match.is_done()
@@ -496,7 +456,8 @@ def watch_trained_agent(
 
         ko_str = ""
         if env.match.ko is not None:
-            ko_str = f" | KO: {'A' if env.match.ko == 0 else 'B'}"
+            ko_player = 'A' if env.match.ko == 0 else 'B'
+            ko_str = f" | KO: {ko_player} ({env.match.ko_reason})"
         winner = env.match.get_winner()
         winner_str = 'A' if winner == 0 else 'B' if winner == 1 else 'Draw'
         print(f"  Scores: A={env.match.scores[0]:.1f} B={env.match.scores[1]:.1f} | "
@@ -514,7 +475,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--opponent", type=str, default="hold",
                        choices=["hold", "random", "mirror", "selfplay"])
-    parser.add_argument("--turns", type=int, default=20)
+    parser.add_argument("--turns", type=int, default=40)
     parser.add_argument("--save", type=str, default="toribash_ppo")
     parser.add_argument("--eval-freq", type=int, default=10000)
     parser.add_argument("--update-opponent", type=int, default=10000)
@@ -528,7 +489,7 @@ if __name__ == "__main__":
     
     if args.watch:
         # Watch mode
-        watch_trained_agent(args.watch, args.episodes, args.opponent, args.opponent_model)
+        watch_trained_agent(args.watch, args.episodes, args.opponent, args.opponent_model, max_turns=args.turns)
     elif args.opponent == "selfplay":
         # Self-play training
         save_path = args.save if args.save != "toribash_ppo" else "toribash_selfplay"
